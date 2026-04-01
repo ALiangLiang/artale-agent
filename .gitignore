@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Build / Packaging
+build/
+dist/
+*.spec
+ArtaleAgent.exe
+ArtaleHelper.exe
+
+# User Configuration
+config.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

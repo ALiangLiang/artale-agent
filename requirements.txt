@@ -1,0 +1,6 @@
+PyQt6
+mss
+opencv-python
+numpy
+windows-capture; platform_system == "Windows"
+pywin32; platform_system == "Windows"
