@@ -13,7 +13,7 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget)
+                             QGridLayout, QDialog, QTabWidget, QComboBox)
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QDir, QFileInfo
 from PyQt6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QLinearGradient, QPixmap, QIcon
 
@@ -35,22 +35,46 @@ class ConfigManager:
             try:
                 with open(CONFIG_FILE, "r") as f:
                     config = json.load(f)
-                    # Migration: Ensure new structure
-                    if "triggers" in config:
-                        for k, v in config["triggers"].items():
-                            if isinstance(v, (int, float)):
-                                config["triggers"][k] = {"seconds": int(v), "icon": ""}
+                    
+                    # Migration: Old single profile -> Multi profile
+                    if "profiles" not in config:
+                        old_triggers = config.get("triggers", {"f1": {"seconds": 300, "icon": ""}})
+                        old_offset = config.get("offset", [0, 0])
+                        config = {
+                            "active_profile": "Profile 1",
+                            "offset": old_offset,
+                            "profiles": {
+                                "Profile 1": {"triggers": old_triggers}
+                            }
+                        }
+                        # Initialize empty profiles for F2-F8
+                        for i in range(2, 9):
+                            config["profiles"][f"Profile {i}"] = {"triggers": {}}
+                    
+                    # Ensure root offset exists
                     if "offset" not in config:
-                        config["offset"] = [0, 0]
+                        # Try to pick from any profile if missing at root
+                        first_p = list(config["profiles"].values())[0] if config["profiles"] else {}
+                        config["offset"] = first_p.get("offset", [0, 0])
+
+                    # Ensure migration for older trigger formats inside profiles
+                    for p in config["profiles"].values():
+                        for k, v in p["triggers"].items():
+                            if isinstance(v, (int, float)):
+                                p["triggers"][k] = {"seconds": int(v), "icon": ""}
                     return config
-            except:
-                pass
-        return {"triggers": {"f1": {"seconds": 300, "icon": ""}}, "offset": [0, 0]} # Default settings
+            except: pass
+            
+        # Default Multi-Profile Config
+        default_profiles = {}
+        for i in range(1, 9):
+            default_profiles[f"Profile {i}"] = {"triggers": {}}
+        return {"active_profile": "Profile 1", "offset": [0, 0], "profiles": default_profiles}
 
     @staticmethod
     def save_config(config):
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f)
+        with open(CONFIG_FILE, "w", encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
 
 class IconSelectorDialog(QDialog):
     def __init__(self, parent=None):
@@ -218,13 +242,30 @@ class SettingsWindow(QWidget):
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
         
         # Header
-        title = QLabel("🎹 按鍵倒數清單")
+        top_row = QHBoxLayout()
+        title = QLabel("🎹 設定清單")
         title.setFont(QFont("Segoe UI Semibold", 18))
-        title.setStyleSheet("color: #ffd700; margin-bottom: 5px;")
-        self.layout.addWidget(title)
+        title.setStyleSheet("color: #ffd700;")
+        top_row.addWidget(title)
+        
+        # Profile Selector
+        self.profile_box = QComboBox()
+        for i in range(1, 9):
+            self.profile_box.addItem(f"Profile {i}")
+        
+        config = ConfigManager.load_config()
+        idx = self.profile_box.findText(config.get("active_profile", "Profile 1"))
+        self.profile_box.setCurrentIndex(idx if idx >= 0 else 0)
+        self.profile_box.currentTextChanged.connect(self.switch_profile_ui)
+        self.profile_box.setStyleSheet("""
+            QComboBox { background-color: #333; color: #ffd700; border-radius: 4px; padding: 5px; min-width: 100px; }
+            QComboBox QAbstractItemView { background-color: #222; selection-background-color: #ffd700; selection-color: black; }
+        """)
+        top_row.addWidget(self.profile_box)
+        self.layout.addLayout(top_row)
 
-        subtitle = QLabel("貼心提醒：按一下下面按鈕來錄製新快捷鍵")
-        subtitle.setStyleSheet("color: #888; font-size: 11px; margin-bottom: 15px;")
+        subtitle = QLabel("貼心提醒：雙擊 F1~F8 可快速切換配置組")
+        subtitle.setStyleSheet("color: #888; font-size: 11px; margin-bottom: 10px;")
         self.layout.addWidget(subtitle)
 
         # Scroll Area
@@ -278,15 +319,24 @@ class SettingsWindow(QWidget):
     def keyPressEvent(self, event):
         if self.is_recording:
             key_code = event.key()
-            # Convert Qt key to simple name (lowercase matches our config logic)
             key_name = self.qt_key_to_name(key_code)
             if key_name:
                 config = ConfigManager.load_config()
-                if key_name not in config["triggers"]:
-                    config["triggers"][key_name] = {"seconds": 300, "icon": ""} # Default 300s
+                p_name = self.profile_box.currentText()
+                if key_name not in config["profiles"][p_name]["triggers"]:
+                    config["profiles"][p_name]["triggers"][key_name] = {"seconds": 300, "icon": ""}
                     ConfigManager.save_config(config)
                     self.refresh_items()
-                self.toggle_recording() # Finish recording
+                self.toggle_recording()
+
+    def switch_profile_ui(self, p_name):
+        config = ConfigManager.load_config()
+        config["active_profile"] = p_name
+        ConfigManager.save_config(config)
+        self.refresh_items()
+        if self.overlay:
+            self.overlay.load_profile_immediately()
+        self.config_updated.emit()
 
     def qt_key_to_name(self, code):
         """Maps Qt key code to pynput compatible string names."""
@@ -342,16 +392,17 @@ class SettingsWindow(QWidget):
             self.handle.raise_()
 
     def refresh_items(self):
-        # Correctly clear ALL layout items (widgets + stretches)
         while self.scroll_layout.count():
             item = self.scroll_layout.takeAt(0)
             widget = item.widget()
-            if widget:
-                widget.deleteLater()
+            if widget: widget.deleteLater()
             
         config = ConfigManager.load_config()
-        self.trigger_data = {} # Store {key: {'inp': QLineEdit, 'icon': str}}
-        for key, data in config["triggers"].items():
+        p_name = self.profile_box.currentText()
+        p_data = config["profiles"].get(p_name, {"triggers": {}})
+        
+        self.trigger_data = {}
+        for key, data in p_data["triggers"].items():
             # Handle potential migration issues here again just in case
             if isinstance(data, int):
                 data = {"seconds": data, "icon": ""}
@@ -429,19 +480,26 @@ class SettingsWindow(QWidget):
             self.update_icon_button(btn, path)
 
     def save_and_close(self):
-        new_config = {"triggers": {}, "offset": [0, 0]}
-        if self.overlay:
-            new_config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
-            
+        config = ConfigManager.load_config()
+        p_name = self.profile_box.currentText()
+        
+        # Update current profile in the master config
+        new_triggers = {}
         for key, data in self.trigger_data.items():
             try:
-                new_config["triggers"][key] = {
+                new_triggers[key] = {
                     "seconds": int(data["inp"].text()),
                     "icon": data["icon"]
                 }
-            except ValueError:
-                pass
-        ConfigManager.save_config(new_config)
+            except: pass
+            
+        config["profiles"][p_name]["triggers"] = new_triggers
+        if self.overlay:
+            config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
+        
+        config["active_profile"] = p_name
+        ConfigManager.save_config(config)
+        
         if self.handle: self.handle.hide()
         if self.overlay: self.overlay.show_preview = False
         self.config_updated.emit()
@@ -453,12 +511,18 @@ class ArtaleOverlay(QWidget):
     def __init__(self, target_window_title="Artale"):
         super().__init__()
         self.target_window_title = target_window_title
-        self.active_timers = {} # {key: {"seconds": int, "pixmap": QPixmap}}
-        self.click_zones = {}  # {key: QRect (Global)}
+        self.active_timers = {} 
+        self.click_zones = {}  
         self.is_active = False
         self.show_preview = False
-        config = ConfigManager.load_config()
-        self.x_offset, self.y_offset = config.get("offset", [0, 0])
+        
+        # Profile & Notification UI
+        self.active_profile_name = "Profile 1"
+        self.msg_text = ""
+        self.msg_opacity = 0
+        
+        self.load_profile_immediately()
+        
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
         self.init_ui()
@@ -578,6 +642,16 @@ class ArtaleOverlay(QWidget):
         self.click_zones = {} # Clear zones on drag to avoid phantom clicks
         self.update()
 
+    def clear_all_timers(self):
+        """Immediately stops all timers and clears the screen."""
+        self.active_timers = {}
+        self.click_zones = {}
+        self.is_active = False
+        if self.countdown_timer.isActive():
+            self.countdown_timer.stop()
+        self.show_notification("⚠️ 已強制關閉並重設 (F9)")
+        self.update()
+
     def check_right_click(self, gx, gy):
         """Called from global mouse listener to cancel a timer via right click."""
         p = QPoint(gx, gy)
@@ -589,14 +663,37 @@ class ArtaleOverlay(QWidget):
                 return True
         return False
 
+    def load_profile_immediately(self):
+        config = ConfigManager.load_config()
+        self.active_profile_name = config.get("active_profile", "Profile 1")
+        self.x_offset, self.y_offset = config.get("offset", [0, 0])
+        self.show_notification(f"切換至 {self.active_profile_name}")
+        self.update()
+
+    def show_notification(self, text):
+        self.msg_text = text
+        self.msg_opacity = 255
+        QTimer.singleShot(2000, self.fade_notification)
+        self.update()
+
+    def fade_notification(self):
+        self.msg_opacity = 0
+        self.update()
+
     def paintEvent(self, event):
-        if not self.is_active and not self.show_preview: return
-        if not self.active_timers and not self.show_preview: return
+        if not self.is_active and not self.show_preview and self.msg_opacity == 0: return
         
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Determine items to draw (Include KEY so we can track click zones)
+        # 1. Profile Switch Notification
+        if self.msg_opacity > 0:
+            painter.setPen(QColor(255, 215, 0, self.msg_opacity))
+            painter.setFont(QFont("Segoe UI Bold", 16))
+            msg_rect = QRect(self.rect().width()//2 - 100, 50, 200, 40)
+            painter.drawText(msg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
+
+        if not self.active_timers and not self.show_preview: return
         timers_to_draw = [] # list of (key, seconds, pixmap)
         if self.active_timers:
             # Sort by remaining seconds (Descending: Longest first on the left)

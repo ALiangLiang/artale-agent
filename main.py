@@ -52,6 +52,8 @@ class GameFocusTracker:
         except:
             self.is_game_active = False
 
+import time
+
 def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # --- Mouse Listener for Right Click Cancellation ---
     def on_click(x, y, button, pressed):
@@ -63,18 +65,28 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     mouse_l.start()
 
     # --- Keyboard Listener ---
-    # Variable to hold current triggers
     current_config = ConfigManager.load_config()
 
+    # State for double-press detection (Profile switching F1-F8)
+    last_key = None
+    last_time = 0
+    DOUBLE_PRESS_DELAY = 0.35 # seconds
+    is_globally_enabled = True
+
     def update_local_config():
-        nonlocal current_config
+        nonlocal current_config, is_globally_enabled
         current_config = ConfigManager.load_config()
-        print(f"[Config] Updated triggers: {current_config['triggers']}")
+        active = current_config.get("active_profile", "Profile 1")
+        p_data = current_config["profiles"].get(active, {"triggers": {}})
+        triggers = p_data.get("triggers", {})
+        is_globally_enabled = True # Re-enable on profile switch
+        print(f"[Config] Switched to {active}. Triggers: {list(triggers.keys())}")
 
     # Connect settings signal to update listener
     settings_window.config_updated.connect(update_local_config)
 
     def on_press(key):
+        nonlocal last_key, last_time, current_config, is_globally_enabled
         try:
             # 1. Check for Pause Break to show settings (always works)
             if key == keyboard.Key.pause:
@@ -82,11 +94,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 settings_window.request_show.emit()
                 return
 
-            # 2. Only trigger timers when msw.exe is focused
-            if not focus_tracker.is_game_active:
-                return
-
-            # 3. Check for dynamic triggers from config
+            # 2. Key Identification
             k_name = ""
             if hasattr(key, 'name'): k_name = key.name
             elif hasattr(key, 'char'):
@@ -100,8 +108,42 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                         k_name = base
                         break
             
-            if k_name and k_name in current_config["triggers"]:
-                trigger_data = current_config["triggers"][k_name]
+            # 3. Profile Switching (Double Press F1-F8) or Disable (F9)
+            now = time.time()
+            
+            if k_name == 'f9':
+                print("[Input] F9 Reset Triggered.")
+                is_globally_enabled = False
+                overlay.clear_all_timers()
+                return
+
+            if k_name and k_name.startswith('f') and len(k_name) <= 3:
+                f_num = k_name[1:]
+                if f_num.isdigit() and 1 <= int(f_num) <= 8:
+                    if last_key == k_name and (now - last_time) < DOUBLE_PRESS_DELAY:
+                        # Success! Switch profile
+                        p_name = f"Profile {f_num}"
+                        config = ConfigManager.load_config()
+                        config["active_profile"] = p_name
+                        ConfigManager.save_config(config)
+                        update_local_config()
+                        overlay.load_profile_immediately()
+                        last_key = None # Reset
+                        return
+                    last_key = k_name
+                    last_time = now
+
+            # 4. Only trigger timers when enabled AND msw.exe is focused
+            if not is_globally_enabled or not focus_tracker.is_game_active:
+                return
+
+            # Access current profile triggers
+            active_p = current_config.get("active_profile", "Profile 1")
+            prof_data = current_config["profiles"].get(active_p, {"triggers": {}})
+            triggers = prof_data.get("triggers", {})
+            
+            if k_name and k_name in triggers:
+                trigger_data = triggers[k_name]
                 if isinstance(trigger_data, dict):
                     seconds = trigger_data.get("seconds", 10)
                     icon = trigger_data.get("icon", "")
