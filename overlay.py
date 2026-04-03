@@ -13,7 +13,7 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget, QComboBox)
+                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon)
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QDir, QFileInfo
 from PyQt6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QLinearGradient, QPixmap, QIcon
 
@@ -506,7 +506,10 @@ class SettingsWindow(QWidget):
         self.hide()
 
 class ArtaleOverlay(QWidget):
-    timer_request = pyqtSignal(str, int, str) # key, seconds, icon_path
+    timer_request = pyqtSignal(str, int, str) 
+    clear_request = pyqtSignal()
+    notification_request = pyqtSignal(str)
+    profile_switch_request = pyqtSignal()
     
     def __init__(self, target_window_title="Artale"):
         super().__init__()
@@ -521,22 +524,29 @@ class ArtaleOverlay(QWidget):
         self.msg_text = ""
         self.msg_opacity = 0
         
-        self.load_profile_immediately()
+        # System Tray for Native Notifications
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon(resource_path("buff_pngs/skill_frame.png")))
+        self.tray_icon.show()
         
-        frame_p = resource_path("buff_pngs/skill_frame.png")
-        self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
-        self.init_ui()
-        
-        # Connect internal signal to ensure thread safety
+        # Connect internal signals to ensure thread safety
         self.timer_request.connect(self.start_timer)
+        self.clear_request.connect(self.clear_all_timers)
+        self.notification_request.connect(self.show_notification)
+        self.profile_switch_request.connect(self.load_profile_immediately)
         
-        # Tracking & Logic
+        # Tracking & Logic (Initialize timers BEFORE loading profile)
         self.tracking_timer = QTimer(self)
         self.tracking_timer.timeout.connect(self.sync_with_game_window)
         self.tracking_timer.start(100)
 
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self.update_countdown)
+
+        frame_p = resource_path("buff_pngs/skill_frame.png")
+        self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
+        self.init_ui()
+        self.load_profile_immediately()
 
     def init_ui(self):
         self.setWindowFlags(
@@ -642,14 +652,15 @@ class ArtaleOverlay(QWidget):
         self.click_zones = {} # Clear zones on drag to avoid phantom clicks
         self.update()
 
-    def clear_all_timers(self):
+    def clear_all_timers(self, show_msg=True):
         """Immediately stops all timers and clears the screen."""
         self.active_timers = {}
         self.click_zones = {}
         self.is_active = False
         if self.countdown_timer.isActive():
             self.countdown_timer.stop()
-        self.show_notification("⚠️ 已強制關閉並重設 (F9)")
+        if show_msg:
+            self.show_notification("⚠️ 已強制關閉並重設 (F9)")
         self.update()
 
     def check_right_click(self, gx, gy):
@@ -664,6 +675,10 @@ class ArtaleOverlay(QWidget):
         return False
 
     def load_profile_immediately(self):
+        # 1. Clear existing timers when switching context
+        self.clear_all_timers(show_msg=False)
+        
+        # 2. Reload config data
         config = ConfigManager.load_config()
         self.active_profile_name = config.get("active_profile", "Profile 1")
         self.x_offset, self.y_offset = config.get("offset", [0, 0])
@@ -671,14 +686,60 @@ class ArtaleOverlay(QWidget):
         self.update()
 
     def show_notification(self, text):
+        # 1. Internal Overlay Animation
         self.msg_text = text
         self.msg_opacity = 255
-        QTimer.singleShot(2000, self.fade_notification)
+        if hasattr(self, 'fade_timer') and self.fade_timer.isActive():
+            self.fade_timer.stop()
+        self.fade_timer = QTimer(self)
+        self.fade_timer.timeout.connect(self.step_fade)
+        QTimer.singleShot(1500, lambda: self.fade_timer.start(16)) 
         self.update()
 
-    def fade_notification(self):
-        self.msg_opacity = 0
-        self.update()
+        # 2. OS Native Notification (Windows Toast)
+        self.show_native_notification(text)
+
+    def show_native_notification(self, text):
+        import subprocess
+        import os
+        
+        title = "Artale Agent"
+        icon_path = os.path.abspath("buff_pngs/skill_frame.png")
+        if not os.path.exists(icon_path): icon_path = ""
+        
+        # Fixed Tag ensures it overwrites previous toast instead of queuing
+        tag = "Artale_Alert"
+        
+        # A more robust PowerShell script using Windows Runtime for Tagged Toast
+        ps_cmd = f"""
+        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02)
+        $textNodes = $template.GetElementsByTagName("text")
+        $textNodes.Item(0).AppendChild($template.CreateTextNode("{title}")) | Out-Null
+        $textNodes.Item(1).AppendChild($template.CreateTextNode("{text}")) | Out-Null
+        
+        if ("{icon_path}") {{
+            $imageNodes = $template.GetElementsByTagName("image")
+            $imageNodes.Item(0).Attributes.GetNamedItem("src").NodeValue = "{icon_path}" | Out-Null
+        }}
+        
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+        $toast.Tag = "{tag}"
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{title}").Show($toast)
+        """
+        
+        def worker():
+            try:
+                subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, creationflags=0x08000000)
+            except: pass
+        threading.Thread(target=worker, daemon=True).start()
+
+    def step_fade(self):
+        if self.msg_opacity > 0:
+            self.msg_opacity = max(0, self.msg_opacity - 5)
+            self.update()
+        else:
+            self.fade_timer.stop()
 
     def paintEvent(self, event):
         if not self.is_active and not self.show_preview and self.msg_opacity == 0: return
@@ -686,12 +747,25 @@ class ArtaleOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # 1. Profile Switch Notification
+        # 1. Profile Switch Notification (Top Center)
         if self.msg_opacity > 0:
-            painter.setPen(QColor(255, 215, 0, self.msg_opacity))
-            painter.setFont(QFont("Segoe UI Bold", 16))
-            msg_rect = QRect(self.rect().width()//2 - 100, 50, 200, 40)
-            painter.drawText(msg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
+            font = QFont("Segoe UI Bold", 16)
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            tw = fm.horizontalAdvance(self.msg_text)
+            
+            # Draw rounded background
+            bg_rect = QRect(self.rect().width()//2 - (tw+40)//2, 40, tw+40, 40)
+            painter.setBrush(QColor(0, 0, 0, min(180, self.msg_opacity)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(bg_rect, 10, 10)
+            
+            # Draw Text
+            text_color = QColor(255, 215, 0, self.msg_opacity)
+            if "F9" in self.msg_text:
+                text_color = QColor(255, 100, 100, self.msg_opacity)
+            painter.setPen(text_color)
+            painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
 
         if not self.active_timers and not self.show_preview: return
         timers_to_draw = [] # list of (key, seconds, pixmap)

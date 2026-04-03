@@ -114,7 +114,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             if k_name == 'f9':
                 print("[Input] F9 Reset Triggered.")
                 is_globally_enabled = False
-                overlay.clear_all_timers()
+                overlay.clear_request.emit()
                 return
 
             if k_name and k_name.startswith('f') and len(k_name) <= 3:
@@ -127,7 +127,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                         config["active_profile"] = p_name
                         ConfigManager.save_config(config)
                         update_local_config()
-                        overlay.load_profile_immediately()
+                        overlay.profile_switch_request.emit()
                         last_key = None # Reset
                         return
                     last_key = k_name
