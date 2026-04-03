@@ -67,7 +67,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # --- Keyboard Listener ---
     current_config = ConfigManager.load_config()
 
-    # State for double-press detection (Profile switching F1-F8)
+    # State for double-press detection (Profile switching F1-F9)
     last_key = None
     last_time = 0
     DOUBLE_PRESS_DELAY = 0.35 # seconds
@@ -76,7 +76,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     def update_local_config():
         nonlocal current_config, is_globally_enabled
         current_config = ConfigManager.load_config()
-        active = current_config.get("active_profile", "Profile 1")
+        active = current_config.get("active_profile", "F1")
         p_data = current_config["profiles"].get(active, {"triggers": {}})
         triggers = p_data.get("triggers", {})
         is_globally_enabled = True # Re-enable on profile switch
@@ -108,23 +108,23 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                         k_name = base
                         break
             
-            # 3. Profile Switching (Double Press F1-F8) or Disable (F9)
+            # 3. Profile Switching (Double Press F1-F9) or Disable (F12)
             now = time.time()
             
-            if k_name == 'f9':
-                print("[Input] F9 Reset Triggered.")
+            if k_name == 'f12':
+                print("[Input] F12 Reset Triggered.")
                 is_globally_enabled = False
                 overlay.clear_request.emit()
                 return
 
             if k_name and k_name.startswith('f') and len(k_name) <= 3:
                 f_num = k_name[1:]
-                if f_num.isdigit() and 1 <= int(f_num) <= 8:
+                if f_num.isdigit() and 1 <= int(f_num) <= 9:
                     if last_key == k_name and (now - last_time) < DOUBLE_PRESS_DELAY:
                         # Success! Switch profile
-                        p_name = f"Profile {f_num}"
+                        p_key = f"F{f_num}"
                         config = ConfigManager.load_config()
-                        config["active_profile"] = p_name
+                        config["active_profile"] = p_key
                         ConfigManager.save_config(config)
                         update_local_config()
                         overlay.profile_switch_request.emit()
@@ -138,7 +138,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 return
 
             # Access current profile triggers
-            active_p = current_config.get("active_profile", "Profile 1")
+            active_p = current_config.get("active_profile", "F1")
             prof_data = current_config["profiles"].get(active_p, {"triggers": {}})
             triggers = prof_data.get("triggers", {})
             

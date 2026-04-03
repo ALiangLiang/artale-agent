@@ -33,7 +33,7 @@ class ConfigManager:
     def load_config():
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, "r") as f:
+                with open(CONFIG_FILE, "r", encoding='utf-8') as f:
                     config = json.load(f)
                     
                     # Migration: Old single profile -> Multi profile
@@ -41,35 +41,61 @@ class ConfigManager:
                         old_triggers = config.get("triggers", {"f1": {"seconds": 300, "icon": ""}})
                         old_offset = config.get("offset", [0, 0])
                         config = {
-                            "active_profile": "Profile 1",
+                            "active_profile": "F1",
                             "offset": old_offset,
                             "profiles": {
-                                "Profile 1": {"triggers": old_triggers}
+                                "F1": {"name": "預設配置", "triggers": old_triggers}
                             }
                         }
-                        # Initialize empty profiles for F2-F8
-                        for i in range(2, 9):
-                            config["profiles"][f"Profile {i}"] = {"triggers": {}}
                     
+                    # Migration: "Profile X" -> "FX"
+                    new_profiles = {}
+                    old_profiles = config.get("profiles", {})
+                    for i in range(1, 10):
+                        old_key = f"Profile {i}"
+                        new_key = f"F{i}"
+                        
+                        if old_key in old_profiles:
+                            data = old_profiles[old_key]
+                            if "name" not in data or data["name"] == old_key:
+                                data["name"] = f"切換組 {new_key}"
+                            new_profiles[new_key] = data
+                        elif new_key in old_profiles:
+                            new_profiles[new_key] = old_profiles[new_key]
+                        else:
+                            new_profiles[new_key] = {"name": f"切換組 {new_key}", "triggers": {}}
+                    
+                    config["profiles"] = new_profiles
+                    
+                    # Sanitize active_profile
+                    if config.get("active_profile", "").startswith("Profile "):
+                        num = config["active_profile"].split(" ")[1]
+                        config["active_profile"] = f"F{num}"
+                    
+                    if config.get("active_profile") not in config["profiles"]:
+                        config["active_profile"] = "F1"
+
                     # Ensure root offset exists
                     if "offset" not in config:
-                        # Try to pick from any profile if missing at root
-                        first_p = list(config["profiles"].values())[0] if config["profiles"] else {}
-                        config["offset"] = first_p.get("offset", [0, 0])
+                        config["offset"] = [0, 0]
 
                     # Ensure migration for older trigger formats inside profiles
                     for p in config["profiles"].values():
+                        if "name" not in p:
+                            p["name"] = "未命名"
                         for k, v in p["triggers"].items():
                             if isinstance(v, (int, float)):
                                 p["triggers"][k] = {"seconds": int(v), "icon": ""}
                     return config
-            except: pass
+            except Exception as e: 
+                print(f"Error loading config: {e}")
+                pass
             
         # Default Multi-Profile Config
         default_profiles = {}
-        for i in range(1, 9):
-            default_profiles[f"Profile {i}"] = {"triggers": {}}
-        return {"active_profile": "Profile 1", "offset": [0, 0], "profiles": default_profiles}
+        for i in range(1, 10):
+            default_profiles[f"F{i}"] = {"name": f"切換組 F{i}", "triggers": {}}
+        return {"active_profile": "F1", "offset": [0, 0], "profiles": default_profiles}
 
     @staticmethod
     def save_config(config):
@@ -103,12 +129,10 @@ class IconSelectorDialog(QDialog):
             
             # Sort categories by priority, then alphabetically for unknown ones
             categories = []
-            # First, add priority items that exist
             for p in priority:
                 if p in all_dirs:
                     categories.append(p)
                     all_dirs.remove(p)
-            # Add remaining items alphabetically
             categories.extend(sorted(all_dirs))
             
             for cat in categories:
@@ -131,7 +155,6 @@ class IconSelectorDialog(QDialog):
                     btn.setIconSize(QSize(40, 40))
                     btn.setStyleSheet("QPushButton { background: #1e1e1e; border-radius: 4px; } QPushButton:hover { background: #333; border: 1px solid #ffd700; }")
                     
-                    # Store path in a lambda correctly
                     btn.clicked.connect(lambda checked, p=icon_path: self.select_icon(p))
                     
                     grid.addWidget(btn, row, col)
@@ -151,7 +174,17 @@ class IconSelectorDialog(QDialog):
         layout.addWidget(cancel_btn)
 
     def select_icon(self, path):
-        self.selected_icon = path
+        abs_path = os.path.abspath(path)
+        base_dir = os.path.abspath(".")
+        
+        try:
+            if abs_path.lower().startswith(base_dir.lower()):
+                rel = os.path.relpath(abs_path, base_dir)
+                self.selected_icon = rel.replace("\\", "/")
+            else:
+                self.selected_icon = abs_path
+        except:
+            self.selected_icon = abs_path
         self.accept()
 
 class PositionHandle(QWidget):
@@ -171,27 +204,10 @@ class PositionHandle(QWidget):
         self.lbl.setPixmap(self.pixmap)
         self.lbl.setFixedSize(60, 60)
         self.lbl.setToolTip("拖動我來調整計時器位置\n調整完畢後儲存即可")
-        
-        # Style hint for the draggable area
         self.lbl.setStyleSheet("background: rgba(255, 255, 255, 50); border: 1px dashed white; border-radius: 5px;")
         
         self._dragging = False
         self._drag_start = QPoint()
-        
-        # Periodic sync with the game window while visible
-        self.sync_timer = QTimer(self)
-        self.sync_timer.timeout.connect(self.keep_on_game_center)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.sync_timer.start(100)
-
-    def hideEvent(self, event):
-        super().hideEvent(event)
-        self.sync_timer.stop()
-
-    def keep_on_game_center(self):
-        if self._dragging: return
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -210,17 +226,8 @@ class PositionHandle(QWidget):
         self.emit_offset()
 
     def emit_offset(self):
-        # Emit the handle's global center position
         gp = self.mapToGlobal(self.rect().center())
         self.position_changed.emit(gp.x(), gp.y())
-
-    def sync_with_offset(self, ox, oy):
-        hwnd = win32gui.FindWindow(None, self.target_window_title)
-        if hwnd:
-            rect = win32gui.GetWindowRect(hwnd)
-            x, y, x2, y2 = rect
-            cx, cy = x + (x2-x) // 2, y + (y2-y) // 2
-            self.move(cx + ox - 25, cy + oy - 25)
 
 class SettingsWindow(QWidget):
     config_updated = pyqtSignal()
@@ -234,6 +241,7 @@ class SettingsWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.is_recording = False
         self.handle = None
+        self.trigger_data = {}
         self.init_ui()
         self.request_show.connect(self.safe_show)
 
@@ -241,34 +249,36 @@ class SettingsWindow(QWidget):
         self.layout = QVBoxLayout(self)
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
         
-        # Header
         top_row = QHBoxLayout()
         title = QLabel("🎹 設定清單")
         title.setFont(QFont("Segoe UI Semibold", 18))
         title.setStyleSheet("color: #ffd700;")
         top_row.addWidget(title)
         
-        # Profile Selector
+        profile_row = QHBoxLayout()
         self.profile_box = QComboBox()
-        for i in range(1, 9):
-            self.profile_box.addItem(f"Profile {i}")
-        
-        config = ConfigManager.load_config()
-        idx = self.profile_box.findText(config.get("active_profile", "Profile 1"))
-        self.profile_box.setCurrentIndex(idx if idx >= 0 else 0)
-        self.profile_box.currentTextChanged.connect(self.switch_profile_ui)
+        self.profile_box.setFixedHeight(30)
         self.profile_box.setStyleSheet("""
-            QComboBox { background-color: #333; color: #ffd700; border-radius: 4px; padding: 5px; min-width: 100px; }
+            QComboBox { background-color: #333; color: #ffd700; border-radius: 4px; padding: 5px; min-width: 80px; }
             QComboBox QAbstractItemView { background-color: #222; selection-background-color: #ffd700; selection-color: black; }
         """)
-        top_row.addWidget(self.profile_box)
-        self.layout.addLayout(top_row)
+        
+        self.nickname_inp = QLineEdit()
+        self.nickname_inp.setPlaceholderText("在此輸入暱稱...")
+        self.nickname_inp.setStyleSheet("""
+            QLineEdit { background-color: #222; border: 1px solid #444; border-radius: 4px; padding: 5px; color: #fff; }
+            QLineEdit:focus { border: 1px solid #ffd700; }
+        """)
+        self.nickname_inp.textChanged.connect(self.on_nickname_changed)
 
-        subtitle = QLabel("貼心提醒：雙擊 F1~F8 可快速切換配置組")
+        profile_row.addWidget(self.profile_box, 1)
+        profile_row.addWidget(self.nickname_inp, 2)
+        self.layout.addLayout(profile_row)
+
+        subtitle = QLabel("貼心提醒：雙擊 F1~F9 可快速切換配置組")
         subtitle.setStyleSheet("color: #888; font-size: 11px; margin-bottom: 10px;")
         self.layout.addWidget(subtitle)
 
-        # Scroll Area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -277,40 +287,27 @@ class SettingsWindow(QWidget):
         self.scroll.setWidget(self.scroll_content)
         self.layout.addWidget(self.scroll)
 
+        self.update_profile_dropdown()
         self.refresh_items()
 
-        # Action Buttons
         act_layout = QVBoxLayout()
-        
         self.record_btn = QPushButton("➕ 新增按鍵 (點我後按鍵盤)")
-        self.record_btn.setStyleSheet("""
-            QPushButton { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 5px; height: 35px; }
-            QPushButton:hover { background-color: #388e3c; }
-        """)
+        self.record_btn.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
         self.record_btn.clicked.connect(self.toggle_recording)
         act_layout.addWidget(self.record_btn)
 
         save_btn = QPushButton("💾 儲存並套用")
-        save_btn.setStyleSheet("""
-            QPushButton { background-color: #ffd700; color: black; font-weight: bold; border-radius: 5px; height: 35px; margin-top: 5px;}
-            QPushButton:hover { background-color: #ffea00; }
-        """)
+        save_btn.setStyleSheet("QPushButton { background-color: #ffd700; color: black; font-weight: bold; border-radius: 5px; height: 35px; margin-top: 5px;}")
         save_btn.clicked.connect(self.save_and_close)
         act_layout.addWidget(save_btn)
 
-        pos_btn = QPushButton("🔱 調整顯示位置 (在遊戲中央會出現黃色圖示)")
-        pos_btn.setStyleSheet("""
-            QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 5px;}
-            QPushButton:hover { background-color: #7986cb; }
-        """)
+        pos_btn = QPushButton("🔱 調整顯示位置")
+        pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 5px;}")
         pos_btn.clicked.connect(self.toggle_handle)
         act_layout.addWidget(pos_btn)
 
         exit_btn = QPushButton("🛑 關閉整個輔助")
-        exit_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #666; border: none; font-size: 10px; margin-top: 20px; }
-            QPushButton:hover { color: #ff5555; }
-        """)
+        exit_btn.setStyleSheet("QPushButton { background-color: transparent; color: #666; border: none; font-size: 10px; margin-top: 20px; }")
         exit_btn.clicked.connect(QApplication.instance().quit)
         act_layout.addWidget(exit_btn)
         
@@ -321,40 +318,79 @@ class SettingsWindow(QWidget):
             key_code = event.key()
             key_name = self.qt_key_to_name(key_code)
             if key_name:
+                p_key = self.profile_box.itemData(self.profile_box.currentIndex())
+                if not p_key: p_key = "F1"
+                current_ui_triggers = self.capture_ui_data()
                 config = ConfigManager.load_config()
-                p_name = self.profile_box.currentText()
-                if key_name not in config["profiles"][p_name]["triggers"]:
-                    config["profiles"][p_name]["triggers"][key_name] = {"seconds": 300, "icon": ""}
+                config["profiles"][p_key]["triggers"] = current_ui_triggers
+                if key_name not in config["profiles"][p_key]["triggers"]:
+                    config["profiles"][p_key]["triggers"][key_name] = {"seconds": 300, "icon": ""}
                     ConfigManager.save_config(config)
-                    self.refresh_items()
+                self.refresh_items()
                 self.toggle_recording()
 
-    def switch_profile_ui(self, p_name):
+    def capture_ui_data(self):
+        active_ui_data = {}
+        for key, ui in self.trigger_data.items():
+            try:
+                active_ui_data[key] = {"seconds": int(ui["inp"].text()), "icon": ui["icon"]}
+            except:
+                active_ui_data[key] = {"seconds": 300, "icon": ui["icon"]}
+        return active_ui_data
+
+    def update_profile_dropdown(self):
+        self.profile_box.blockSignals(True)
+        current_idx = self.profile_box.currentIndex()
+        self.profile_box.clear()
         config = ConfigManager.load_config()
-        config["active_profile"] = p_name
+        active = config.get("active_profile", "F1")
+        for i in range(1, 10):
+            key = f"F{i}"
+            name = config["profiles"][key].get("name", f"Profile {i}")
+            self.profile_box.addItem(f"{key}: {name}", key)
+        for i in range(self.profile_box.count()):
+            if self.profile_box.itemData(i) == active:
+                self.profile_box.setCurrentIndex(i)
+                self.nickname_inp.setText(config["profiles"][active].get("name", ""))
+                break
+        self.profile_box.blockSignals(False)
+        self.profile_box.currentIndexChanged.connect(self.switch_profile_ui)
+
+    def on_nickname_changed(self, text):
+        key = self.profile_box.currentData()
+        if not key: return
+        config = ConfigManager.load_config()
+        config["profiles"][key]["name"] = text
         ConfigManager.save_config(config)
+        self.profile_box.blockSignals(True)
+        idx = self.profile_box.currentIndex()
+        self.profile_box.setItemText(idx, f"{key}: {text}")
+        self.profile_box.blockSignals(False)
+        self.config_updated.emit()
+
+    def switch_profile_ui(self, index):
+        p_key = self.profile_box.itemData(index)
+        if not p_key: return
+        config = ConfigManager.load_config()
+        config["active_profile"] = p_key
+        ConfigManager.save_config(config)
+        self.nickname_inp.setText(config["profiles"][p_key].get("name", ""))
         self.refresh_items()
-        if self.overlay:
-            self.overlay.load_profile_immediately()
+        if self.overlay: self.overlay.load_profile_immediately()
         self.config_updated.emit()
 
     def qt_key_to_name(self, code):
-        """Maps Qt key code to pynput compatible string names."""
         special_map = {
             Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3", Qt.Key.Key_F4: "f4",
             Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6", Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8",
-            Qt.Key.Key_F9: "f9", Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", Qt.Key.Key_F12: "f12",
-            Qt.Key.Key_Shift: "shift", Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt",
-            Qt.Key.Key_Space: "space", Qt.Key.Key_Return: "enter", Qt.Key.Key_Enter: "enter",
-            Qt.Key.Key_PageUp: "page_up", Qt.Key.Key_PageDown: "page_down",
-            Qt.Key.Key_Home: "home", Qt.Key.Key_End: "end",
-            Qt.Key.Key_Insert: "insert", Qt.Key.Key_Delete: "delete"
+            Qt.Key.Key_F9: "f9", Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", 
+            Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space"
         }
-        if code in special_map:
-            return special_map[code]
-        # Handle alphanumeric
-        name = chr(code) if 32 <= code <= 126 else None
-        return name.lower() if name else None
+        if code in special_map: return special_map[code]
+        try:
+            name = chr(code).lower() if 32 <= code <= 126 else None
+            return name
+        except: return None
 
     def toggle_recording(self):
         self.is_recording = not self.is_recording
@@ -366,111 +402,68 @@ class SettingsWindow(QWidget):
             self.record_btn.setStyleSheet("background-color: #2e7d32; color: white; border-radius: 5px; height: 35px;")
 
     def safe_show(self):
-        self.show()
-        self.activateWindow()
-        self.raise_()
+        self.show(); self.activateWindow(); self.raise_()
         
     def toggle_handle(self):
         if not self.handle:
             self.handle = PositionHandle()
-            if self.overlay:
-                self.handle.position_changed.connect(self.overlay.update_offset)
-        
+            if self.overlay: self.handle.position_changed.connect(self.overlay.update_offset)
         if self.handle.isVisible():
             self.handle.hide()
             if self.overlay: self.overlay.show_preview = False
         else:
-            # Position handle at current timer location
             if self.overlay:
                 geo = self.overlay.geometry()
                 cx = geo.x() + geo.width() // 2 + self.overlay.x_offset
                 cy = geo.y() + geo.height() // 2 + self.overlay.y_offset
                 self.handle.move(cx - 30, cy - 30)
-                self.overlay.show_preview = True
-                self.overlay.update()
-            self.handle.show()
-            self.handle.raise_()
+                self.overlay.show_preview = True; self.overlay.update()
+            self.handle.show(); self.handle.raise_()
 
     def refresh_items(self):
         while self.scroll_layout.count():
             item = self.scroll_layout.takeAt(0)
-            widget = item.widget()
-            if widget: widget.deleteLater()
-            
+            if item.widget(): item.widget().deleteLater()
         config = ConfigManager.load_config()
-        p_name = self.profile_box.currentText()
-        p_data = config["profiles"].get(p_name, {"triggers": {}})
-        
+        p_key = self.profile_box.itemData(self.profile_box.currentIndex())
+        if not p_key: p_key = config.get("active_profile", "F1")
+        p_data = config["profiles"].get(p_key, {"triggers": {}})
         self.trigger_data = {}
         for key, data in p_data["triggers"].items():
-            # Handle potential migration issues here again just in case
-            if isinstance(data, int):
-                data = {"seconds": data, "icon": ""}
-                
+            if isinstance(data, int): data = {"seconds": data, "icon": ""}
             row_widget = QFrame()
-            row_widget.setFixedHeight(50) 
+            row_widget.setFixedHeight(50)
             row_widget.setStyleSheet("background-color: #1e1e1e; border-radius: 4px; margin: 2px;")
-            
             row = QHBoxLayout(row_widget)
-            row.setContentsMargins(10, 0, 10, 0)
-            
-            lbl = QLabel(key.upper())
-            lbl.setFont(QFont("Segoe UI Bold", 10))
-            lbl.setStyleSheet("color: #ffd700;")
-            lbl.setFixedWidth(60)
-            
-            # Icon Preview
-            icon_btn = QPushButton()
-            icon_btn.setFixedSize(32, 32)
+            lbl = QLabel(key.upper()); lbl.setStyleSheet("color: #ffd700;"); lbl.setFixedWidth(60)
+            icon_btn = QPushButton(); icon_btn.setFixedSize(32, 32)
             self.update_icon_button(icon_btn, data.get("icon", ""))
             icon_btn.clicked.connect(lambda checked, k=key, btn=icon_btn: self.pick_icon(k, btn))
-            
-            inp = QLineEdit(str(data.get("seconds", 300)))
-            inp.setFixedWidth(50)
-            inp.setStyleSheet("background-color: #333; border: 1px solid #444; color: white;")
-            
-            unit = QLabel("秒")
-            
-            del_btn = QPushButton("🗑️")
-            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            del_btn.setFixedWidth(30)
-            del_btn.setStyleSheet("background-color: transparent; color: #666; font-size: 14px;")
+            inp = QLineEdit(str(data.get("seconds", 300))); inp.setFixedWidth(50)
+            del_btn = QPushButton("🗑️"); del_btn.setFixedWidth(30)
             del_btn.clicked.connect(lambda checked, k=key: self.delete_key(k))
-            
-            row.addWidget(lbl)
-            row.addWidget(icon_btn)
-            row.addWidget(inp)
-            row.addWidget(unit)
-            row.addStretch()
-            row.addWidget(del_btn)
-            
-            # Store data for saving
-            self.trigger_data[key] = {
-                "inp": inp,
-                "icon": data.get("icon", "")
-            }
+            row.addWidget(lbl); row.addWidget(icon_btn); row.addWidget(inp); row.addWidget(QLabel("秒")); row.addStretch(); row.addWidget(del_btn)
+            self.trigger_data[key] = {"inp": inp, "icon": data.get("icon", "")}
             self.scroll_layout.addWidget(row_widget)
-            
-        # Add a single final stretch to keep items at the top
         self.scroll_layout.addStretch()
 
     def delete_key(self, key):
+        p_key = self.profile_box.itemData(self.profile_box.currentIndex())
+        if not p_key: p_key = "F1"
+        current_ui_triggers = self.capture_ui_data()
+        if key in current_ui_triggers: del current_ui_triggers[key]
         config = ConfigManager.load_config()
-        if key in config["triggers"]:
-            del config["triggers"][key]
-            ConfigManager.save_config(config)
-            self.refresh_items()
+        config["profiles"][p_key]["triggers"] = current_ui_triggers
+        ConfigManager.save_config(config)
+        self.refresh_items()
 
     def update_icon_button(self, btn, path):
-        if path and os.path.exists(path):
-            pixmap = QPixmap(path).scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            btn.setIcon(QIcon(pixmap))
-            btn.setIconSize(QSize(24, 24))
-            btn.setText("")
+        real_path = path if path and os.path.exists(path) else resource_path(path) if path else None
+        if real_path and os.path.exists(real_path):
+            pixmap = QPixmap(real_path).scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            btn.setIcon(QIcon(pixmap)); btn.setIconSize(QSize(24, 24)); btn.setText("")
         else:
-            btn.setIcon(QIcon())
-            btn.setText("🖼️")
-            btn.setStyleSheet("QPushButton { border: 1px dashed #444; color: #666; }")
+            btn.setIcon(QIcon()); btn.setText("🖼️")
 
     def pick_icon(self, key, btn):
         dlg = IconSelectorDialog(self)
@@ -481,29 +474,25 @@ class SettingsWindow(QWidget):
 
     def save_and_close(self):
         config = ConfigManager.load_config()
-        p_name = self.profile_box.currentText()
-        
-        # Update current profile in the master config
+        p_key = self.profile_box.itemData(self.profile_box.currentIndex())
+        if not p_key: p_key = "F1"
+        base_dir = os.path.abspath(".")
         new_triggers = {}
         for key, data in self.trigger_data.items():
             try:
-                new_triggers[key] = {
-                    "seconds": int(data["inp"].text()),
-                    "icon": data["icon"]
-                }
+                icon_path = data["icon"]
+                if icon_path and os.path.isabs(icon_path) and icon_path.lower().startswith(base_dir.lower()):
+                    icon_path = os.path.relpath(icon_path, base_dir).replace("\\", "/")
+                new_triggers[key] = {"seconds": int(data["inp"].text()), "icon": icon_path}
             except: pass
-            
-        config["profiles"][p_name]["triggers"] = new_triggers
-        if self.overlay:
-            config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
-        
-        config["active_profile"] = p_name
+        config["profiles"][p_key]["triggers"] = new_triggers
+        config["profiles"][p_key]["name"] = self.nickname_inp.text()
+        if self.overlay: config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
+        config["active_profile"] = p_key
         ConfigManager.save_config(config)
-        
         if self.handle: self.handle.hide()
         if self.overlay: self.overlay.show_preview = False
-        self.config_updated.emit()
-        self.hide()
+        self.config_updated.emit(); self.hide()
 
 class ArtaleOverlay(QWidget):
     timer_request = pyqtSignal(str, int, str) 
@@ -518,316 +507,162 @@ class ArtaleOverlay(QWidget):
         self.click_zones = {}  
         self.is_active = False
         self.show_preview = False
+        self.active_profile_name = "F1"
+        self.msg_text = ""; self.msg_opacity = 0
+        self.x_offset = 0; self.y_offset = 0
         
-        # Profile & Notification UI
-        self.active_profile_name = "Profile 1"
-        self.msg_text = ""
-        self.msg_opacity = 0
-        
-        # System Tray for Native Notifications
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(resource_path("buff_pngs/skill_frame.png")))
-        self.tray_icon.show()
-        
-        # Connect internal signals to ensure thread safety
         self.timer_request.connect(self.start_timer)
         self.clear_request.connect(self.clear_all_timers)
         self.notification_request.connect(self.show_notification)
         self.profile_switch_request.connect(self.load_profile_immediately)
         
-        # Tracking & Logic (Initialize timers BEFORE loading profile)
-        self.tracking_timer = QTimer(self)
-        self.tracking_timer.timeout.connect(self.sync_with_game_window)
-        self.tracking_timer.start(100)
-
-        self.countdown_timer = QTimer(self)
-        self.countdown_timer.timeout.connect(self.update_countdown)
-
+        self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
+        self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
+        
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
         self.init_ui()
         self.load_profile_immediately()
 
     def init_ui(self):
-        self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowTransparentForInput |
-            Qt.WindowType.Tool 
-        )
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        
-        # Use virtual geometry to span ALL screens
         virtual_geo = QApplication.primaryScreen().virtualGeometry()
-        self.setGeometry(virtual_geo)
-        self.show()
+        self.setGeometry(virtual_geo); self.show()
 
     def start_timer(self, key, seconds, icon_path=None):
+        pixmap = None
         if icon_path:
-            # Check if current path exists, otherwise try relative to resource_path
             real_path = icon_path if os.path.exists(icon_path) else resource_path(icon_path)
-            pixmap = QPixmap(real_path) if os.path.exists(real_path) else None
-        else:
-            pixmap = None
-            
-        self.active_timers[key] = {
-            "seconds": seconds,
-            "pixmap": pixmap
-        }
+            if os.path.exists(real_path): pixmap = QPixmap(real_path)
+        self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap}
         self.is_active = True
-        if not self.countdown_timer.isActive():
-            self.countdown_timer.start(1000)
+        if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
         self.update()
 
     def update_countdown(self):
         to_remove = []
         for key in list(self.active_timers.keys()):
             self.active_timers[key]["seconds"] -= 1
-            
-            # Sound triggers
             rem = self.active_timers[key]["seconds"]
-            if rem == 20:
-                self.play_sound(1)
-            elif rem == 0:
-                self.play_sound(2)
-            elif rem < 0 and rem > -10:
-                # Continuous beep during linger phase
-                self.play_sound(1)
-            
-            # Linger on screen for 10 more seconds after hitting 0
-            if rem <= -10:
-                to_remove.append(key)
-        
+            if rem == 20: self.play_sound(1)
+            elif rem == 0: self.play_sound(2)
+            elif -10 < rem < 0: self.play_sound(1)
+            if rem <= -10: to_remove.append(key)
         for key in to_remove:
-            if key in self.active_timers:
-                del self.active_timers[key]
-            
+            if key in self.active_timers: del self.active_timers[key]
         if not self.active_timers:
-            self.is_active = False
-            self.countdown_timer.stop()
-        
+            self.is_active = False; self.countdown_timer.stop()
         self.update()
 
     def play_sound(self, times=1):
         if not winsound: return
         def worker():
             for _ in range(times):
-                try:
-                    winsound.Beep(800, 150)
-                    time.sleep(0.12)
-                except:
-                    pass
+                try: winsound.Beep(800, 150); time.sleep(0.12)
+                except: pass
         threading.Thread(target=worker, daemon=True).start()
 
     def sync_with_game_window(self):
         if not win32gui: return
-        
-        # Consistent window search
         hwnd = 0
         try:
             def callback(h, extra):
                 nonlocal hwnd
-                title = win32gui.GetWindowText(h)
-                if self.target_window_title.lower() in title.lower() and win32gui.IsWindowVisible(h):
-                    hwnd = h
-                    return False
+                if self.target_window_title.lower() in win32gui.GetWindowText(h).lower() and win32gui.IsWindowVisible(h):
+                    hwnd = h; return False
                 return True
             win32gui.EnumWindows(callback, None)
-        except:
-            hwnd = 0
-
+        except: hwnd = 0
         if hwnd:
-            rect = win32gui.GetWindowRect(hwnd)
-            x, y, x2, y2 = rect
-            if self.geometry() != QRect(x, y, x2-x, y2-y):
-                self.setGeometry(x, y, x2-x, y2-y)
-                self.update()
+            rect = win32gui.GetWindowRect(hwnd); x, y, x2, y2 = rect
+            if self.geometry() != QRect(x, y, x2-x, y2-y): self.setGeometry(x, y, x2-x, y2-y); self.update()
 
-    def update_offset(self, global_x, global_y):
-        # Convert global screen position to local offset
-        local = self.mapFromGlobal(QPoint(global_x, global_y))
+    def update_offset(self, gx, gy):
+        local = self.mapFromGlobal(QPoint(gx, gy))
         self.x_offset = local.x() - self.rect().center().x()
         self.y_offset = local.y() - self.rect().center().y()
-        self.click_zones = {} # Clear zones on drag to avoid phantom clicks
-        self.update()
+        self.click_zones = {}; self.update()
 
     def clear_all_timers(self, show_msg=True):
-        """Immediately stops all timers and clears the screen."""
-        self.active_timers = {}
-        self.click_zones = {}
-        self.is_active = False
-        if self.countdown_timer.isActive():
-            self.countdown_timer.stop()
-        if show_msg:
-            self.show_notification("⚠️ 已強制關閉並重設 (F9)")
+        self.active_timers = {}; self.click_zones = {}; self.is_active = False
+        if self.countdown_timer.isActive(): self.countdown_timer.stop()
+        if show_msg: self.show_notification("⚠️ 已強制關閉並重設 (F12)")
         self.update()
 
     def check_right_click(self, gx, gy):
-        """Called from global mouse listener to cancel a timer via right click."""
         p = QPoint(gx, gy)
         for key, rect in list(self.click_zones.items()):
             if rect.contains(p):
-                if key in self.active_timers:
-                    del self.active_timers[key]
-                self.update()
-                return True
+                if key in self.active_timers: del self.active_timers[key]
+                self.update(); return True
         return False
 
     def load_profile_immediately(self):
-        # 1. Clear existing timers when switching context
         self.clear_all_timers(show_msg=False)
-        
-        # 2. Reload config data
         config = ConfigManager.load_config()
-        self.active_profile_name = config.get("active_profile", "Profile 1")
+        active = config.get("active_profile", "F1")
+        nickname = config["profiles"].get(active, {}).get("name", active)
+        self.active_profile_name = active
         self.x_offset, self.y_offset = config.get("offset", [0, 0])
-        self.show_notification(f"切換至 {self.active_profile_name}")
-        self.update()
+        self.show_notification(f"切換至 {active}: {nickname}"); self.update()
 
     def show_notification(self, text):
-        # 1. Internal Overlay Animation
-        self.msg_text = text
-        self.msg_opacity = 255
-        if hasattr(self, 'fade_timer') and self.fade_timer.isActive():
-            self.fade_timer.stop()
-        self.fade_timer = QTimer(self)
-        self.fade_timer.timeout.connect(self.step_fade)
-        QTimer.singleShot(1500, lambda: self.fade_timer.start(16)) 
-        self.update()
-
-        # 2. OS Native Notification (Windows Toast)
-        self.show_native_notification(text)
-
-    def show_native_notification(self, text):
-        import subprocess
-        import os
-        
-        title = "Artale Agent"
-        icon_path = os.path.abspath("buff_pngs/skill_frame.png")
-        if not os.path.exists(icon_path): icon_path = ""
-        
-        # Fixed Tag ensures it overwrites previous toast instead of queuing
-        tag = "Artale_Alert"
-        
-        # A more robust PowerShell script using Windows Runtime for Tagged Toast
-        ps_cmd = f"""
-        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02)
-        $textNodes = $template.GetElementsByTagName("text")
-        $textNodes.Item(0).AppendChild($template.CreateTextNode("{title}")) | Out-Null
-        $textNodes.Item(1).AppendChild($template.CreateTextNode("{text}")) | Out-Null
-        
-        if ("{icon_path}") {{
-            $imageNodes = $template.GetElementsByTagName("image")
-            $imageNodes.Item(0).Attributes.GetNamedItem("src").NodeValue = "{icon_path}" | Out-Null
-        }}
-        
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-        $toast.Tag = "{tag}"
-        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{title}").Show($toast)
-        """
-        
-        def worker():
-            try:
-                subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, creationflags=0x08000000)
-            except: pass
-        threading.Thread(target=worker, daemon=True).start()
+        # Internal Overlay Animation
+        self.msg_text = text; self.msg_opacity = 255
+        if hasattr(self, 'fade_timer') and self.fade_timer.isActive(): self.fade_timer.stop()
+        self.fade_timer = QTimer(self); self.fade_timer.timeout.connect(self.step_fade)
+        QTimer.singleShot(3000, lambda: self.fade_timer.start(16)); self.update()
 
     def step_fade(self):
-        if self.msg_opacity > 0:
-            self.msg_opacity = max(0, self.msg_opacity - 5)
-            self.update()
-        else:
-            self.fade_timer.stop()
+        if self.msg_opacity > 0: self.msg_opacity = max(0, self.msg_opacity - 5); self.update()
+        else: self.fade_timer.stop()
 
     def paintEvent(self, event):
         if not self.is_active and not self.show_preview and self.msg_opacity == 0: return
+        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 1. Profile Switch Notification (Top Center)
-        if self.msg_opacity > 0:
-            font = QFont("Segoe UI Bold", 16)
-            painter.setFont(font)
-            fm = painter.fontMetrics()
-            tw = fm.horizontalAdvance(self.msg_text)
-            
-            # Draw rounded background
-            bg_rect = QRect(self.rect().width()//2 - (tw+40)//2, 40, tw+40, 40)
-            painter.setBrush(QColor(0, 0, 0, min(180, self.msg_opacity)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(bg_rect, 10, 10)
-            
-            # Draw Text
-            text_color = QColor(255, 215, 0, self.msg_opacity)
-            if "F9" in self.msg_text:
-                text_color = QColor(255, 100, 100, self.msg_opacity)
-            painter.setPen(text_color)
-            painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
-
-        if not self.active_timers and not self.show_preview: return
-        timers_to_draw = [] # list of (key, seconds, pixmap)
-        if self.active_timers:
-            # Sort by remaining seconds (Descending: Longest first on the left)
-            sorted_active = sorted(self.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
-            for key, data in sorted_active:
-                timers_to_draw.append((key, data["seconds"], data["pixmap"]))
-        elif self.show_preview:
-            # Show a dummy preview timer
-            preview_pixmap = QPixmap(resource_path("buff_pngs/arrow.png"))
-            timers_to_draw.append(("preview", 300, preview_pixmap))
-
-        # Reset zones for this frame
-        new_click_zones = {}
-        
-        spacing = 80 
+        # Base coordinates
         base_x = self.rect().center().x() + self.x_offset
         base_y = self.rect().center().y() + self.y_offset
+
+        # 1. Profile/Action Notification (Centered above anchor)
+        if self.msg_opacity > 0:
+            font = QFont("Segoe UI Bold", 18); painter.setFont(font)
+            tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
+            # Draw notification clearly above the timer block
+            bg_rect = QRect(base_x - (tw+40)//2, base_y - 70, tw+40, 45)
+            painter.setBrush(QColor(0, 0, 0, min(200, self.msg_opacity)))
+            painter.setPen(Qt.PenStyle.NoPen); painter.drawRoundedRect(bg_rect, 8, 8)
+            color = QColor(255, 100, 100, self.msg_opacity) if "F12" in self.msg_text else QColor(255, 215, 0, self.msg_opacity)
+            painter.setPen(color); painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
+
+        if not self.active_timers and not self.show_preview: return
+
+        timers_to_draw = []
+        if self.active_timers:
+            sorted_active = sorted(self.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
+            for k, d in sorted_active: timers_to_draw.append((k, d["seconds"], d["pixmap"]))
+        elif self.show_preview:
+            timers_to_draw.append(("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png"))))
+
+        new_click_zones = {}; spacing = 80; total_width = len(timers_to_draw) * spacing
+        block_start_x = base_x - (total_width // 2)
         block_center_y = base_y + 60
         
         for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
-            x_pos = base_x + idx * spacing + 20
-            block_center = QPoint(x_pos, block_center_y)
-            
-            # Draw Icon
+            x_pos = block_start_x + idx * spacing + (spacing // 2); block_center = QPoint(x_pos, block_center_y)
             if pixmap:
-                icon_size = 40
-                icon_rect = QRect(block_center.x() - icon_size // 2, block_center.y() - 45, icon_size, icon_size)
-                
-                # Store Click Zone (Global)
-                if key != "preview":
-                    global_top_left = self.mapToGlobal(icon_rect.topLeft())
-                    new_click_zones[key] = QRect(global_top_left, QSize(icon_size, icon_size))
-
-                if self.icon_frame:
-                    painter.drawPixmap(icon_rect.adjusted(-2, -2, 2, 2), self.icon_frame)
-                
-                painter.drawPixmap(icon_rect, pixmap.scaled(icon_size, icon_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-
-            # Draw Number (show "0" during linger phase)
-            display_seconds = max(0, seconds)
-            text = str(display_seconds)
+                icon_size = 40; icon_rect = QRect(block_center.x() - 20, block_center.y() - 45, 40, 40)
+                if key != "preview": new_click_zones[key] = QRect(self.mapToGlobal(icon_rect.topLeft()), QSize(40, 40))
+                if self.icon_frame: painter.drawPixmap(icon_rect.adjusted(-2, -2, 2, 2), self.icon_frame)
+                painter.drawPixmap(icon_rect, pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            display_seconds = max(0, seconds); text = str(display_seconds)
             color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
-            if self.show_preview and not self.active_timers:
-                color = QColor(255, 255, 255, 150) # Grayish for preview
-            
-            font_size = 22 if seconds > 3 else 26
-            font = QFont("Segoe UI Black", font_size)
-            painter.setFont(font)
-            
-            text_y_offset = 12 if pixmap else 0
-            text_rect = QRect(block_center.x() - 50, block_center.y() + text_y_offset - 25, 100, 50)
-            
-            # Outline
-            painter.setPen(QPen(QColor(0,0,0,200), 4))
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
-            
-            # Main
-            painter.setPen(QPen(color, 2))
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
-
-        self.click_zones = new_click_zones
-
+            if self.show_preview and not self.active_timers: color = QColor(255, 255, 255, 150)
+            font = QFont("Segoe UI Black", 22 if seconds > 3 else 26); painter.setFont(font)
+            text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
+            painter.setPen(QPen(QColor(0,0,0,200), 4)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
+            painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
