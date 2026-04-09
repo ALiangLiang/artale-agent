@@ -181,6 +181,9 @@ def run_app():
     settings_window = SettingsWindow(overlay)
     focus_tracker = GameFocusTracker()
     
+    # Tray Icon Connection
+    overlay.settings_show_request.connect(settings_window.safe_show)
+    
     start_keyboard_listener(overlay, settings_window, focus_tracker)
     
     print("[Main] Artale Helper initialized. Waiting for input...")

@@ -12,14 +12,15 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget, QComboBox, QSlider, QCheckBox)
+                             QGridLayout, QDialog, QTabWidget, QComboBox, QSlider, QCheckBox,
+                             QSystemTrayIcon, QMenu)
 try:
     from windows_capture import WindowsCapture, Frame
 except ImportError:
     WindowsCapture = None
 
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction
 import cv2
 import re
 import pytesseract
@@ -327,6 +328,12 @@ class SettingsWindow(QWidget):
             pass
 
     def init_ui(self):
+        self.setWindowTitle("Artale Helper ⚙️ 設定")
+        # Set Window Icon
+        icon_path = resource_path("app_icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
         config = ConfigManager.load_config()
         self.layout = QVBoxLayout(self)
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
@@ -701,6 +708,7 @@ class ArtaleOverlay(QWidget):
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)
     toggle_exp_request = pyqtSignal()
+    settings_show_request = pyqtSignal()
     
     def __init__(self, target_window_title="Artale"):
         super().__init__()
@@ -710,12 +718,17 @@ class ArtaleOverlay(QWidget):
         self.is_active = False
         self.show_preview = False
         self.active_profile_name = "F1"
+        self._is_running = True # Start this early!
+        self.show_debug = False # Start this early!
+        
+        # Load configs early
+        config = ConfigManager.load_config()
+        self.show_exp_panel = config.get("show_exp", True)
+        self.show_debug = config.get("show_debug", False)
+        self.base_opacity = config.get("opacity", 0.5)
+        
         self.msg_text = ""; self.msg_opacity = 0
         self.x_offset = 0; self.y_offset = 0
-        self.base_opacity = 0.5
-        
-        # EXP Tracking State
-        self.show_exp_panel = False
         self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
         self.exp_history = [] # List of (timestamp, value, percent)
         self.last_capture_time = 0
@@ -727,6 +740,12 @@ class ArtaleOverlay(QWidget):
         self.profile_switch_request.connect(self.load_profile_immediately)
         self.exp_update_request.connect(self.on_exp_update)
         self.toggle_exp_request.connect(self.on_toggle_exp)
+        
+        # We'll use this signal for tray to talk to settings_window
+        self.request_show_settings_signal = pyqtSignal()
+        if hasattr(self, 'request_show_settings_signal'):
+             # Handle signal in main.py later
+             pass
         
         self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
         self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
@@ -740,8 +759,53 @@ class ArtaleOverlay(QWidget):
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
-        self.init_ui()
         self.load_profile_immediately()
+        self.init_tray()
+
+    def init_tray(self):
+        """Initialize System Tray Icon with context menu"""
+        self.tray_icon = QSystemTrayIcon(self)
+        
+        # Use our beautiful generated app icon
+        icon_path = resource_path("app_icon.png")
+        if os.path.exists(icon_path):
+            self.tray_icon.setIcon(QIcon(icon_path))
+        
+        # Create context menu
+        tray_menu = QMenu()
+        
+        show_settings_action = QAction("⚙️ 開啟設定 (Pause)", self)
+        show_settings_action.triggered.connect(self.request_show_settings)
+        tray_menu.addAction(show_settings_action)
+        
+        reset_exp_action = QAction("📊 重置經驗值統計", self)
+        reset_exp_action.triggered.connect(self.reset_exp_stats)
+        tray_menu.addAction(reset_exp_action)
+        
+        tray_menu.addSeparator()
+        
+        quit_action = QAction("❌ 結束程式", self)
+        quit_action.triggered.connect(QApplication.instance().quit)
+        tray_menu.addAction(quit_action)
+        
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.setToolTip("Artale Helper")
+        
+        # Click to toggle settings
+        self.tray_icon.activated.connect(self.on_tray_activated)
+        self.tray_icon.show()
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.request_show_settings()
+
+    def request_show_settings(self):
+        self.settings_show_request.emit()
+
+    def reset_exp_stats(self):
+        """Reset EXP tracking baseline"""
+        self.exp_history = []
+        self.show_notification("📊 經驗值統計已重置")
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput)
@@ -749,14 +813,6 @@ class ArtaleOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
         virtual_geo = QApplication.primaryScreen().virtualGeometry()
         self.setGeometry(virtual_geo)
-        
-        # Load Opacity to internal variable, keeping window itself opaque
-        config = ConfigManager.load_config()
-        self.show_exp_panel = config.get("show_exp", True)
-        self.show_debug = config.get("show_debug", False)
-        self.base_opacity = config.get("opacity", 0.5)
-        self._is_running = True
-        
         self.show()
 
     def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
@@ -929,26 +985,44 @@ class ArtaleOverlay(QWidget):
 
         # Start capture loop
         try:
-            # 1. Try common window names in sequence to find Artale
             capture = None
-            for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
-                try:
-                    from windows_capture import WindowsCapture
-                    capture = WindowsCapture(
-                        window_name=name,
-                        cursor_capture=False,
-                        draw_border=False,
-                        minimum_update_interval=1000
-                    )
+            # Robust loop to find the window
+            while self._is_running:
+                for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
+                    try:
+                        from windows_capture import WindowsCapture
+                        # Note: In some versions, creating the object is fast, 
+                        # but we need to verify if it actually found anything.
+                        temp_capture = WindowsCapture(
+                            window_name=name,
+                            cursor_capture=False,
+                            draw_border=False,
+                            minimum_update_interval=1000
+                        )
+                        # Attempt to start. If it fails here, it's usually because the window isn't found.
+                        # We use start_free_threaded immediately to test.
+                        print(f"[ExpTracker] Attempting to bind to window: {name}")
+                        self.capture_session = temp_capture.start_free_threaded()
+                        capture = temp_capture
+                        print(f"[ExpTracker] Successfully bound to {name}!")
+                        break
+                    except Exception as e:
+                        if "0x80070490" in str(e) or "元素找不到" in str(e):
+                            continue # Try next name
+                        else:
+                            # Other error (like permission)
+                            print(f"[ExpTracker] Capture attempt failed for {name}: {e}")
+                            continue
+                
+                if capture:
                     break
-                except:
-                    continue
+                
+                # If we get here, no window was found. Wait and retry.
+                print("[ExpTracker] Artale window NOT found. Retrying in 5s... (Make sure game is NOT minimized)")
+                time.sleep(5)
 
-            if not capture:
-                print(f"[ExpTracker] Error: Artale window not found. Using default 'Artale' and hoping for the best.")
-                capture = WindowsCapture(window_name="Artale", minimum_update_interval=1000)
+            if not capture: return
 
-            
             @capture.event
             def on_frame_arrived(frame, capture_control):
                 on_frame_arrived_callback(frame, capture_control)
@@ -956,9 +1030,7 @@ class ArtaleOverlay(QWidget):
             @capture.event
             def on_closed():
                 print("[ExpTracker] Capture session closed.")
-            
-            print(f"[ExpTracker] Monitoring {self.target_window_title} for EXP...")
-            # Use start_free_threaded to run on a native thread (better performance)
+
             self.capture_session = capture.start_free_threaded()
         except Exception as e:
             print(f"[ExpTracker] Failed to start: {e}")

@@ -14,8 +14,10 @@ Write-Host "Starting PyInstaller build..." -ForegroundColor Green
 python -m PyInstaller `
     --onefile `
     --name "ArtaleAgent" `
+    --icon "app_icon.ico" `
     --add-data "buff_pngs;buff_pngs" `
     --add-data "Tesseract-OCR;Tesseract-OCR" `
+    --add-data "app_icon.png;." `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
     --clean `
