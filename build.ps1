@@ -1,4 +1,6 @@
-# Artale Helper Build Script (PowerShell)
+# 0. Kill existing process to avoid "Access Denied" on dist folder
+Write-Host "Closing existing ArtaleAgent processes..." -ForegroundColor Yellow
+Stop-Process -Name "ArtaleAgent" -ErrorAction SilentlyContinue
 
 # 1. Clean previous builds
 Write-Host "Cleaning up old build artifacts..." -ForegroundColor Cyan
@@ -9,19 +11,11 @@ if (Test-Path "*.spec") { Remove-Item -Path "*.spec" -Force }
 # 2. Run PyInstaller
 Write-Host "Starting PyInstaller build..." -ForegroundColor Green
 
-# Parameters:
-# --onefile: Bundles everything into a single EXE
-# --noconsole: Skips the black black terminal window when running
-# --name: The output file name
-# --add-data: Includes the buff_pngs folder inside the EXE (Syntax: "source;destination")
-# --hidden-import: Ensures extra dependencies are caught
-# --clean: Cleans cache before building
-
 python -m PyInstaller `
     --onefile `
-    --noconsole `
     --name "ArtaleAgent" `
     --add-data "buff_pngs;buff_pngs" `
+    --add-data "Tesseract-OCR;Tesseract-OCR" `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
     --clean `

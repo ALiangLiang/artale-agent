@@ -5,7 +5,6 @@ import threading
 import time
 try:
     import win32gui
-    import win32con
     import winsound
 except ImportError:
     win32gui = None
@@ -13,33 +12,55 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon, QSlider, QCheckBox)
+                             QGridLayout, QDialog, QTabWidget, QComboBox, QSlider, QCheckBox)
 try:
-    from windows_capture import WindowsCapture, Frame, InternalCaptureControl
+    from windows_capture import WindowsCapture, Frame
 except ImportError:
     WindowsCapture = None
 
-from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QDir, QFileInfo, QDateTime, QRectF, QPointF
-from PyQt6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QLinearGradient, QPixmap, QIcon, QPainterPath
-import numpy as np
+from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath
 import cv2
 import re
+import pytesseract
+import os
 
-# Optional: Using pytesseract for OCR. If not installed, we'll try to provide a fallback or warning.
-try:
-    import pytesseract
-    # Default common installation paths for Tesseract on Windows
-    paths = [
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        os.path.expanduser(r'~\AppData\Local\Tesseract-OCR\tesseract.exe')
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            pytesseract.pytesseract.tesseract_cmd = p
-            break
-except ImportError:
-    pytesseract = None
+# Tesseract Portable Setup (LOCAL ONLY)
+def get_tess_cmd():
+    """Detect Tesseract-OCR path and handle DLL loading for PyInstaller"""
+    import os, sys
+    
+    executable_path = None
+    
+    # 1. Check for PyInstaller internal bundle path
+    if hasattr(sys, '_MEIPASS'):
+        bundle_dir = sys._MEIPASS
+        executable_path = os.path.join(bundle_dir, "Tesseract-OCR", "tesseract.exe")
+        if os.path.exists(executable_path):
+            # IMPORTANT: For Tesseract to find grouped DLLs, its folder must be in PATH
+            tess_dir = os.path.dirname(executable_path)
+            if tess_dir not in os.environ["PATH"]:
+                os.environ["PATH"] = tess_dir + os.pathsep + os.environ["PATH"]
+            return executable_path
+
+    # 2. Check for local folder (for portable/dev use)
+    base_dir = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__))
+    local_tess = os.path.join(base_dir, "Tesseract-OCR", "tesseract.exe")
+    if os.path.exists(local_tess):
+        tess_dir = os.path.dirname(local_tess)
+        if tess_dir not in os.environ["PATH"]:
+            os.environ["PATH"] = tess_dir + os.pathsep + os.environ["PATH"]
+        return local_tess
+    
+    # 3. Last fallback (standard path)
+    common_p = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(common_p):
+        return common_p
+    
+    return None
+
+if pytesseract:
+    pytesseract.pytesseract.tesseract_cmd = get_tess_cmd()
 
 CONFIG_FILE = "config.json"
 
@@ -274,15 +295,39 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.overlay = overlay
         self.setWindowTitle("Artale Helper - Settings")
-        self.setFixedSize(350, 500)
+        self.setFixedSize(360, 580)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.is_recording = False
         self.handle = None
         self.trigger_data = {}
+        
+        # Connect to EXP updates for live preview
+        if self.overlay:
+            self.overlay.exp_update_request.connect(self.on_exp_data_received)
+            
         self.init_ui()
         self.request_show.connect(self.safe_show)
 
+    def on_exp_data_received(self, data):
+        """Update live preview images using robust byte loading"""
+        if not self.isVisible() or self.tabs.currentIndex() != 1:
+            return
+            
+        try:
+            from PyQt6.QtGui import QPixmap
+            if data.get("debug_bytes"):
+                pix = QPixmap()
+                if pix.loadFromData(data["debug_bytes"]):
+                    self.debug_img_lbl.setPixmap(pix.scaled(
+                        self.debug_img_lbl.size(), 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    ))
+        except Exception as e:
+            pass
+
     def init_ui(self):
+        config = ConfigManager.load_config()
         self.layout = QVBoxLayout(self)
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
         
@@ -291,6 +336,18 @@ class SettingsWindow(QWidget):
         title.setFont(QFont("Segoe UI Semibold", 18))
         title.setStyleSheet("color: #ffd700;")
         top_row.addWidget(title)
+        
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #333; background: #121212; }
+            QTabBar::tab { background: #222; color: #888; padding: 10px; min-width: 80px; }
+            QTabBar::tab:selected { background: #333; color: #ffd700; font-weight: bold; }
+        """)
+        self.layout.addWidget(self.tabs)
+
+        # --- Tab 1: Timer Settings ---
+        timer_tab = QWidget()
+        timer_tab_layout = QVBoxLayout(timer_tab)
         
         profile_row = QHBoxLayout()
         self.profile_box = QComboBox()
@@ -310,11 +367,11 @@ class SettingsWindow(QWidget):
 
         profile_row.addWidget(self.profile_box, 1)
         profile_row.addWidget(self.nickname_inp, 2)
-        self.layout.addLayout(profile_row)
+        timer_tab_layout.addLayout(profile_row)
 
         subtitle = QLabel("貼心提醒：雙擊 F1~F9 可快速切換配置組")
-        subtitle.setStyleSheet("color: #888; font-size: 11px; margin-bottom: 10px;")
-        self.layout.addWidget(subtitle)
+        subtitle.setStyleSheet("color: #888; font-size: 11px; margin-bottom: 5px;")
+        timer_tab_layout.addWidget(subtitle)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -322,51 +379,102 @@ class SettingsWindow(QWidget):
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll.setWidget(self.scroll_content)
-        self.layout.addWidget(self.scroll)
+        timer_tab_layout.addWidget(self.scroll)
 
-        # Opacity Slider
-        config = ConfigManager.load_config()
+        self.record_btn = QPushButton("➕ 新增按鍵 (點我後按鍵盤)")
+        self.record_btn.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
+        self.record_btn.clicked.connect(self.toggle_recording)
+        timer_tab_layout.addWidget(self.record_btn)
+        
+        self.tabs.addTab(timer_tab, "⏲️ 計時器")
+
+        # --- Tab 2: EXP Settings ---
+        exp_tab = QWidget()
+        exp_tab_layout = QVBoxLayout(exp_tab)
+        
+        exp_info = QLabel("📊 經驗值追蹤設定")
+        exp_info.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; margin-top: 10px;")
+        exp_tab_layout.addWidget(exp_info)
+        
+        self.exp_active_cb = QCheckBox("開啟經驗值監測面板 (Hotkey: F10)")
+        self.exp_active_cb.setStyleSheet("color: #ccc; margin-top: 10px;")
+        if self.overlay:
+            self.exp_active_cb.setChecked(self.overlay.show_exp_panel)
+        self.exp_active_cb.toggled.connect(self.on_exp_toggle_changed)
+        exp_tab_layout.addWidget(self.exp_active_cb)
+        
+        reset_exp_btn = QPushButton("🔄 重新開始紀錄 (歸零重算)")
+        reset_exp_btn.setStyleSheet("QPushButton { background-color: #444; color: #eee; border-radius: 4px; height: 30px; margin-top: 10px; } QPushButton:hover { background: #555; }")
+        reset_exp_btn.clicked.connect(self.on_reset_exp_clicked)
+        exp_tab_layout.addWidget(reset_exp_btn)
+        
+        # Opacity Slider (General setting)
+        opacity_info = QLabel("✨ 面板背景透明度")
+        opacity_info.setStyleSheet("color: #aaa; font-size: 11px; margin-top: 15px;")
+        exp_tab_layout.addWidget(opacity_info)
+        
         opacity_row = QHBoxLayout()
-        opacity_lbl = QLabel("🎨 視窗透明度")
-        opacity_lbl.setStyleSheet("font-size: 12px; color: #aaa;")
-        self.opacity_val_lbl = QLabel(f"{int(config.get('opacity', 0.8)*100)}%")
+        self.opacity_val_lbl = QLabel(f"{int(config.get('opacity', 0.5)*100)}%")
         self.opacity_val_lbl.setStyleSheet("color: #ffd700; font-weight: bold;")
         
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(10, 100)
-        self.opacity_slider.setValue(int(config.get("opacity", 0.8) * 100))
+        self.opacity_slider.setValue(int(config.get("opacity", 0.5) * 100))
         self.opacity_slider.valueChanged.connect(self.on_opacity_changed)
         
-        opacity_row.addWidget(opacity_lbl)
         opacity_row.addWidget(self.opacity_slider)
         opacity_row.addWidget(self.opacity_val_lbl)
-        self.layout.addLayout(opacity_row)
+        exp_tab_layout.addLayout(opacity_row)
+        
+        # Add Stretch to push debug info to the VERY BOTTOM
+        exp_tab_layout.addStretch()
+
+        # Show Debug Messages Checkbox (At bottom)
+        self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
+        self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px; margin-top: 10px;")
+        if self.overlay:
+            self.debug_mode_cb.setChecked(self.overlay.show_debug)
+        self.debug_mode_cb.toggled.connect(self.on_debug_mode_changed)
+        exp_tab_layout.addWidget(self.debug_mode_cb)
+
+        # Debug OCR Image (Hidden by default, shown only when checkbox is on)
+        self.debug_info_lbl = QLabel("🔍 OCR 監控 (白底黑字則為正常)")
+        self.debug_info_lbl.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
+        self.debug_info_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_info_lbl)
+        
+        self.debug_img_lbl = QLabel()
+        self.debug_img_lbl.setFixedSize(300, 30)
+        self.debug_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
+        self.debug_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.debug_img_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_img_lbl)
+        self.tabs.addTab(exp_tab, "📊 經驗值")
+
+        # --- Global Controls (Bottom) ---
 
         self.update_profile_dropdown()
+
         self.refresh_items()
 
-        act_layout = QVBoxLayout()
-        self.record_btn = QPushButton("➕ 新增按鍵 (點我後按鍵盤)")
-        self.record_btn.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
-        self.record_btn.clicked.connect(self.toggle_recording)
-        act_layout.addWidget(self.record_btn)
+        # --- Global Controls (Bottom) ---
 
         save_btn = QPushButton("💾 儲存並套用")
         save_btn.setStyleSheet("QPushButton { background-color: #ffd700; color: black; font-weight: bold; border-radius: 5px; height: 35px; margin-top: 5px;}")
         save_btn.clicked.connect(self.save_and_close)
-        act_layout.addWidget(save_btn)
+        self.layout.addWidget(save_btn)
 
         pos_btn = QPushButton("🔱 調整顯示位置")
         pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 5px;}")
         pos_btn.clicked.connect(self.toggle_handle)
-        act_layout.addWidget(pos_btn)
+        self.layout.addWidget(pos_btn)
 
         exit_btn = QPushButton("🛑 關閉整個輔助")
         exit_btn.setStyleSheet("QPushButton { background-color: transparent; color: #666; border: none; font-size: 10px; margin-top: 20px; }")
         exit_btn.clicked.connect(QApplication.instance().quit)
-        act_layout.addWidget(exit_btn)
+        self.layout.addWidget(exit_btn)
         
-        self.layout.addLayout(act_layout)
+
 
     def keyPressEvent(self, event):
         if self.is_recording:
@@ -536,11 +644,28 @@ class SettingsWindow(QWidget):
             self.trigger_data[key]["icon"] = path
             self.update_icon_button(btn, path)
 
+    def on_debug_mode_changed(self, checked):
+        if self.overlay:
+            self.overlay.show_debug = checked
+            self.debug_info_lbl.setVisible(checked)
+            self.debug_img_lbl.setVisible(checked)
+            self.overlay.show_notification(f"除錯模式: {'開啟' if checked else '關閉'}")
+
     def on_opacity_changed(self, value):
         self.opacity_val_lbl.setText(f"{value}%")
         if self.overlay:
             self.overlay.base_opacity = value / 100.0
             self.overlay.update()
+
+    def on_exp_toggle_changed(self, checked):
+        if self.overlay and self.overlay.show_exp_panel != checked:
+            self.overlay.on_toggle_exp()
+
+    def on_reset_exp_clicked(self):
+        if self.overlay:
+            self.overlay.on_toggle_exp() # Turn off
+            self.overlay.on_toggle_exp() # Turn back on (resets logic)
+            self.refresh_items()
 
     def save_and_close(self):
         config = ConfigManager.load_config()
@@ -627,7 +752,10 @@ class ArtaleOverlay(QWidget):
         
         # Load Opacity to internal variable, keeping window itself opaque
         config = ConfigManager.load_config()
+        self.show_exp_panel = config.get("show_exp", True)
+        self.show_debug = config.get("show_debug", False)
         self.base_opacity = config.get("opacity", 0.5)
+        self._is_running = True
         
         self.show()
 
@@ -708,6 +836,10 @@ class ArtaleOverlay(QWidget):
         return False
 
     # --- EXP Tracker Logic ---
+    def closeEvent(self, event):
+        self._is_running = False
+        super().closeEvent(event)
+
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
         # Base resolution for coordinates provided by user
@@ -718,18 +850,21 @@ class ArtaleOverlay(QWidget):
         
         def on_frame_arrived_callback(frame: Frame, _):
             nonlocal last_processed
-            # Skip if disabled to save CPU
-            if not self.show_exp_panel:
-                return
-                
-            now = time.time()
-            if now - last_processed < 1.0: # 1 FPS
-                return
-            
             try:
-                # Use frame_buffer attribute for 1.5.0
-                img = frame.frame_buffer
-                if img is None: return
+                # Security checks
+                if not self._is_running: return
+                if not self.show_exp_panel: return
+                
+                now = time.time()
+                if now - last_processed < 1.0: return
+                last_processed = now
+            
+                # Use frame_buffer which we now know works for debug_crop.png
+                img_bgra = getattr(frame, 'frame_buffer', None)
+                if img_bgra is None: return
+                
+                # Convert BGRA to BGR
+                img = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
                 
                 h, w = img.shape[:2]
                 # Calculate scale factors
@@ -748,7 +883,7 @@ class ArtaleOverlay(QWidget):
                 cw = max(1, min(cw, w - x))
                 ch = max(1, min(ch, h - y))
                 
-                if self.show_exp_panel:
+                if self.show_debug:
                     # Output window and crop info for debugging
                     print(f"[ExpTracker] Window: {w}x{h}, Crop: ({x}, {y}, {cw}, {ch}), Scale: ({sx:.2f}, {sy:.2f})")
                 
@@ -764,13 +899,19 @@ class ArtaleOverlay(QWidget):
                 
                 _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
                 
-                # 3. OCR
+                # 3. OCR (Restore config now that DLLs are fixed)
                 text = ""
                 if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                     try:
-                        config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%'
-                        text = pytesseract.image_to_string(thresh, config=config).strip()
-                        self._tesseract_error_shown = False # Reset if successful
+                        # Add some white padding (Tesseract likes breathing room)
+                        padded = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                        
+                        # PSM 7: Treat as a single line. Whitelist: Only numbers and some symbols.
+                        tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%|'
+                        text = pytesseract.image_to_string(padded, config=tess_config).strip()
+                        if self.show_debug:
+                            print(f"[ExpTracker] Raw OCR: '{text}'")
+                        self._tesseract_error_shown = False
                     except Exception as e:
                         if not self._tesseract_error_shown:
                             print(f"[ExpTracker] OCR Error: {e}")
@@ -780,9 +921,7 @@ class ArtaleOverlay(QWidget):
                     self._tesseract_error_shown = True
                 
                 if text:
-                    if self.show_exp_panel:
-                        print(f"[ExpTracker] Raw OCR Result: '{text}'")
-                    self.parse_and_update_exp(text)
+                    self.parse_and_update_exp(text, thresh, crop)
                 
                 last_processed = now
             except Exception as e:
@@ -790,14 +929,25 @@ class ArtaleOverlay(QWidget):
 
         # Start capture loop
         try:
-            # For windows-capture v1.5.0+, we must use the @capture.event decorator
-            # Set minimum_update_interval=1000 to limit capture to 1 FPS at the source
-            capture = WindowsCapture(
-                window_name=self.target_window_title,
-                cursor_capture=False,
-                draw_border=False,
-                minimum_update_interval=1000
-            )
+            # 1. Try common window names in sequence to find Artale
+            capture = None
+            for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
+                try:
+                    from windows_capture import WindowsCapture
+                    capture = WindowsCapture(
+                        window_name=name,
+                        cursor_capture=False,
+                        draw_border=False,
+                        minimum_update_interval=1000
+                    )
+                    break
+                except:
+                    continue
+
+            if not capture:
+                print(f"[ExpTracker] Error: Artale window not found. Using default 'Artale' and hoping for the best.")
+                capture = WindowsCapture(window_name="Artale", minimum_update_interval=1000)
+
             
             @capture.event
             def on_frame_arrived(frame, capture_control):
@@ -813,8 +963,24 @@ class ArtaleOverlay(QWidget):
         except Exception as e:
             print(f"[ExpTracker] Failed to start: {e}")
 
-    def parse_and_update_exp(self, raw_text):
+    def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
         try:
+            # Prepare data
+            data = {"text": "---", "value": 0, "percent": 0.0, "timestamp": time.time(), "debug_bytes": None, "raw_bytes": None}
+            
+            # Encode images to bytes (Bypasses QImage pointer issues)
+            if debug_img is not None:
+                try:
+                    success, buffer = cv2.imencode('.png', debug_img)
+                    if success: data["debug_bytes"] = buffer.tobytes()
+                except: pass
+            
+            if raw_img is not None:
+                try:
+                    success, buffer = cv2.imencode('.png', raw_img)
+                    if success: data["raw_bytes"] = buffer.tobytes()
+                except: pass
+
             # Normalize and extract all numbers
             s = raw_text.replace(",", "")
             nums = re.findall(r"\d+\.\d+|\d+", s)
@@ -839,10 +1005,15 @@ class ArtaleOverlay(QWidget):
             if pct_val > 100 and str(pct_str).startswith("1"):
                 pct_val = float(str(pct_str)[1:])
             
+            if not val_str: return
             val = int(val_str)
-            print(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
+            if self.show_debug:
+                print(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
             
-            data = {"text": f"{val:,} [{pct_val:.2f}%]", "value": val, "percent": pct_val, "timestamp": time.time()}
+            data["text"] = f"{val:,} [{pct_val:.2f}%]"
+            data["value"] = val
+            data["percent"] = pct_val
+            
             self.exp_update_request.emit(data)
         except Exception as e:
             print(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
