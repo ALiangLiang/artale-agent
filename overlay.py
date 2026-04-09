@@ -938,37 +938,62 @@ class ArtaleOverlay(QWidget):
 
         while self._is_running:
             capture = None
-            for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
+            target_name = None
+            
+            # 1. Check static candidates
+            static_candidates = ["MapleStory Worlds-Artale (繁體中文版)", "Artale"]
+            for name in static_candidates:
                 try:
                     from windows_capture import WindowsCapture
-                    temp_capture = WindowsCapture(window_name=name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
-                    
+                    # We just test if creating the object with this name works without error
+                    # (In most versions, invalid names throw immediately or on start)
+                    test = WindowsCapture(window_name=name)
+                    target_name = name
+                    break
+                except: continue
+            
+            # 2. Check process fallback if not found
+            if not target_name:
+                try:
+                    import psutil, win32gui, win32process
+                    for proc in psutil.process_iter(['pid', 'name']):
+                        if proc.info['name'] and proc.info['name'].lower() == 'msw.exe':
+                            def callback(hwnd, extra):
+                                if win32gui.IsWindowVisible(hwnd):
+                                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                                    if pid == proc.info['pid']:
+                                        t = win32gui.GetWindowText(hwnd); 
+                                        if t: extra.append(t)
+                                return True
+                            titles = []
+                            win32gui.EnumWindows(callback, titles)
+                            if titles: target_name = titles[0]; break
+                except: pass
+
+            if target_name:
+                try:
+                    from windows_capture import WindowsCapture
+                    temp_capture = WindowsCapture(window_name=target_name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
                     @temp_capture.event
                     def on_frame_arrived(frame, control):
                         on_frame_arrived_callback(frame, control)
                     @temp_capture.event
                     def on_closed():
-                        print("[ExpTracker] Session closed.")
-                        self._exp_tracker_active = False # Reset flag on close
+                        print("[ExpTracker] Session closed."); self._exp_tracker_active = False
                     
-                    print(f"[ExpTracker] Monitoring {name} for EXP...")
-                    self._exp_tracker_active = True # Set flag before start
+                    print(f"[ExpTracker] Monitoring {target_name} for EXP...")
+                    self._exp_tracker_active = True
                     self.capture_session = temp_capture.start_free_threaded()
                     capture = temp_capture
-                    break
                 except Exception as e:
-                    if "0x80070490" not in str(e) and "元素找不到" not in str(e):
-                        print(f"[ExpTracker] Init failed for {name}: {e}")
+                    print(f"[ExpTracker] Failed to start capture for {target_name}: {e}")
             
             if capture:
-                # Use our own flag to monitor
                 while self._is_running and self._exp_tracker_active:
                     time.sleep(1)
-                print("[ExpTracker] Capture session ended or lost. Retrying...")
                 capture = None
-            
-            if self._is_running:
-                time.sleep(5)
+            else:
+                if self._is_running: time.sleep(5)
 
     def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
         try:
