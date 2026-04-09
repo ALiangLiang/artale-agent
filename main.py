@@ -111,12 +111,24 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             # 3. Profile Switching (Double Press F1-F9) or Disable (F12)
             now = time.time()
             
+            # 2. Always-on controls
+            if k_name == 'pause':
+                print("[Input] Pause Break pressed. Emitting show signal.")
+                settings_window.request_show.emit()
+                return
+
             if k_name == 'f12':
                 print("[Input] F12 Reset Triggered.")
                 is_globally_enabled = False
                 overlay.clear_request.emit()
                 return
 
+            if k_name == 'f10':
+                overlay.toggle_exp_request.emit()
+                return
+
+            # 3. Profile Switching (Double Press F1-F9)
+            now = time.time()
             if k_name and k_name.startswith('f') and len(k_name) <= 3:
                 f_num = k_name[1:]
                 if f_num.isdigit() and 1 <= int(f_num) <= 9:

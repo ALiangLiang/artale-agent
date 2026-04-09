@@ -14,8 +14,32 @@ except ImportError:
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
                              QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon)
-from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QDir, QFileInfo
-from PyQt6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QLinearGradient, QPixmap, QIcon
+try:
+    from windows_capture import WindowsCapture, Frame, InternalCaptureControl
+except ImportError:
+    WindowsCapture = None
+
+from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QDir, QFileInfo, QDateTime, QRectF, QPointF
+from PyQt6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QLinearGradient, QPixmap, QIcon, QPainterPath
+import numpy as np
+import cv2
+import re
+
+# Optional: Using pytesseract for OCR. If not installed, we'll try to provide a fallback or warning.
+try:
+    import pytesseract
+    # Default common installation paths for Tesseract on Windows
+    paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        os.path.expanduser(r'~\AppData\Local\Tesseract-OCR\tesseract.exe')
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            pytesseract.pytesseract.tesseract_cmd = p
+            break
+except ImportError:
+    pytesseract = None
 
 CONFIG_FILE = "config.json"
 
@@ -499,6 +523,8 @@ class ArtaleOverlay(QWidget):
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
+    exp_update_request = pyqtSignal(dict)
+    toggle_exp_request = pyqtSignal()
     
     def __init__(self, target_window_title="Artale"):
         super().__init__()
@@ -511,13 +537,29 @@ class ArtaleOverlay(QWidget):
         self.msg_text = ""; self.msg_opacity = 0
         self.x_offset = 0; self.y_offset = 0
         
+        # EXP Tracking State
+        self.show_exp_panel = False
+        self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
+        self.exp_history = [] # List of (timestamp, value, percent)
+        self.last_capture_time = 0
+        self._tesseract_error_shown = False
+        
         self.timer_request.connect(self.start_timer)
         self.clear_request.connect(self.clear_all_timers)
         self.notification_request.connect(self.show_notification)
         self.profile_switch_request.connect(self.load_profile_immediately)
+        self.exp_update_request.connect(self.on_exp_update)
+        self.toggle_exp_request.connect(self.on_toggle_exp)
         
         self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
         self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
+        
+        # Initialize ExpTracker
+        if WindowsCapture:
+            self.exp_tracker_thread = threading.Thread(target=self.run_exp_tracker, daemon=True)
+            self.exp_tracker_thread.start()
+        else:
+            print("[Warning] windows-capture is not installed. EXP tracking disabled.")
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
@@ -525,9 +567,9 @@ class ArtaleOverlay(QWidget):
         self.load_profile_immediately()
 
     def init_ui(self):
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
         virtual_geo = QApplication.primaryScreen().virtualGeometry()
         self.setGeometry(virtual_geo); self.show()
 
@@ -539,6 +581,7 @@ class ArtaleOverlay(QWidget):
         self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap}
         self.is_active = True
         if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
+        # Limit UI update to avoid unnecessary repaints
         self.update()
 
     def update_countdown(self):
@@ -576,8 +619,14 @@ class ArtaleOverlay(QWidget):
             win32gui.EnumWindows(callback, None)
         except: hwnd = 0
         if hwnd:
-            rect = win32gui.GetWindowRect(hwnd); x, y, x2, y2 = rect
-            if self.geometry() != QRect(x, y, x2-x, y2-y): self.setGeometry(x, y, x2-x, y2-y); self.update()
+            rect = win32gui.GetWindowRect(hwnd)
+            x, y, x2, y2 = rect
+            if self.geometry() != QRect(x, y, x2-x, y2-y): 
+                self.setGeometry(x, y, x2-x, y2-y)
+                self.update()
+            # Absolute persistence
+            if not self.isVisible(): self.show()
+            self.raise_()
 
     def update_offset(self, gx, gy):
         local = self.mapFromGlobal(QPoint(gx, gy))
@@ -598,6 +647,205 @@ class ArtaleOverlay(QWidget):
                 if key in self.active_timers: del self.active_timers[key]
                 self.update(); return True
         return False
+
+    # --- EXP Tracker Logic ---
+    def run_exp_tracker(self):
+        """Background thread to capture and recognize EXP with adaptive scaling"""
+        # Base resolution for coordinates provided by user
+        BASE_W, BASE_H = 1920, 1080
+        BASE_X, BASE_Y, BASE_CW, BASE_CH = 1022, 1017, 250, 19
+        
+        last_processed = 0
+        
+        def on_frame_arrived_callback(frame: Frame, _):
+            nonlocal last_processed
+            # Skip if disabled to save CPU
+            if not self.show_exp_panel:
+                return
+                
+            now = time.time()
+            if now - last_processed < 0.1: # 10 FPS
+                return
+            
+            try:
+                # Use frame_buffer attribute for 1.5.0
+                img = frame.frame_buffer
+                if img is None: return
+                
+                h, w = img.shape[:2]
+                # Calculate scale factors
+                sx = w / BASE_W
+                sy = h / BASE_H
+                
+                # Dynamic region calculation
+                x = int(BASE_X * sx)
+                y = int(BASE_Y * sy)
+                cw = int(BASE_CW * sx)
+                ch = int(BASE_CH * sy)
+                
+                # Ensure we don't exceed frame bounds
+                x = max(0, min(x, w - 1))
+                y = max(0, min(y, h - 1))
+                cw = max(1, min(cw, w - x))
+                ch = max(1, min(ch, h - y))
+                
+                if self.show_exp_panel:
+                    # Output window and crop info for debugging
+                    print(f"[ExpTracker] Window: {w}x{h}, Crop: ({x}, {y}, {cw}, {ch}), Scale: ({sx:.2f}, {sy:.2f})")
+                
+                crop = img[y:y+ch, x:x+cw]
+                if crop.size == 0: return
+
+                # Image Processing
+                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                # Keep target height consistent for OCR (around 60px)
+                target_h = 60
+                scale = target_h / gray.shape[0] if gray.shape[0] > 0 else 3
+                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                
+                _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+                
+                # 3. OCR
+                text = ""
+                if pytesseract and pytesseract.pytesseract.tesseract_cmd:
+                    try:
+                        config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%'
+                        text = pytesseract.image_to_string(thresh, config=config).strip()
+                        self._tesseract_error_shown = False # Reset if successful
+                    except Exception as e:
+                        if not self._tesseract_error_shown:
+                            print(f"[ExpTracker] OCR Error: {e}")
+                            self._tesseract_error_shown = True
+                elif not self._tesseract_error_shown:
+                    print("[ExpTracker] Waiting for Tesseract-OCR installation...")
+                    self._tesseract_error_shown = True
+                
+                if text:
+                    if self.show_exp_panel:
+                        print(f"[ExpTracker] Raw OCR Result: '{text}'")
+                    self.parse_and_update_exp(text)
+                
+                last_processed = now
+            except Exception as e:
+                print(f"[ExpTracker] Error: {e}")
+
+        # Start capture loop
+        try:
+            # For windows-capture v1.5.0+, we must use the @capture.event decorator
+            # Set minimum_update_interval=1000 to limit capture to 1 FPS at the source
+            capture = WindowsCapture(
+                window_name=self.target_window_title,
+                cursor_capture=False,
+                draw_border=False,
+                minimum_update_interval=100
+            )
+            
+            @capture.event
+            def on_frame_arrived(frame, capture_control):
+                on_frame_arrived_callback(frame, capture_control)
+            
+            @capture.event
+            def on_closed():
+                print("[ExpTracker] Capture session closed.")
+            
+            print(f"[ExpTracker] Monitoring {self.target_window_title} for EXP...")
+            # Use start_free_threaded to run on a native thread (better performance)
+            self.capture_session = capture.start_free_threaded()
+        except Exception as e:
+            print(f"[ExpTracker] Failed to start: {e}")
+
+    def parse_and_update_exp(self, raw_text):
+        try:
+            # Normalize and extract all numbers
+            s = raw_text.replace(",", "")
+            nums = re.findall(r"\d+\.\d+|\d+", s)
+            if not nums: return
+            
+            val_str, pct_val = "", 0.0
+            if len(nums) >= 2:
+                # Normal case: [EXP, ..., PCT]
+                pct_str = nums[-1]
+                pct_val = float(pct_str)
+                val_str = max(nums[:-1], key=len)
+            elif len(nums) == 1 and "." in nums[0]:
+                # Joined case: "522120511.46"
+                full = nums[0]
+                dot_idx = full.find(".")
+                pct_str = full[dot_idx-2:] # Assume 2 digits before dot
+                val_str = full[:dot_idx-2]
+                pct_val = float(pct_str)
+            else: return
+
+            # Noise correction for brackets seen as '1'
+            if pct_val > 100 and str(pct_str).startswith("1"):
+                pct_val = float(str(pct_str)[1:])
+            
+            val = int(val_str)
+            print(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
+            
+            data = {"text": f"{val:,} [{pct_val:.2f}%]", "value": val, "percent": pct_val, "timestamp": time.time()}
+            self.exp_update_request.emit(data)
+        except Exception as e:
+            print(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
+
+    def on_exp_update(self, data):
+        # Initialize session variables if needed
+        if not hasattr(self, 'exp_session_start_time'): self.exp_session_start_time = None
+        if not hasattr(self, 'exp_initial_val') or self.exp_initial_val is None: 
+            self.exp_initial_val = data["value"]
+            print(f"[ExpTracker] Initial baseline: {self.exp_initial_val:,}")
+
+        # Trigger session start on first actual EXP gain
+        if self.exp_session_start_time is None and data["value"] > self.exp_initial_val:
+            self.exp_session_start_time = data["timestamp"]
+            print(f"[ExpTracker] Session triggered! First gain detected.")
+
+        now = data["timestamp"]
+        self.exp_history.append((now, data["value"], data["percent"]))
+        
+        # 1. 10min Sliding Window (for Efficiency)
+        limit_10m = now - 600
+        while len(self.exp_history) > 1 and self.exp_history[0][0] < limit_10m:
+            self.exp_history.pop(0)
+            
+        # 2. Update UI Metadata
+        self.current_exp_data["text"] = data["text"]
+        self.current_exp_data["value"] = data["value"]
+        self.current_exp_data["percent"] = data["percent"]
+
+        if self.exp_session_start_time is not None:
+            # Main recording duration (from first gain)
+            self.current_exp_data["tracking_duration"] = int(now - self.exp_session_start_time)
+            
+            # Efficiency window (sliding, max 10m)
+            ref_t, ref_v, ref_p = self.exp_history[0]
+            win_elapsed = now - ref_t
+            gain_val = data["value"] - ref_v
+            gain_pct = data["percent"] - ref_p
+            
+            if win_elapsed > 1:
+                if win_elapsed >= 595: # Real 10m window reached
+                    self.current_exp_data["gained_10m"] = gain_val
+                    self.current_exp_data["percent_10m"] = gain_pct
+                    self.current_exp_data["is_estimated"] = False
+                else:
+                    # Estimate 10m amount
+                    scale = 600 / win_elapsed
+                    self.current_exp_data["gained_10m"] = int(gain_val * scale)
+                    self.current_exp_data["percent_10m"] = gain_pct * scale
+                    self.current_exp_data["is_estimated"] = True
+
+                # Time to Level (based on current 10m rate)
+                rate_per_sec = (self.current_exp_data["percent_10m"] / 600.0)
+                if rate_per_sec > 0:
+                    rem_pct = 100.0 - data["percent"]
+                    self.current_exp_data["time_to_level"] = int(rem_pct / rate_per_sec)
+                else:
+                    self.current_exp_data["time_to_level"] = -1
+        
+        if self.show_exp_panel:
+            print(f"[Overlay] EXP Data: {data['text']}")
+        self.update()
 
     def load_profile_immediately(self):
         self.clear_all_timers(show_msg=False)
@@ -620,8 +868,15 @@ class ArtaleOverlay(QWidget):
         else: self.fade_timer.stop()
 
     def paintEvent(self, event):
-        if not self.is_active and not self.show_preview and self.msg_opacity == 0: return
+        # Always draw EXP panel if we have data, even if not active
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 0. Draw EXP Statistics Panel (Top Left)
+        if self.show_exp_panel:
+            self.draw_exp_panel(painter)
+
+        if not self.is_active and not self.show_preview and self.msg_opacity == 0: 
+            return
         
         # Base coordinates
         base_x = self.rect().center().x() + self.x_offset
@@ -666,3 +921,90 @@ class ArtaleOverlay(QWidget):
             painter.setPen(QPen(QColor(0,0,0,200), 4)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
             painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
+
+    def on_toggle_exp(self):
+        self.show_exp_panel = not self.show_exp_panel
+        status = "已啟用" if self.show_exp_panel else "已關閉"
+        print(f"[Overlay] EXP Panel toggled: {status}")
+        self.show_notification(f"📊 經驗監測系統 {status} (F10)")
+        if not self.show_exp_panel:
+            # Reset all session variables
+            self.current_exp_data = {
+                "text": "---", "value": 0, "percent": 0.0, 
+                "gained_10m": 0, "percent_10m": 0.0, 
+                "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
+            }
+            self.exp_history = []
+            self.exp_session_start_time = None
+            self.exp_initial_val = None
+        self.update()
+
+    def draw_exp_panel(self, painter):
+        if not self.show_exp_panel:
+            return
+            
+        # Positional logic
+        bx = self.rect().center().x() + self.x_offset
+        by = self.rect().center().y() + self.y_offset
+        pw, ph = 330, 115 # Reduced height
+        px = bx - pw // 2
+        py = by + 140
+        panel_rect = QRect(px, py, pw, ph)
+        
+        # 1. Background
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(panel_rect), 12, 12)
+        painter.setPen(QPen(QColor(255, 215, 0, 255), 2))
+        painter.setBrush(QColor(10, 10, 15, 250)) 
+        painter.drawPath(path)
+        
+        # 2. Recording Duration
+        duration_sec = self.current_exp_data.get("tracking_duration", 0)
+        h_dur = duration_sec // 3600
+        m_dur = (duration_sec % 3600) // 60
+        s_dur = duration_sec % 60
+        duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
+            
+        painter.setPen(QColor(200, 200, 200))
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
+        
+        # 3. Time to Level Up
+        painter.setPen(QColor(255, 215, 0))
+        painter.setFont(QFont("Segoe UI Bold", 13))
+        ttl_sec = self.current_exp_data.get("time_to_level", -1)
+        if ttl_sec > 0:
+            h = ttl_sec // 3600
+            m = (ttl_sec % 3600) // 60
+            ttl_text = f"升級預計還需: {h}小時 {m}分"
+        else:
+            ttl_text = "升級預計還需: 計算速率中..."
+        painter.drawText(px + 15, py + 62, ttl_text)
+        
+        # 4. 10min Efficiency
+        gain_val = self.current_exp_data.get("gained_10m", 0)
+        gain_pct = self.current_exp_data.get("percent_10m", 0.0)
+        is_est = self.current_exp_data.get("is_estimated", True)
+        label = "（預估）" if is_est else ""
+        gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
+        
+        painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
+        painter.setFont(QFont("Segoe UI Semibold", 11))
+        painter.drawText(px + 15, py + 95, gain_text)
+
+        # 6. Progress Bar (Bottom)
+        progress_pct = self.current_exp_data.get("percent", 0.0)
+        bar_full_width = pw - 30
+        bar_width = int(bar_full_width * (max(0, min(100, progress_pct)) / 100.0))
+        
+        painter.setBrush(QColor(255, 255, 255, 30))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(px + 15, py + 128, bar_full_width, 3) 
+        
+        if bar_width > 0:
+            painter.setBrush(QColor(255, 215, 0, 180))
+            painter.drawRect(px + 15, py + 128, bar_width, 3)
+        
+
+
+

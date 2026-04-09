@@ -11,6 +11,7 @@ numpy = "*"
 windows-capture = {version = "*", markers = "platform_system == \"Windows\""}
 pywin32 = {version = "*", markers = "platform_system == \"Windows\""}
 pynput = "*"
+pytesseract = "*"
 
 [dev-packages]
 
