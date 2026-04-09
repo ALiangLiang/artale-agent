@@ -13,7 +13,7 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon)
+                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon, QSlider)
 try:
     from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 except ImportError:
@@ -110,6 +110,10 @@ class ConfigManager:
                         for k, v in p["triggers"].items():
                             if isinstance(v, (int, float)):
                                 p["triggers"][k] = {"seconds": int(v), "icon": ""}
+                    
+                    if "opacity" not in config:
+                        config["opacity"] = 0.5
+
                     return config
             except Exception as e: 
                 print(f"Error loading config: {e}")
@@ -119,7 +123,7 @@ class ConfigManager:
         default_profiles = {}
         for i in range(1, 10):
             default_profiles[f"F{i}"] = {"name": f"切換組 F{i}", "triggers": {}}
-        return {"active_profile": "F1", "offset": [0, 0], "profiles": default_profiles}
+        return {"active_profile": "F1", "offset": [0, 0], "opacity": 0.5, "profiles": default_profiles}
 
     @staticmethod
     def save_config(config):
@@ -311,6 +315,24 @@ class SettingsWindow(QWidget):
         self.scroll.setWidget(self.scroll_content)
         self.layout.addWidget(self.scroll)
 
+        # Opacity Slider
+        config = ConfigManager.load_config()
+        opacity_row = QHBoxLayout()
+        opacity_lbl = QLabel("🎨 視窗透明度")
+        opacity_lbl.setStyleSheet("font-size: 12px; color: #aaa;")
+        self.opacity_val_lbl = QLabel(f"{int(config.get('opacity', 0.8)*100)}%")
+        self.opacity_val_lbl.setStyleSheet("color: #ffd700; font-weight: bold;")
+        
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(10, 100)
+        self.opacity_slider.setValue(int(config.get("opacity", 0.8) * 100))
+        self.opacity_slider.valueChanged.connect(self.on_opacity_changed)
+        
+        opacity_row.addWidget(opacity_lbl)
+        opacity_row.addWidget(self.opacity_slider)
+        opacity_row.addWidget(self.opacity_val_lbl)
+        self.layout.addLayout(opacity_row)
+
         self.update_profile_dropdown()
         self.refresh_items()
 
@@ -496,6 +518,12 @@ class SettingsWindow(QWidget):
             self.trigger_data[key]["icon"] = path
             self.update_icon_button(btn, path)
 
+    def on_opacity_changed(self, value):
+        self.opacity_val_lbl.setText(f"{value}%")
+        if self.overlay:
+            self.overlay.base_opacity = value / 100.0
+            self.overlay.update()
+
     def save_and_close(self):
         config = ConfigManager.load_config()
         p_key = self.profile_box.itemData(self.profile_box.currentIndex())
@@ -513,6 +541,7 @@ class SettingsWindow(QWidget):
         config["profiles"][p_key]["name"] = self.nickname_inp.text()
         if self.overlay: config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
         config["active_profile"] = p_key
+        config["opacity"] = self.opacity_slider.value() / 100.0
         ConfigManager.save_config(config)
         if self.handle: self.handle.hide()
         if self.overlay: self.overlay.show_preview = False
@@ -536,6 +565,7 @@ class ArtaleOverlay(QWidget):
         self.active_profile_name = "F1"
         self.msg_text = ""; self.msg_opacity = 0
         self.x_offset = 0; self.y_offset = 0
+        self.base_opacity = 0.5
         
         # EXP Tracking State
         self.show_exp_panel = False
@@ -571,7 +601,13 @@ class ArtaleOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
         virtual_geo = QApplication.primaryScreen().virtualGeometry()
-        self.setGeometry(virtual_geo); self.show()
+        self.setGeometry(virtual_geo)
+        
+        # Load Opacity to internal variable, keeping window itself opaque
+        config = ConfigManager.load_config()
+        self.base_opacity = config.get("opacity", 0.5)
+        
+        self.show()
 
     def start_timer(self, key, seconds, icon_path=None):
         pixmap = None
@@ -888,7 +924,9 @@ class ArtaleOverlay(QWidget):
             tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
             # Draw notification clearly above the timer block
             bg_rect = QRect(base_x - (tw+40)//2, base_y - 70, tw+40, 45)
-            painter.setBrush(QColor(0, 0, 0, min(200, self.msg_opacity)))
+            # Notification background affected by both fade and settings
+            bg_alpha = int(min(200, self.msg_opacity) * (self.base_opacity / 1.0))
+            painter.setBrush(QColor(0, 0, 0, bg_alpha))
             painter.setPen(Qt.PenStyle.NoPen); painter.drawRoundedRect(bg_rect, 8, 8)
             color = QColor(255, 100, 100, self.msg_opacity) if "F12" in self.msg_text else QColor(255, 215, 0, self.msg_opacity)
             painter.setPen(color); painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
@@ -955,7 +993,7 @@ class ArtaleOverlay(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(panel_rect), 12, 12)
         painter.setPen(QPen(QColor(255, 215, 0, 255), 2))
-        painter.setBrush(QColor(10, 10, 15, 250)) 
+        painter.setBrush(QColor(10, 10, 15, int(self.base_opacity * 255))) 
         painter.drawPath(path)
         
         # 2. Recording Duration
