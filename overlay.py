@@ -761,6 +761,7 @@ class ArtaleOverlay(QWidget):
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
         self.load_profile_immediately()
         self.init_tray()
+        self.init_ui()
 
     def init_tray(self):
         """Initialize System Tray Icon with context menu"""
@@ -898,142 +899,76 @@ class ArtaleOverlay(QWidget):
 
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
-        # Base resolution for coordinates provided by user
         BASE_W, BASE_H = 1920, 1080
         BASE_X, BASE_Y, BASE_CW, BASE_CH = 1022, 1017, 250, 19
-        
         last_processed = 0
         
         def on_frame_arrived_callback(frame: Frame, _):
             nonlocal last_processed
             try:
-                # Security checks
-                if not self._is_running: return
-                if not self.show_exp_panel: return
-                
+                if not self._is_running or not self.show_exp_panel: return
                 now = time.time()
                 if now - last_processed < 1.0: return
                 last_processed = now
-            
-                # Use frame_buffer which we now know works for debug_crop.png
-                img_bgra = getattr(frame, 'frame_buffer', None)
+                img_bgra = getattr(frame, "frame_buffer", None)
                 if img_bgra is None: return
-                
-                # Convert BGRA to BGR
                 img = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
-                
                 h, w = img.shape[:2]
-                # Calculate scale factors
-                sx = w / BASE_W
-                sy = h / BASE_H
-                
-                # Dynamic region calculation
-                x = int(BASE_X * sx)
-                y = int(BASE_Y * sy)
-                cw = int(BASE_CW * sx)
-                ch = int(BASE_CH * sy)
-                
-                # Ensure we don't exceed frame bounds
-                x = max(0, min(x, w - 1))
-                y = max(0, min(y, h - 1))
-                cw = max(1, min(cw, w - x))
-                ch = max(1, min(ch, h - y))
-                
-                if self.show_debug:
-                    # Output window and crop info for debugging
-                    print(f"[ExpTracker] Window: {w}x{h}, Crop: ({x}, {y}, {cw}, {ch}), Scale: ({sx:.2f}, {sy:.2f})")
-                
-                crop = img[y:y+ch, x:x+cw]
+                sx, sy = w / BASE_W, h / BASE_H
+                crop = img[int(BASE_Y*sy):int((BASE_Y+BASE_CH)*sy), int(BASE_X*sx):int((BASE_X+BASE_CW)*sx)]
                 if crop.size == 0: return
-
-                # Image Processing
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-                # Keep target height consistent for OCR (around 60px)
                 target_h = 60
                 scale = target_h / gray.shape[0] if gray.shape[0] > 0 else 3
                 gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-                
                 _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
-                
-                # 3. OCR (Restore config now that DLLs are fixed)
                 text = ""
                 if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                     try:
-                        # Add some white padding (Tesseract likes breathing room)
                         padded = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                        
-                        # PSM 7: Treat as a single line. Whitelist: Only numbers and some symbols.
                         tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%|'
                         text = pytesseract.image_to_string(padded, config=tess_config).strip()
-                        if self.show_debug:
-                            print(f"[ExpTracker] Raw OCR: '{text}'")
                         self._tesseract_error_shown = False
-                    except Exception as e:
-                        if not self._tesseract_error_shown:
-                            print(f"[ExpTracker] OCR Error: {e}")
-                            self._tesseract_error_shown = True
-                elif not self._tesseract_error_shown:
-                    print("[ExpTracker] Waiting for Tesseract-OCR installation...")
-                    self._tesseract_error_shown = True
-                
+                    except: pass
                 if text:
+                    if self.show_debug: print(f"[ExpTracker] Raw OCR: '{text}'")
                     self.parse_and_update_exp(text, thresh, crop)
-                
                 last_processed = now
-            except Exception as e:
-                print(f"[ExpTracker] Error: {e}")
+            except: pass
 
-        # Start capture loop
-        try:
+        while self._is_running:
             capture = None
-            # Robust loop to find the window
-            while self._is_running:
-                for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
-                    try:
-                        from windows_capture import WindowsCapture
-                        # Note: In some versions, creating the object is fast, 
-                        # but we need to verify if it actually found anything.
-                        temp_capture = WindowsCapture(
-                            window_name=name,
-                            cursor_capture=False,
-                            draw_border=False,
-                            minimum_update_interval=1000
-                        )
-                        # Attempt to start. If it fails here, it's usually because the window isn't found.
-                        # We use start_free_threaded immediately to test.
-                        print(f"[ExpTracker] Attempting to bind to window: {name}")
-                        self.capture_session = temp_capture.start_free_threaded()
-                        capture = temp_capture
-                        print(f"[ExpTracker] Successfully bound to {name}!")
-                        break
-                    except Exception as e:
-                        if "0x80070490" in str(e) or "元素找不到" in str(e):
-                            continue # Try next name
-                        else:
-                            # Other error (like permission)
-                            print(f"[ExpTracker] Capture attempt failed for {name}: {e}")
-                            continue
-                
-                if capture:
+            for name in ["Artale", "artale", "ARTALE", "msw.exe"]:
+                try:
+                    from windows_capture import WindowsCapture
+                    temp_capture = WindowsCapture(window_name=name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
+                    
+                    @temp_capture.event
+                    def on_frame_arrived(frame, control):
+                        on_frame_arrived_callback(frame, control)
+                    @temp_capture.event
+                    def on_closed():
+                        print("[ExpTracker] Session closed.")
+                        self._exp_tracker_active = False # Reset flag on close
+                    
+                    print(f"[ExpTracker] Monitoring {name} for EXP...")
+                    self._exp_tracker_active = True # Set flag before start
+                    self.capture_session = temp_capture.start_free_threaded()
+                    capture = temp_capture
                     break
-                
-                # If we get here, no window was found. Wait and retry.
-                print("[ExpTracker] Artale window NOT found. Retrying in 5s... (Make sure game is NOT minimized)")
-                time.sleep(5)
-
-            if not capture: return
-
-            @capture.event
-            def on_frame_arrived(frame, capture_control):
-                on_frame_arrived_callback(frame, capture_control)
+                except Exception as e:
+                    if "0x80070490" not in str(e) and "元素找不到" not in str(e):
+                        print(f"[ExpTracker] Init failed for {name}: {e}")
             
-            @capture.event
-            def on_closed():
-                print("[ExpTracker] Capture session closed.")
-
-            self.capture_session = capture.start_free_threaded()
-        except Exception as e:
-            print(f"[ExpTracker] Failed to start: {e}")
+            if capture:
+                # Use our own flag to monitor
+                while self._is_running and self._exp_tracker_active:
+                    time.sleep(1)
+                print("[ExpTracker] Capture session ended or lost. Retrying...")
+                capture = None
+            
+            if self._is_running:
+                time.sleep(5)
 
     def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
         try:
