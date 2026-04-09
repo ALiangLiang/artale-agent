@@ -159,10 +159,12 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 if isinstance(trigger_data, dict):
                     seconds = trigger_data.get("seconds", 10)
                     icon = trigger_data.get("icon", "")
+                    sound = trigger_data.get("sound", True)
                 else:
                     seconds = trigger_data
                     icon = ""
-                overlay.timer_request.emit(k_name, seconds, icon if icon else "")
+                    sound = True
+                overlay.timer_request.emit(k_name, seconds, icon if icon else "", sound)
                 
         except Exception as e:
             print(f"[Error] Listener: {e}")

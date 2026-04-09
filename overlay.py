@@ -13,7 +13,7 @@ except ImportError:
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon, QSlider)
+                             QGridLayout, QDialog, QTabWidget, QComboBox, QSystemTrayIcon, QSlider, QCheckBox)
 try:
     from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 except ImportError:
@@ -109,7 +109,9 @@ class ConfigManager:
                             p["name"] = "未命名"
                         for k, v in p["triggers"].items():
                             if isinstance(v, (int, float)):
-                                p["triggers"][k] = {"seconds": int(v), "icon": ""}
+                                p["triggers"][k] = {"seconds": int(v), "icon": "", "sound": True}
+                            if "sound" not in p["triggers"][k]:
+                                p["triggers"][k]["sound"] = True
                     
                     if "opacity" not in config:
                         config["opacity"] = 0.5
@@ -163,6 +165,12 @@ class IconSelectorDialog(QDialog):
                     all_dirs.remove(p)
             categories.extend(sorted(all_dirs))
             
+            cat_map = {
+                "Warrior": "劍士", "Magician": "法師", "Bowman": "弓箭手",
+                "Thief": "盜賊", "Pirate": "海盜", "Common": "共通",
+                "buff_items": "消耗品", "Others": "其他"
+            }
+            
             for cat in categories:
                 scroll = QScrollArea()
                 container = QWidget()
@@ -195,7 +203,8 @@ class IconSelectorDialog(QDialog):
                 container.setLayout(grid)
                 scroll.setWidget(container)
                 scroll.setWidgetResizable(True)
-                self.tabs.addTab(scroll, cat)
+                display_name = cat_map.get(cat, cat)
+                self.tabs.addTab(scroll, display_name)
         
         cancel_btn = QPushButton("取消")
         cancel_btn.clicked.connect(self.reject)
@@ -379,9 +388,13 @@ class SettingsWindow(QWidget):
         active_ui_data = {}
         for key, ui in self.trigger_data.items():
             try:
-                active_ui_data[key] = {"seconds": int(ui["inp"].text()), "icon": ui["icon"]}
+                active_ui_data[key] = {
+                    "seconds": int(ui["inp"].text()), 
+                    "icon": ui["icon"],
+                    "sound": ui["cb_sound"].isChecked()
+                }
             except:
-                active_ui_data[key] = {"seconds": 300, "icon": ui["icon"]}
+                active_ui_data[key] = {"seconds": 300, "icon": ui["icon"], "sound": True}
         return active_ui_data
 
     def update_profile_dropdown(self):
@@ -482,14 +495,19 @@ class SettingsWindow(QWidget):
             row_widget.setStyleSheet("background-color: #1e1e1e; border-radius: 4px; margin: 2px;")
             row = QHBoxLayout(row_widget)
             lbl = QLabel(key.upper()); lbl.setStyleSheet("color: #ffd700;"); lbl.setFixedWidth(60)
+            
             icon_btn = QPushButton(); icon_btn.setFixedSize(32, 32)
             self.update_icon_button(icon_btn, data.get("icon", ""))
             icon_btn.clicked.connect(lambda checked, k=key, btn=icon_btn: self.pick_icon(k, btn))
-            inp = QLineEdit(str(data.get("seconds", 300))); inp.setFixedWidth(50)
+            
+            inp = QLineEdit(str(data.get("seconds", 300))); inp.setFixedWidth(35)
+            cb_sound = QCheckBox("20s音效")
+            cb_sound.setChecked(data.get("sound", True))
+            cb_sound.setStyleSheet("font-size: 10px; color: #888;")
             del_btn = QPushButton("🗑️"); del_btn.setFixedWidth(30)
             del_btn.clicked.connect(lambda checked, k=key: self.delete_key(k))
-            row.addWidget(lbl); row.addWidget(icon_btn); row.addWidget(inp); row.addWidget(QLabel("秒")); row.addStretch(); row.addWidget(del_btn)
-            self.trigger_data[key] = {"inp": inp, "icon": data.get("icon", "")}
+            row.addWidget(lbl); row.addWidget(icon_btn); row.addWidget(inp); row.addWidget(QLabel("秒")); row.addWidget(cb_sound); row.addStretch(); row.addWidget(del_btn)
+            self.trigger_data[key] = {"inp": inp, "icon": data.get("icon", ""), "cb_sound": cb_sound}
             self.scroll_layout.addWidget(row_widget)
         self.scroll_layout.addStretch()
 
@@ -535,7 +553,11 @@ class SettingsWindow(QWidget):
                 icon_path = data["icon"]
                 if icon_path and os.path.isabs(icon_path) and icon_path.lower().startswith(base_dir.lower()):
                     icon_path = os.path.relpath(icon_path, base_dir).replace("\\", "/")
-                new_triggers[key] = {"seconds": int(data["inp"].text()), "icon": icon_path}
+                new_triggers[key] = {
+                    "seconds": int(data["inp"].text()), 
+                    "icon": icon_path,
+                    "sound": data["cb_sound"].isChecked()
+                }
             except: pass
         config["profiles"][p_key]["triggers"] = new_triggers
         config["profiles"][p_key]["name"] = self.nickname_inp.text()
@@ -548,7 +570,7 @@ class SettingsWindow(QWidget):
         self.config_updated.emit(); self.hide()
 
 class ArtaleOverlay(QWidget):
-    timer_request = pyqtSignal(str, int, str) 
+    timer_request = pyqtSignal(str, int, str, bool) 
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
@@ -609,12 +631,12 @@ class ArtaleOverlay(QWidget):
         
         self.show()
 
-    def start_timer(self, key, seconds, icon_path=None):
+    def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
         pixmap = None
         if icon_path:
             real_path = icon_path if os.path.exists(icon_path) else resource_path(icon_path)
             if os.path.exists(real_path): pixmap = QPixmap(real_path)
-        self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap}
+        self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
         self.is_active = True
         if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
         # Limit UI update to avoid unnecessary repaints
@@ -625,7 +647,8 @@ class ArtaleOverlay(QWidget):
         for key in list(self.active_timers.keys()):
             self.active_timers[key]["seconds"] -= 1
             rem = self.active_timers[key]["seconds"]
-            if rem == 20: self.play_sound(1)
+            sound_enabled = self.active_timers[key].get("sound_enabled", True)
+            if rem == 20 and sound_enabled: self.play_sound(1)
             elif rem == 0: self.play_sound(2)
             elif -10 < rem < 0: self.play_sound(1)
             if rem <= -10: to_remove.append(key)
@@ -700,7 +723,7 @@ class ArtaleOverlay(QWidget):
                 return
                 
             now = time.time()
-            if now - last_processed < 0.1: # 10 FPS
+            if now - last_processed < 1.0: # 1 FPS
                 return
             
             try:
@@ -773,7 +796,7 @@ class ArtaleOverlay(QWidget):
                 window_name=self.target_window_title,
                 cursor_capture=False,
                 draw_border=False,
-                minimum_update_interval=100
+                minimum_update_interval=1000
             )
             
             @capture.event
