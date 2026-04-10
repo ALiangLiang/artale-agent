@@ -957,12 +957,15 @@ class ArtaleOverlay(QWidget):
         if not win32gui: return
         hwnd = 0
         try:
+            import win32process
+            my_pid = os.getpid()
             def callback(h, extra):
                 nonlocal hwnd
+                if not win32gui.IsWindowVisible(h): return True
+                _, pid = win32process.GetWindowThreadProcessId(h)
+                if pid == my_pid: return True # Skip ourselves
                 title = win32gui.GetWindowText(h).lower()
-                if self.target_window_title.lower() in title and \
-                   "agent - settings" not in title and \
-                   win32gui.IsWindowVisible(h):
+                if self.target_window_title.lower() in title:
                     hwnd = h; return False
                 return True
             win32gui.EnumWindows(callback, None)
@@ -1113,13 +1116,18 @@ class ArtaleOverlay(QWidget):
             target_hwnd = None
             
             # 1. Primary: Find Artale by precise window title
+            import win32process
+            my_pid = os.getpid()
             found_hwnds = []
             def enum_handler(hwnd, lparam):
                 if win32gui.IsWindowVisible(hwnd):
+                    # Check if the window belongs to OUR process
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid == my_pid:
+                        return True # Skip our own windows
+                        
                     title = win32gui.GetWindowText(hwnd)
-                    # Must contain Artale but NOT be our own settings window
-                    if ("Artale" in title or "artale" in title) and "Agent - Settings" not in title:
-                        # Also verify it belongs to msw.exe if possible, or is just a likely candidate
+                    if ("Artale" in title or "artale" in title):
                         found_hwnds.append(hwnd)
             
             win32gui.EnumWindows(enum_handler, None)
@@ -1352,12 +1360,16 @@ class ArtaleOverlay(QWidget):
                 target_hwnd = None
                 # Try to find the same window we use for capture
                 target_hwnd = None
+                import win32process
+                my_pid = os.getpid()
                 def enum_render(hwnd, lparam):
                     nonlocal target_hwnd
                     if target_hwnd: return
                     if win32gui.IsWindowVisible(hwnd):
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        if pid == my_pid: return # Skip ourselves
                         title = win32gui.GetWindowText(hwnd)
-                        if ("Artale" in title or "artale" in title) and "Agent - Settings" not in title:
+                        if ("Artale" in title or "artale" in title):
                             target_hwnd = hwnd
                 win32gui.EnumWindows(enum_render, None)
                 
