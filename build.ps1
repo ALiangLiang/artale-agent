@@ -21,6 +21,7 @@ python -m PyInstaller `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
     --clean `
+    --noconsole `
     main.py
 
 if ($LASTEXITCODE -eq 0) {

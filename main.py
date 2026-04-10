@@ -173,9 +173,32 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     listener.start()
     print("[Input] Listener active. Press 'Pause Break' for settings.")
 
+def check_network_drive():
+    try:
+        # Get the directory of the executable
+        app_path = os.path.abspath(sys.argv[0])
+        drive = os.path.splitdrive(app_path)[0]
+        if drive:
+            import win32file
+            drive_type = win32file.GetDriveType(drive + "\\")
+            if drive_type == win32file.DRIVE_REMOTE:
+                from PyQt6.QtWidgets import QMessageBox
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("環境建議 - Artale Helper")
+                msg.setText("偵測到程式正在網路磁碟機 (Samba) 上執行。")
+                msg.setInformativeText("在網路硬碟上執行可能會導致視窗捕捉失敗 (0x80070490)。\n\n建議將程式複製到「本機磁碟」(如桌面或 C 槽) 以獲得最佳穩定性。")
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                msg.exec()
+    except Exception:
+        pass
+
 def run_app():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    
+    # Check for Samba/Network drive issues
+    check_network_drive()
     
     overlay = ArtaleOverlay()
     settings_window = SettingsWindow(overlay)

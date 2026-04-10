@@ -301,7 +301,7 @@ class SettingsWindow(QWidget):
         self.overlay = overlay
         self.setWindowTitle("Artale Helper - Settings")
         self.setFixedSize(360, 750)
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
         self.handle = None
         self.trigger_data = {}
@@ -890,7 +890,7 @@ class ArtaleOverlay(QWidget):
         self.show_notification("📊 經驗值統計已重置")
 
     def init_ui(self):
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
         
@@ -1103,43 +1103,45 @@ class ArtaleOverlay(QWidget):
                 self.update() # Ensure red box moves smoothly with window
             except: pass
         while self._is_running:
-            capture = None
-            target_name = None
+            import win32gui
+            target_hwnd = None
             
-            # 1. Check static candidates
-            static_candidates = ["MapleStory Worlds-Artale (繁體中文版)", "Artale"]
-            for name in static_candidates:
-                try:
-                    from windows_capture import WindowsCapture
-                    # We just test if creating the object with this name works without error
-                    # (In most versions, invalid names throw immediately or on start)
-                    test = WindowsCapture(window_name=name)
-                    target_name = name
+            # 1. Primary: Find Artale by precise window title
+            for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale"]:
+                hwnd = win32gui.FindWindow(None, name)
+                if hwnd and win32gui.IsWindowVisible(hwnd):
+                    target_hwnd = hwnd
                     break
-                except: continue
             
-            # 2. Check process fallback if not found
-            if not target_name:
+            # 2. Secondary: Fallback to process search (msw.exe)
+            if not target_hwnd:
                 try:
-                    import psutil, win32gui, win32process
+                    import psutil, win32process
                     for proc in psutil.process_iter(['pid', 'name']):
                         if proc.info['name'] and proc.info['name'].lower() == 'msw.exe':
                             def callback(hwnd, extra):
                                 if win32gui.IsWindowVisible(hwnd):
                                     _, pid = win32process.GetWindowThreadProcessId(hwnd)
                                     if pid == proc.info['pid']:
-                                        t = win32gui.GetWindowText(hwnd); 
-                                        if t: extra.append(t)
+                                        extra.append(hwnd)
                                 return True
-                            titles = []
-                            win32gui.EnumWindows(callback, titles)
-                            if titles: target_name = titles[0]; break
+                            found_hwnds = []
+                            win32gui.EnumWindows(callback, found_hwnds)
+                            if found_hwnds:
+                                # Prioritize the one with the longest title (usually the game window)
+                                target_hwnd = max(found_hwnds, key=lambda h: len(win32gui.GetWindowText(h)))
+                                break
                 except: pass
 
-            if target_name:
+            if target_hwnd:
                 try:
-                    from windows_capture import WindowsCapture
-                    capture = WindowsCapture(window_name=target_name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
+                    precise_name = win32gui.GetWindowText(target_hwnd)
+                    capture = WindowsCapture(
+                        window_name=precise_name, 
+                        cursor_capture=False, 
+                        draw_border=False, 
+                        minimum_update_interval=1000
+                    )
                     
                     @capture.event
                     def on_frame_arrived(frame, control):
@@ -1150,26 +1152,31 @@ class ArtaleOverlay(QWidget):
                         print("[ExpTracker] Session closed.")
                         self._exp_tracker_active = False
                     
-                    print(f"[ExpTracker] Monitoring {target_name} for EXP...")
+                    print(f"[ExpTracker] Starting session for HWND {target_hwnd}")
+                    
                     self._exp_tracker_active = True
-                    # Revert to async to prevent cursor lag
-                    self.current_session = capture.start_free_threaded()
+                    capture.start_free_threaded()
                     
-                    # Wait loop that stays alive as long as session is active
-                    while self._is_running and self._exp_tracker_active:
-                        time.sleep(0.5)
+                    # Stay in this inner loop as long as session is healthy
+                    while self._exp_tracker_active and self._is_running:
+                        time.sleep(1.0)
+                        # Check if window still exists and is visible
+                        if not win32gui.IsWindow(target_hwnd) or not win32gui.IsWindowVisible(target_hwnd):
+                            break
                     
-                    # Cleanup
-                    try: self.current_session.stop()
-                    except: pass
+                    # No explicit stop() available on the capture object in this version
+                    self._exp_tracker_active = False
                     
                 except Exception as e:
-                    print(f"[ExpTracker] Failed to start capture for {target_name}: {e}")
-                finally:
-                    self._exp_tracker_active = False
+                    err_msg = str(e)
+                    if "0x80070490" in err_msg:
+                        # Common API error when window is transitionary/hidden, retry silently
+                        pass
+                    else:
+                        print(f"[ExpTracker] Failed to start capture for HWND {target_hwnd}: {e}")
             
-            if self._is_running:
-                time.sleep(1)
+            # Adaptive retry delay
+            time.sleep(2.0)
 
     def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
         try:
@@ -1380,8 +1387,8 @@ class ArtaleOverlay(QWidget):
         if self.msg_opacity > 0:
             font = QFont("Segoe UI Bold", 18); painter.setFont(font)
             tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
-            # Draw notification clearly above the timer block
-            bg_rect = QRect(base_x - (tw+40)//2, base_y - 70, tw+40, 45)
+            # Draw notification right-aligned clearly above the timer block
+            bg_rect = QRect(base_x - (tw+40), base_y - 70, tw+40, 45)
             # Notification background affected by both fade and settings
             bg_alpha = int(min(200, self.msg_opacity) * (self.base_opacity / 1.0))
             painter.setBrush(QColor(0, 0, 0, bg_alpha))
