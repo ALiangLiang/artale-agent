@@ -894,14 +894,17 @@ class ArtaleOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
         
-        # Ensure we cover ALL monitors correctly
-        total_rect = QRect()
-        for screen in QApplication.screens():
-            total_rect = total_rect.united(screen.geometry())
+        # Ensure we cover ALL monitors correctly across the entire Virtual Desktop
+        v_rect = QApplication.primaryScreen().virtualGeometry()
+        self.setGeometry(v_rect)
         
-        self.setGeometry(total_rect)
-        self.move(total_rect.topLeft()) # Explicitly anchor to the absolute (min_x, min_y)
-        print(f"[Debug] Overlay spans: {total_rect.x()}, {total_rect.y()} to {total_rect.width()}, {total_rect.height()}")
+        # Move to the absolute top-left of the virtual desktop (handles negative coords)
+        self.move(v_rect.topLeft())
+        
+        # Subtle trick for Windows composition: 0.99 opacity can force full-window rendering
+        self.setWindowOpacity(0.99)
+        
+        print(f"[Debug] Overlay spans: {v_rect.x()}, {v_rect.y()} to {v_rect.width()}, {v_rect.height()}")
         self.show()
 
     def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
