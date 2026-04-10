@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pipenv
-          pipenv install --system --deploy
+          pipenv install --system --deploy --dev
 
       - name: Run Build Script
         shell: powershell
