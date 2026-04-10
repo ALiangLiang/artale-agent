@@ -702,6 +702,12 @@ class SettingsWindow(QWidget):
         self.config_updated.emit(); self.hide()
 
 class ArtaleOverlay(QWidget):
+    # 1080p Calibration Reference (Bottom-Left Anchored)
+    BASE_W, BASE_H = 1920, 1080
+    X_OFF_FROM_LEFT = 1084   # Fixed horizontal offset from left
+    Y_OFF_FROM_BOTTOM = 66   # Fixed vertical offset from bottom
+    BASE_CW, BASE_CH = 240, 22
+    
     timer_request = pyqtSignal(str, int, str, bool) 
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
@@ -733,6 +739,7 @@ class ArtaleOverlay(QWidget):
         self.exp_history = [] # List of (timestamp, value, percent)
         self.last_capture_time = 0
         self._tesseract_error_shown = False
+        self.last_crop_info = None
         
         self.timer_request.connect(self.start_timer)
         self.clear_request.connect(self.clear_all_timers)
@@ -812,8 +819,15 @@ class ArtaleOverlay(QWidget):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
-        virtual_geo = QApplication.primaryScreen().virtualGeometry()
-        self.setGeometry(virtual_geo)
+        
+        # Ensure we cover ALL monitors correctly
+        total_rect = QRect()
+        for screen in QApplication.screens():
+            total_rect = total_rect.united(screen.geometry())
+        
+        self.setGeometry(total_rect)
+        self.move(total_rect.topLeft()) # Explicitly anchor to the absolute (min_x, min_y)
+        print(f"[Debug] Overlay spans: {total_rect.x()}, {total_rect.y()} to {total_rect.width()}, {total_rect.height()}")
         self.show()
 
     def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
@@ -899,43 +913,89 @@ class ArtaleOverlay(QWidget):
 
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
-        BASE_W, BASE_H = 1920, 1080
-        BASE_X, BASE_Y, BASE_CW, BASE_CH = 1022, 1017, 250, 19
         last_processed = 0
         
         def on_frame_arrived_callback(frame: Frame, _):
             nonlocal last_processed
             try:
-                if not self._is_running or not self.show_exp_panel: return
+                # Process if panel is ON OR if we are in Debug Mode
+                if not self._is_running: return
+                if not self.show_exp_panel and not self.show_debug: return
+                
                 now = time.time()
                 if now - last_processed < 1.0: return
-                last_processed = now
+                
                 img_bgra = getattr(frame, "frame_buffer", None)
                 if img_bgra is None: return
                 img = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
                 h, w = img.shape[:2]
-                sx, sy = w / BASE_W, h / BASE_H
-                crop = img[int(BASE_Y*sy):int((BASE_Y+BASE_CH)*sy), int(BASE_X*sx):int((BASE_X+BASE_CW)*sx)]
+                
+                # IMPORTANT: Windows Capture might capture the full window including title bar.
+                # IMPORTANT: Find the window to get client rect
+                import win32gui, win32con
+                target_hwnd = None
+                for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale", "artale"]:
+                    hwnd = win32gui.FindWindow(None, name)
+                    if hwnd: target_hwnd = hwnd; break
+                
+                if target_hwnd:
+                    crect = win32gui.GetClientRect(target_hwnd)
+                    # Use client dimensions for scaling and anchoring
+                    cw_ref, ch_ref = crect[2], crect[3]
+                else:
+                    cw_ref, ch_ref = w, h # Fallback
+                
+                # Calculate dynamic scale based on the smaller reference side
+                scale = min(cw_ref / self.BASE_W, ch_ref / self.BASE_H)
+                
+                # Check window state for border logic
+                placement = win32gui.GetWindowPlacement(target_hwnd)
+                if placement[1] == win32con.SW_SHOWMAXIMIZED:
+                    # Maximized: Top is title bar, sides are 0
+                    off_x = 0
+                    off_y = h - ch_ref
+                else:
+                    # Windowed: Borders are typically symmetrical on left/right/bottom
+                    # Capture width (w) = Client width (cw_ref) + 2 * border_width
+                    border_w = max(0, (w - cw_ref) // 2)
+                    off_x = border_w
+                    # Capture height (h) = Client height (ch_ref) + title_bar + bot_border
+                    # Title bar = h - ch_ref - border_w (assuming bot_border == border_w)
+                    off_y = max(0, h - ch_ref - border_w)
+                
+                cx = off_x + int(self.X_OFF_FROM_LEFT * scale)
+                cy = off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale))
+                
+                cw = int(self.BASE_CW * scale)
+                ch = int(self.BASE_CH * scale)
+                
+                # Exact crop
+                crop = img[max(0, cy):min(h, cy+ch), max(0, cx):min(w, cx+cw)]
                 if crop.size == 0: return
+                
+                # Update debug info for sync visualization
+                self.last_crop_info = (cx, cy, cw, ch, w, h)
+                
+                # OCR Processing
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-                target_h = 60
-                scale = target_h / gray.shape[0] if gray.shape[0] > 0 else 3
-                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                target_ocr_h = 60
+                r = target_ocr_h / gray.shape[0] if gray.shape[0] > 0 else 3
+                gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
                 _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+                
                 text = ""
                 if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                     try:
                         padded = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
                         tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%|'
                         text = pytesseract.image_to_string(padded, config=tess_config).strip()
-                        self._tesseract_error_shown = False
                     except: pass
+                
                 if text:
-                    if self.show_debug: print(f"[ExpTracker] Raw OCR: '{text}'")
                     self.parse_and_update_exp(text, thresh, crop)
                 last_processed = now
+                self.update() # Ensure red box moves smoothly with window
             except: pass
-
         while self._is_running:
             capture = None
             target_name = None
@@ -1013,31 +1073,44 @@ class ArtaleOverlay(QWidget):
                     if success: data["raw_bytes"] = buffer.tobytes()
                 except: pass
 
-            # Normalize and extract all numbers
-            s = raw_text.replace(",", "")
-            nums = re.findall(r"\d+\.\d+|\d+", s)
+            # Extract numeric parts (including potential decimals)
+            nums = re.findall(r"\d+\.\d+|\d+", raw_text.replace(",", ""))
             if not nums: return
-            
-            val_str, pct_val = "", 0.0
-            if len(nums) >= 2:
-                # Normal case: [EXP, ..., PCT]
-                pct_str = nums[-1]
-                pct_val = float(pct_str)
-                val_str = max(nums[:-1], key=len)
-            elif len(nums) == 1 and "." in nums[0]:
-                # Joined case: "522120511.46"
-                full = nums[0]
-                dot_idx = full.find(".")
-                pct_str = full[dot_idx-2:] # Assume 2 digits before dot
-                val_str = full[:dot_idx-2]
-                pct_val = float(pct_str)
-            else: return
 
-            # Noise correction for brackets seen as '1'
-            if pct_val > 100 and str(pct_str).startswith("1"):
-                pct_val = float(str(pct_str)[1:])
+            # Prioritize finding the percentage (chunk with a dot)
+            val_str, pct_val = "", 0.0
+            dotted = [n for n in nums if "." in n]
+            non_dotted = [n for n in nums if "." not in n]
+            
+            if dotted:
+                raw_pct_str = dotted[0]
+                if float(raw_pct_str) > 100 and len(raw_pct_str.split(".")[0]) > 2:
+                    # Joined case: 19554905.60
+                    dot_idx = raw_pct_str.find(".")
+                    val_str = raw_pct_str[:dot_idx-2]
+                    pct_val = float(raw_pct_str[dot_idx-2:])
+                else:
+                    pct_val = float(raw_pct_str)
+                    val_str = max(non_dotted, key=len) if non_dotted else "0"
+            elif len(nums) >= 2:
+                # No dots, assume last chunk is percentage
+                val_str = max(nums[:-1], key=len)
+                pct_val = float(nums[-1])
+            else:
+                val_str = nums[0]
+                pct_val = 0.0
+
+            # Handle Noise: if PCT is like 105.60 because of a bracket '[' seen as '1'
+            if pct_val > 100:
+                s_pct = f"{pct_val:.2f}"
+                if s_pct.startswith("1"):
+                    pct_val = float(s_pct[1:])
             
             if not val_str: return
+            # Ensure val_str is pure digits for int conversion
+            val_str = "".join(filter(str.isdigit, val_str))
+            if not val_str: return
+            
             val = int(val_str)
             if self.show_debug:
                 print(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
@@ -1048,7 +1121,7 @@ class ArtaleOverlay(QWidget):
             
             self.exp_update_request.emit(data)
         except Exception as e:
-            print(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
+            if self.show_debug: print(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
 
     def on_exp_update(self, data):
         # Initialize session variables if needed
@@ -1105,8 +1178,6 @@ class ArtaleOverlay(QWidget):
                 else:
                     self.current_exp_data["time_to_level"] = -1
         
-        if self.show_exp_panel:
-            print(f"[Overlay] EXP Data: {data['text']}")
         self.update()
 
     def load_profile_immediately(self):
@@ -1136,6 +1207,50 @@ class ArtaleOverlay(QWidget):
         # 0. Draw EXP Statistics Panel (Top Left)
         if self.show_exp_panel:
             self.draw_exp_panel(painter)
+        
+        # 0.1 Draw Debug Crop Box (Red Outline)
+        if self.show_debug and self.last_crop_info:
+            try:
+                # Logic: last_crop_info is relative to game window top-left
+                import win32gui
+                target_hwnd = None
+                # Try to find the same window we use for capture
+                for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale", "artale"]:
+                    hwnd = win32gui.FindWindow(None, name)
+                    if hwnd:
+                        target_hwnd = hwnd
+                        break
+                
+                if target_hwnd:
+                    import win32gui
+                    # 1. Get Game Client Area size
+                    crect = win32gui.GetClientRect(target_hwnd)
+                    client_w, client_h = crect[2], crect[3]
+                    
+                    # 2. Get Global Screen coord of Client BOTTOM-LEFT
+                    bl_point = win32gui.ClientToScreen(target_hwnd, (0, client_h))
+                    
+                    # 3. Map to Overlay Local coordinates
+                    local_bl = self.mapFromGlobal(QPoint(bl_point[0], bl_point[1]))
+                    bx, by = local_bl.x(), local_bl.y()
+                    
+                    # Sync using Min Ratio logic
+                    visual_scale = min(client_w / self.BASE_W, client_h / self.BASE_H)
+                    
+                    # Calculated positions and size
+                    target_x = bx + int(self.X_OFF_FROM_LEFT * visual_scale)
+                    target_y = by - int(self.Y_OFF_FROM_BOTTOM * visual_scale)
+                    cw, ch = int(self.BASE_CW * visual_scale), int(self.BASE_CH * visual_scale)
+                    
+                    # Use synchronized depth for the visual box
+                    painter.setPen(QPen(QColor(255, 0, 0, 200), 2, Qt.PenStyle.DashLine))
+                    painter.setBrush(QColor(255, 0, 0, 40))
+                    painter.drawRect(int(target_x), int(target_y), int(cw), int(ch))
+                    
+                    painter.setPen(QPen(QColor(255, 0, 0, 255)))
+                    painter.drawText(int(target_x), int(target_y - 5), "EXP Capture Zone (Min Ratio Mode)")
+            except Exception as e:
+                pass
 
         if not self.is_active and not self.show_preview and self.msg_opacity == 0: 
             return
