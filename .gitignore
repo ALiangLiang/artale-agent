@@ -12,7 +12,6 @@ build/
 dist/
 *.spec
 ArtaleAgent.exe
-ArtaleHelper.exe
 
 # User Configuration
 config.json

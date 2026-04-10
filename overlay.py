@@ -299,7 +299,7 @@ class SettingsWindow(QWidget):
     def __init__(self, overlay=None):
         super().__init__()
         self.overlay = overlay
-        self.setWindowTitle("Artale Helper - Settings")
+        self.setWindowTitle("Artale Agent - Settings")
         self.setFixedSize(360, 750)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
@@ -332,7 +332,7 @@ class SettingsWindow(QWidget):
             pass
 
     def init_ui(self):
-        self.setWindowTitle("Artale Helper ⚙️ 設定")
+        self.setWindowTitle("Artale Agent ⚙️ 設定")
         # Set Window Icon
         icon_path = resource_path("app_icon.png")
         if os.path.exists(icon_path):
@@ -871,7 +871,7 @@ class ArtaleOverlay(QWidget):
         tray_menu.addAction(quit_action)
         
         self.tray_icon.setContextMenu(tray_menu)
-        self.tray_icon.setToolTip("Artale Helper")
+        self.tray_icon.setToolTip("Artale Agent")
         
         # Click to toggle settings
         self.tray_icon.activated.connect(self.on_tray_activated)
