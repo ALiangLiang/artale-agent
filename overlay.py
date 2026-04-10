@@ -789,7 +789,7 @@ class ArtaleOverlay(QWidget):
     toggle_exp_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     
-    def __init__(self, target_window_title="Artale"):
+    def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
         self.target_window_title = target_window_title
         self.active_timers = {} 
@@ -1044,7 +1044,7 @@ class ArtaleOverlay(QWidget):
                 # IMPORTANT: Find the window to get client rect
                 import win32gui, win32con
                 target_hwnd = None
-                for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale", "artale"]:
+                for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
                     hwnd = win32gui.FindWindow(None, name)
                     if hwnd: target_hwnd = hwnd; break
                 
@@ -1135,7 +1135,7 @@ class ArtaleOverlay(QWidget):
                         return True # Skip our own windows
                         
                     title = win32gui.GetWindowText(hwnd)
-                    if ("Artale" in title or "artale" in title):
+                    if "MapleStory Worlds-Artale" in title:
                         found_hwnds.append(hwnd)
             
             win32gui.EnumWindows(enum_handler, None)
@@ -1287,49 +1287,66 @@ class ArtaleOverlay(QWidget):
             print(f"[ExpTracker] Session triggered! First gain detected.")
 
         now = data["timestamp"]
-        self.exp_history.append((now, data["value"], data["percent"]))
+        current_exp = data["value"]
         
-        # 1. 10min Sliding Window (for Efficiency)
-        limit_10m = now - 600
-        while len(self.exp_history) > 1 and self.exp_history[0][0] < limit_10m:
-            self.exp_history.pop(0)
+        # Reset baseline if a massive drop is detected (OCR error)
+        # 200k is a safer threshold for Artale
+        is_drop = False
+        if hasattr(self, 'last_exp_val') and (self.last_exp_val - current_exp) > 200000:
+            is_drop = True
+        elif current_exp < self.exp_initial_val - 200000:
+            is_drop = True
             
-        # 2. Update UI Metadata
+        if is_drop:
+            print(f"[ExpTracker] Massive drop detected ({self.last_exp_val} -> {current_exp}), resetting stats.")
+            self.exp_initial_val = current_exp
+            self.exp_session_start_time = None # Reset session start
+            self.exp_history = [] # Wipe old junk history
+            
+        self.last_exp_val = current_exp
+
+        # Robust history management
+        # Must store 3 values to keep compatibility with existing drawing code
+        self.exp_history.append((now, current_exp, data.get("percent", 0)))
+        # Keep only 1 hour of history
+        self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
+        
+        # Calculate rates using sliding window
+        ten_min_ago = now - 600
+        history_ten = [h for h in self.exp_history if h[0] >= ten_min_ago]
+        
+        gain_10m = 0
+        gain_pct_10m = 0.0
+        if len(history_ten) >= 2:
+            time_diff = history_ten[-1][0] - history_ten[0][0]
+            val_diff = int(history_ten[-1][1]) - int(history_ten[0][1])
+            pct_diff = float(history_ten[-1][2]) - float(history_ten[0][2])
+            
+            if time_diff > 5:
+                gain_10m = int((val_diff / time_diff) * 600)
+                gain_pct_10m = (pct_diff / time_diff) * 600
+        
+        self.ten_min_gain = max(0, gain_10m)
+        
+        # 2. Update UI Metadata using sliding window results
         self.current_exp_data["text"] = data["text"]
-        self.current_exp_data["value"] = data["value"]
+        self.current_exp_data["value"] = current_exp
         self.current_exp_data["percent"] = data["percent"]
-
-        if self.exp_session_start_time is not None:
-            # Main recording duration (from first gain)
-            self.current_exp_data["tracking_duration"] = int(now - self.exp_session_start_time)
-            
-            # Efficiency window (sliding, max 10m)
-            ref_t, ref_v, ref_p = self.exp_history[0]
-            win_elapsed = now - ref_t
-            gain_val = data["value"] - ref_v
-            gain_pct = data["percent"] - ref_p
-            
-            if win_elapsed > 1:
-                if win_elapsed >= 595: # Real 10m window reached
-                    self.current_exp_data["gained_10m"] = gain_val
-                    self.current_exp_data["percent_10m"] = gain_pct
-                    self.current_exp_data["is_estimated"] = False
-                else:
-                    # Estimate 10m amount
-                    scale = 600 / win_elapsed
-                    self.current_exp_data["gained_10m"] = int(gain_val * scale)
-                    self.current_exp_data["percent_10m"] = gain_pct * scale
-                    self.current_exp_data["is_estimated"] = True
-
-                # Time to Level (based on current 10m rate)
-                rate_per_sec = (self.current_exp_data["percent_10m"] / 600.0)
-                if rate_per_sec > 0:
-                    rem_pct = 100.0 - data["percent"]
-                    self.current_exp_data["time_to_level"] = int(rem_pct / rate_per_sec)
-                else:
-                    self.current_exp_data["time_to_level"] = -1
+        self.current_exp_data["gained_10m"] = self.ten_min_gain
+        self.current_exp_data["percent_10m"] = max(0.0, gain_pct_10m)
         
+        rt = (now - self.exp_session_start_time) if self.exp_session_start_time else 0
+        self.current_exp_data["is_estimated"] = rt < 600
+        self.current_exp_data["tracking_duration"] = int(rt)
+
+        rem_p = max(0, 100.0 - data["percent"])
+        if gain_pct_10m > 0.0001:
+             self.current_exp_data["time_to_level"] = int(rem_p * 600 / gain_pct_10m)
+        else:
+             self.current_exp_data["time_to_level"] = -1
+             
         self.update()
+
 
     def load_profile_immediately(self):
         self.clear_all_timers(show_msg=False)
@@ -1377,7 +1394,7 @@ class ArtaleOverlay(QWidget):
                         _, pid = win32process.GetWindowThreadProcessId(hwnd)
                         if pid == my_pid: return # Skip ourselves
                         title = win32gui.GetWindowText(hwnd)
-                        if ("Artale" in title or "artale" in title):
+                        if "MapleStory Worlds-Artale" in title:
                             target_hwnd = hwnd
                 win32gui.EnumWindows(enum_render, None)
                 
