@@ -121,9 +121,11 @@ class ConfigManager:
                     if config.get("active_profile") not in config["profiles"]:
                         config["active_profile"] = "F1"
 
-                    # Ensure root offset exists
+                    # Ensure multiple offsets exist
                     if "offset" not in config:
                         config["offset"] = [0, 0]
+                    if "exp_offset" not in config:
+                        config["exp_offset"] = [0, 0]
 
                     # Ensure migration for older trigger formats inside profiles
                     for p in config["profiles"].values():
@@ -249,20 +251,20 @@ class IconSelectorDialog(QDialog):
 class PositionHandle(QWidget):
     position_changed = pyqtSignal(int, int)
     
-    def __init__(self, target_window_title="Artale"):
+    def __init__(self, icon_path="buff_pngs/arrow.png"):
         super().__init__()
-        self.target_window_title = target_window_title
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(60, 60)
         
         self.lbl = QLabel(self)
         self.lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        arrow_p = resource_path("buff_pngs/arrow.png")
-        self.pixmap = QPixmap(arrow_p).scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.lbl.setPixmap(self.pixmap)
+        real_p = resource_path(icon_path)
+        if os.path.exists(real_p):
+            self.pixmap = QPixmap(real_p).scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.lbl.setPixmap(self.pixmap)
+        
         self.lbl.setFixedSize(60, 60)
-        self.lbl.setToolTip("拖動我來調整計時器位置\n調整完畢後儲存即可")
         self.lbl.setStyleSheet("background: rgba(255, 255, 255, 50); border: 1px dashed white; border-radius: 5px;")
         
         self._dragging = False
@@ -411,6 +413,12 @@ class SettingsWindow(QWidget):
         ship_group.setLayout(ship_layout)
         timer_tab_layout.addWidget(ship_group)
         
+        # --- Timer Position Adjustment (Moved here) ---
+        pos_btn = QPushButton("🔱 調整計時器位置")
+        pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 10px;}")
+        pos_btn.clicked.connect(self.toggle_timer_handle)
+        timer_tab_layout.addWidget(pos_btn)
+        
         self.tabs.addTab(timer_tab, "⏲️ 計時器")
 
         # --- Tab 2: EXP Settings ---
@@ -451,6 +459,12 @@ class SettingsWindow(QWidget):
         opacity_row.addWidget(self.opacity_val_lbl)
         exp_tab_layout.addLayout(opacity_row)
         
+        # --- EXP Position Adjustment ---
+        exp_pos_btn = QPushButton("📊 調整經驗值面板位置")
+        exp_pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 15px;}")
+        exp_pos_btn.clicked.connect(self.toggle_exp_handle)
+        exp_tab_layout.addWidget(exp_pos_btn)
+        
         # Add Stretch to push debug info to the VERY BOTTOM
         exp_tab_layout.addStretch()
 
@@ -490,11 +504,6 @@ class SettingsWindow(QWidget):
         save_btn.setStyleSheet("QPushButton { background-color: #ffd700; color: black; font-weight: bold; border-radius: 5px; height: 35px; margin-top: 5px;}")
         save_btn.clicked.connect(self.save_and_close)
         self.layout.addWidget(save_btn)
-
-        pos_btn = QPushButton("🔱 調整顯示位置")
-        pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 5px;}")
-        pos_btn.clicked.connect(self.toggle_handle)
-        self.layout.addWidget(pos_btn)
 
         exit_btn = QPushButton("🛑 關閉整個輔助")
         exit_btn.setStyleSheet("QPushButton { background-color: transparent; color: #666; border: none; font-size: 10px; margin-top: 20px; }")
@@ -598,7 +607,7 @@ class SettingsWindow(QWidget):
     def safe_show(self):
         self.show(); self.activateWindow(); self.raise_()
         
-    def toggle_handle(self):
+    def toggle_timer_handle(self):
         if not self.handle:
             self.handle = PositionHandle()
             if self.overlay: self.handle.position_changed.connect(self.overlay.update_offset)
@@ -613,6 +622,27 @@ class SettingsWindow(QWidget):
                 self.handle.move(cx - 30, cy - 30)
                 self.overlay.show_preview = True; self.overlay.update()
             self.handle.show(); self.handle.raise_()
+
+    def toggle_exp_handle(self):
+        if not hasattr(self, 'exp_handle') or not self.exp_handle:
+            # Consistent styling with timer handle
+            self.exp_handle = PositionHandle()
+            if self.overlay: self.exp_handle.position_changed.connect(self.overlay.update_exp_offset)
+        
+        if self.exp_handle.isVisible():
+            self.exp_handle.hide()
+        else:
+            if self.overlay:
+                geo = self.overlay.geometry()
+                bx = geo.width() // 2 + self.overlay.exp_x_offset
+                by = geo.height() // 2 + self.overlay.exp_y_offset
+                # Top-Right corner logic from draw_exp_panel
+                # Right is bx, Top is by - 120 - ph // 2
+                ph = 115
+                target_x = geo.x() + bx
+                target_y = geo.y() + by - 120 - ph // 2
+                self.exp_handle.move(target_x - 30, target_y - 30)
+            self.exp_handle.show(); self.exp_handle.raise_()
 
     def start_ship_timer(self):
         import datetime
@@ -733,11 +763,14 @@ class SettingsWindow(QWidget):
             except: pass
         config["profiles"][p_key]["triggers"] = new_triggers
         config["profiles"][p_key]["name"] = self.nickname_inp.text()
-        if self.overlay: config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
+        if self.overlay: 
+            config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
+            config["exp_offset"] = [self.overlay.exp_x_offset, self.overlay.exp_y_offset]
         config["active_profile"] = p_key
         config["opacity"] = self.opacity_slider.value() / 100.0
         ConfigManager.save_config(config)
         if self.handle: self.handle.hide()
+        if hasattr(self, 'exp_handle') and self.exp_handle: self.exp_handle.hide()
         if self.overlay: self.overlay.show_preview = False
         self.config_updated.emit(); self.hide()
 
@@ -775,6 +808,7 @@ class ArtaleOverlay(QWidget):
         
         self.msg_text = ""; self.msg_opacity = 0
         self.x_offset = 0; self.y_offset = 0
+        self.exp_x_offset = 0; self.exp_y_offset = 0
         self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
         self.exp_history = [] # List of (timestamp, value, percent)
         self.last_capture_time = 0
@@ -943,6 +977,15 @@ class ArtaleOverlay(QWidget):
         self.y_offset = local.y() - self.rect().center().y()
         self.click_zones = {}; self.update()
 
+    def update_exp_offset(self, gx, gy):
+        local = self.mapFromGlobal(QPoint(gx, gy))
+        # Account for the logic in draw_exp_panel:
+        # bx = center_x + exp_x_offset
+        # Top-Right corner Y = (center_y + exp_y_offset) - 120 - ph // 2
+        ph = 115
+        self.exp_x_offset = local.x() - self.rect().center().x()
+        self.exp_y_offset = local.y() - self.rect().center().y() + 120 + (ph // 2)
+        self.update()
     def clear_all_timers(self, show_msg=True):
         self.active_timers = {}; self.click_zones = {}; self.is_active = False
         if self.countdown_timer.isActive(): self.countdown_timer.stop()
@@ -1260,6 +1303,7 @@ class ArtaleOverlay(QWidget):
         nickname = config["profiles"].get(active, {}).get("name", active)
         self.active_profile_name = active
         self.x_offset, self.y_offset = config.get("offset", [0, 0])
+        self.exp_x_offset, self.exp_y_offset = config.get("exp_offset", [0, 0])
         self.show_notification(f"切換至 {active}: {nickname}"); self.update()
 
     def show_notification(self, text):
@@ -1355,7 +1399,8 @@ class ArtaleOverlay(QWidget):
             timers_to_draw.append(("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png"))))
 
         new_click_zones = {}; spacing = 80; total_width = len(timers_to_draw) * spacing
-        block_start_x = base_x - (total_width // 2)
+        # Right Aligned: The anchor base_x is the RIGHT edge of the timer group
+        block_start_x = base_x - total_width
         block_center_y = base_y + 60
         
         for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
@@ -1402,12 +1447,12 @@ class ArtaleOverlay(QWidget):
             return
             
         # Positional logic
-        bx = self.rect().center().x() + self.x_offset
-        by = self.rect().center().y() + self.y_offset
+        bx = self.rect().center().x() + self.exp_x_offset
+        by = self.rect().center().y() + self.exp_y_offset
         pw, ph = 330, 115 # Reduced height
-        px = bx - pw // 2
-        py = by + 140
-        panel_rect = QRect(px, py, pw, ph)
+        # Right Aligned: bx is the right edge
+        panel_rect = QRect(bx - pw, by - 120 - ph // 2, pw, ph)
+        px, py = panel_rect.x(), panel_rect.y()
         
         # 1. Background
         path = QPainterPath()
