@@ -915,7 +915,7 @@ class ArtaleOverlay(QWidget):
         """Background thread to capture and recognize EXP with adaptive scaling"""
         last_processed = 0
         
-        def on_frame_arrived_callback(frame: Frame, _):
+        def on_frame_arrived_callback(frame: Frame, control):
             nonlocal last_processed
             try:
                 # Process if panel is ON OR if we are in Debug Mode
@@ -930,7 +930,6 @@ class ArtaleOverlay(QWidget):
                 img = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
                 h, w = img.shape[:2]
                 
-                # IMPORTANT: Windows Capture might capture the full window including title bar.
                 # IMPORTANT: Find the window to get client rect
                 import win32gui, win32con
                 target_hwnd = None
@@ -939,6 +938,19 @@ class ArtaleOverlay(QWidget):
                     if hwnd: target_hwnd = hwnd; break
                 
                 if target_hwnd:
+                    # Monitor Placement change (Maximize/Restore)
+                    placement = win32gui.GetWindowPlacement(target_hwnd)
+                    current_state = placement[1]
+                    if not hasattr(self, 'last_window_state'):
+                        self.last_window_state = current_state
+                    
+                    if current_state != self.last_window_state:
+                        print(f"[ExpTracker] Window state changed to {current_state}. Restarting session...")
+                        self.last_window_state = current_state
+                        self._exp_tracker_active = False # Signal main loop to restart
+                        control.stop() 
+                        return
+                    
                     crect = win32gui.GetClientRect(target_hwnd)
                     # Use client dimensions for scaling and anchoring
                     cw_ref, ch_ref = crect[2], crect[3]
@@ -1033,27 +1045,37 @@ class ArtaleOverlay(QWidget):
             if target_name:
                 try:
                     from windows_capture import WindowsCapture
-                    temp_capture = WindowsCapture(window_name=target_name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
-                    @temp_capture.event
+                    capture = WindowsCapture(window_name=target_name, cursor_capture=False, draw_border=False, minimum_update_interval=1000)
+                    
+                    @capture.event
                     def on_frame_arrived(frame, control):
                         on_frame_arrived_callback(frame, control)
-                    @temp_capture.event
+                    
+                    @capture.event
                     def on_closed():
-                        print("[ExpTracker] Session closed."); self._exp_tracker_active = False
+                        print("[ExpTracker] Session closed.")
+                        self._exp_tracker_active = False
                     
                     print(f"[ExpTracker] Monitoring {target_name} for EXP...")
                     self._exp_tracker_active = True
-                    self.capture_session = temp_capture.start_free_threaded()
-                    capture = temp_capture
+                    # Revert to async to prevent cursor lag
+                    self.current_session = capture.start_free_threaded()
+                    
+                    # Wait loop that stays alive as long as session is active
+                    while self._is_running and self._exp_tracker_active:
+                        time.sleep(0.5)
+                    
+                    # Cleanup
+                    try: self.current_session.stop()
+                    except: pass
+                    
                 except Exception as e:
                     print(f"[ExpTracker] Failed to start capture for {target_name}: {e}")
+                finally:
+                    self._exp_tracker_active = False
             
-            if capture:
-                while self._is_running and self._exp_tracker_active:
-                    time.sleep(1)
-                capture = None
-            else:
-                if self._is_running: time.sleep(5)
+            if self._is_running:
+                time.sleep(1)
 
     def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
         try:
