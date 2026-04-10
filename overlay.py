@@ -959,7 +959,10 @@ class ArtaleOverlay(QWidget):
         try:
             def callback(h, extra):
                 nonlocal hwnd
-                if self.target_window_title.lower() in win32gui.GetWindowText(h).lower() and win32gui.IsWindowVisible(h):
+                title = win32gui.GetWindowText(h).lower()
+                if self.target_window_title.lower() in title and \
+                   "agent - settings" not in title and \
+                   win32gui.IsWindowVisible(h):
                     hwnd = h; return False
                 return True
             win32gui.EnumWindows(callback, None)
@@ -1110,11 +1113,17 @@ class ArtaleOverlay(QWidget):
             target_hwnd = None
             
             # 1. Primary: Find Artale by precise window title
-            for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale"]:
-                hwnd = win32gui.FindWindow(None, name)
-                if hwnd and win32gui.IsWindowVisible(hwnd):
-                    target_hwnd = hwnd
-                    break
+            found_hwnds = []
+            def enum_handler(hwnd, lparam):
+                if win32gui.IsWindowVisible(hwnd):
+                    title = win32gui.GetWindowText(hwnd)
+                    # Must contain Artale but NOT be our own settings window
+                    if ("Artale" in title or "artale" in title) and "Agent - Settings" not in title:
+                        # Also verify it belongs to msw.exe if possible, or is just a likely candidate
+                        found_hwnds.append(hwnd)
+            
+            win32gui.EnumWindows(enum_handler, None)
+            target_hwnd = found_hwnds[0] if found_hwnds else None
             
             # 2. Secondary: Fallback to process search (msw.exe)
             if not target_hwnd:
@@ -1342,11 +1351,15 @@ class ArtaleOverlay(QWidget):
                 import win32gui
                 target_hwnd = None
                 # Try to find the same window we use for capture
-                for name in ["MapleStory Worlds-Artale (繁體中文版)", "Artale", "artale"]:
-                    hwnd = win32gui.FindWindow(None, name)
-                    if hwnd:
-                        target_hwnd = hwnd
-                        break
+                target_hwnd = None
+                def enum_render(hwnd, lparam):
+                    nonlocal target_hwnd
+                    if target_hwnd: return
+                    if win32gui.IsWindowVisible(hwnd):
+                        title = win32gui.GetWindowText(hwnd)
+                        if ("Artale" in title or "artale" in title) and "Agent - Settings" not in title:
+                            target_hwnd = hwnd
+                win32gui.EnumWindows(enum_render, None)
                 
                 if target_hwnd:
                     import win32gui
