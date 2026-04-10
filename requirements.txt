@@ -1,6 +1,8 @@
 PyQt6
-mss
 opencv-python
 numpy
-windows-capture; platform_system == "Windows"
-pywin32; platform_system == "Windows"
+psutil
+pynput
+pytesseract
+windows-capture; sys_platform == "win32"
+pywin32; sys_platform == "win32"

@@ -5,15 +5,16 @@ name = "pypi"
 
 [packages]
 pyqt6 = "*"
-mss = "*"
 opencv-python = "*"
 numpy = "*"
-windows-capture = {version = "*", markers = "platform_system == \"Windows\""}
-pywin32 = {version = "*", markers = "platform_system == \"Windows\""}
+psutil = "*"
 pynput = "*"
 pytesseract = "*"
+windows-capture = {version = "*", markers = "sys_platform == 'win32'"}
+pywin32 = {version = "*", markers = "platform_system == 'Windows'"}
 
 [dev-packages]
+pyinstaller = "*"
 
 [requires]
 python_version = "3.12"
