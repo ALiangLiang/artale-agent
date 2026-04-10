@@ -954,6 +954,8 @@ class ArtaleOverlay(QWidget):
         threading.Thread(target=worker, daemon=True).start()
 
     def sync_with_game_window(self):
+        # We no longer move the Overlay window; it stays full-screen on the virtual desktop.
+        # This keeps the UI stable and independent of the game's movement.
         if not win32gui: return
         hwnd = 0
         try:
@@ -970,15 +972,21 @@ class ArtaleOverlay(QWidget):
                 return True
             win32gui.EnumWindows(callback, None)
         except: hwnd = 0
+        
         if hwnd:
-            rect = win32gui.GetWindowRect(hwnd)
-            x, y, x2, y2 = rect
-            if self.geometry() != QRect(x, y, x2-x, y2-y): 
-                self.setGeometry(x, y, x2-x, y2-y)
-                self.update()
-            # Absolute persistence
-            if not self.isVisible(): self.show()
-            self.raise_()
+            try:
+                # Update anchor point bx, by internally based on current game position
+                # so that relative elements (like debug box) know where the game is.
+                rect = win32gui.GetClientRect(hwnd)
+                client_h = rect[3]
+                bl_point = win32gui.ClientToScreen(hwnd, (0, client_h))
+                local_bl = self.mapFromGlobal(QPoint(bl_point[0], bl_point[1]))
+                self.bx, self.by = local_bl.x(), local_bl.y()
+            except: pass
+            
+        # Ensure overlay is visible and on top, but DON'T change its geometry
+        if not self.isVisible(): self.show()
+        self.raise_()
 
     def update_offset(self, gx, gy):
         local = self.mapFromGlobal(QPoint(gx, gy))
