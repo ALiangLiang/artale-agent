@@ -20,6 +20,8 @@ python -m PyInstaller `
     --add-data "app_icon.png;." `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
+    --hidden-import "win32process" `
+    --hidden-import "win32file" `
     --clean `
     --noconsole `
     main.py
