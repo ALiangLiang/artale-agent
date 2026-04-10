@@ -17,4 +17,4 @@ pywin32 = {version = "*", markers = "platform_system == 'Windows'"}
 pyinstaller = "*"
 
 [requires]
-python_version = "3.12"
+python_version = "3.10"
