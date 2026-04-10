@@ -179,6 +179,11 @@ def run_app():
     
     overlay = ArtaleOverlay()
     settings_window = SettingsWindow(overlay)
+    
+    # Ship Reminder and notifications
+    settings_window.timer_request.connect(overlay.timer_request)
+    settings_window.notification_request.connect(overlay.notification_request)
+    
     focus_tracker = GameFocusTracker()
     
     # Tray Icon Connection

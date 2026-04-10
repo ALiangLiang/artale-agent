@@ -13,7 +13,7 @@ except ImportError:
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
                              QGridLayout, QDialog, QTabWidget, QComboBox, QSlider, QCheckBox,
-                             QSystemTrayIcon, QMenu)
+                             QSystemTrayIcon, QMenu, QGroupBox)
 try:
     from windows_capture import WindowsCapture, Frame
 except ImportError:
@@ -291,12 +291,14 @@ class PositionHandle(QWidget):
 class SettingsWindow(QWidget):
     config_updated = pyqtSignal()
     request_show = pyqtSignal()
+    timer_request = pyqtSignal(str, int, str, bool)
+    notification_request = pyqtSignal(str)
     
     def __init__(self, overlay=None):
         super().__init__()
         self.overlay = overlay
         self.setWindowTitle("Artale Helper - Settings")
-        self.setFixedSize(360, 580)
+        self.setFixedSize(360, 750)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.is_recording = False
         self.handle = None
@@ -393,6 +395,22 @@ class SettingsWindow(QWidget):
         self.record_btn.clicked.connect(self.toggle_recording)
         timer_tab_layout.addWidget(self.record_btn)
         
+        # --- Ship Reminder Section (Moved here) ---
+        ship_group = QGroupBox("🚢 特殊提醒")
+        ship_layout = QVBoxLayout()
+        
+        ship_btn = QPushButton("開始下班船班倒數 (十分鐘一班)")
+        ship_btn.setStyleSheet("QPushButton { background-color: #0277bd; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
+        ship_btn.clicked.connect(self.start_ship_timer)
+        ship_layout.addWidget(ship_btn)
+        
+        ship_info = QLabel("提示：此功能會自動對準下一個整十分鐘發送通知。")
+        ship_info.setStyleSheet("color: #888; font-size: 11px;")
+        ship_layout.addWidget(ship_info)
+        
+        ship_group.setLayout(ship_layout)
+        timer_tab_layout.addWidget(ship_group)
+        
         self.tabs.addTab(timer_tab, "⏲️ 計時器")
 
         # --- Tab 2: EXP Settings ---
@@ -456,6 +474,8 @@ class SettingsWindow(QWidget):
         self.debug_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.debug_img_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_img_lbl)
+
+        exp_tab_layout.addStretch()
         self.tabs.addTab(exp_tab, "📊 經驗值")
 
         # --- Global Controls (Bottom) ---
@@ -593,6 +613,26 @@ class SettingsWindow(QWidget):
                 self.handle.move(cx - 30, cy - 30)
                 self.overlay.show_preview = True; self.overlay.update()
             self.handle.show(); self.handle.raise_()
+
+    def start_ship_timer(self):
+        import datetime
+        now = datetime.datetime.now()
+        # Find next 10-minute mark
+        minutes = now.minute
+        seconds = now.second
+        
+        # Minutes until next 10
+        rem_min = 10 - (minutes % 10)
+        total_seconds = (rem_min * 60) - seconds
+        
+        # If it's very close (less than 10s), target the recursive one after? 
+        # No, usually people want exactly the next available one.
+        if total_seconds <= 0:
+            total_seconds = 600
+            
+        print(f"[Timer] Starting Ship Reminder: {total_seconds} seconds remaining until next 10m mark.")
+        self.timer_request.emit("船班到站", total_seconds, "buff_pngs/ship_icon.png", True)
+        self.notification_request.emit(f"⚓ 船班提早提醒已啟動！還有 {total_seconds // 60} 分 {total_seconds % 60} 秒。")
 
     def refresh_items(self):
         while self.scroll_layout.count():
@@ -833,8 +873,19 @@ class ArtaleOverlay(QWidget):
     def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
         pixmap = None
         if icon_path:
-            real_path = icon_path if os.path.exists(icon_path) else resource_path(icon_path)
-            if os.path.exists(real_path): pixmap = QPixmap(real_path)
+            # Check Absolute, Relative, and Resource paths
+            real_path = icon_path
+            if not os.path.exists(real_path):
+                real_path = resource_path(icon_path)
+            
+            if os.path.exists(real_path):
+                pixmap = QPixmap(real_path)
+                if pixmap.isNull():
+                    print(f"[Timer] Failed to load icon (Malformed): {real_path}")
+                    pixmap = None
+            else:
+                print(f"[Timer] Icon not found in any search path: {icon_path}")
+        
         self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
         self.is_active = True
         if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
@@ -1309,9 +1360,15 @@ class ArtaleOverlay(QWidget):
         
         for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
             x_pos = block_start_x + idx * spacing + (spacing // 2); block_center = QPoint(x_pos, block_center_y)
+            icon_size = 40; icon_rect = QRect(block_center.x() - 20, block_center.y() - 45, 40, 40)
+            text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
+            
+            # Click zone: Use icon zone if exists, otherwise use text zone
+            if key != "preview":
+                click_rect = icon_rect if pixmap else text_rect
+                new_click_zones[key] = QRect(self.mapToGlobal(click_rect.topLeft()), click_rect.size())
+            
             if pixmap:
-                icon_size = 40; icon_rect = QRect(block_center.x() - 20, block_center.y() - 45, 40, 40)
-                if key != "preview": new_click_zones[key] = QRect(self.mapToGlobal(icon_rect.topLeft()), QSize(40, 40))
                 if self.icon_frame: painter.drawPixmap(icon_rect.adjusted(-2, -2, 2, 2), self.icon_frame)
                 painter.drawPixmap(icon_rect, pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             display_seconds = max(0, seconds); text = str(display_seconds)
