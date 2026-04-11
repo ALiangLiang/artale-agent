@@ -19,8 +19,13 @@ try:
 except ImportError:
     WindowsCapture = None
 
-from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF
+from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction
+try:
+    from PyQt6.QtWebSockets import QWebSocket
+except ImportError:
+    QWebSocket = None
+from PyQt6.QtNetwork import QAbstractSocket
 import cv2
 import re
 import pytesseract
@@ -290,6 +295,66 @@ class PositionHandle(QWidget):
         gp = self.mapToGlobal(self.rect().center())
         self.position_changed.emit(gp.x(), gp.y())
 
+# --- RJPQ Sync Client ---
+class RJPQSyncClient(QObject):
+    sync_received = pyqtSignal(list)
+    char_counts_received = pyqtSignal(list)
+    status_changed = pyqtSignal(bool)
+    error_received = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.ws = None
+        if QWebSocket is not None:
+            self.ws = QWebSocket()
+            self.ws.connected.connect(self.on_connected)
+            self.ws.disconnected.connect(self.on_disconnected)
+            self.ws.textMessageReceived.connect(self.on_message)
+            self.ws.errorOccurred.connect(self.on_error)
+        self.room_code = ""
+        self.room_pwd = ""
+        self.is_connected = False
+
+    def connect_to_room(self, code, pwd):
+        if self.ws is None:
+            print("[RJPQ Sync] Error: QWebSocket is not installed. Run 'pip install PyQt6-WebSockets'")
+            return
+        self.room_code = code
+        self.room_pwd = pwd
+        url = "wss://rjpq.juanwang.cc"
+        self.ws.open(QUrl(url))
+
+    def on_connected(self):
+        self.is_connected = True
+        self.status_changed.emit(True)
+        join_msg = {"type": "join", "code": self.room_code, "password": self.room_pwd}
+        if self.ws:
+            self.ws.sendTextMessage(json.dumps(join_msg))
+
+    def on_disconnected(self):
+        self.is_connected = False
+        self.status_changed.emit(False)
+
+    def on_message(self, message):
+        try:
+            msg = json.loads(message)
+            if msg["type"] == "sync" and "data" in msg:
+                self.sync_received.emit(msg["data"])
+            elif msg["type"] == "charCounts" and "counts" in msg:
+                self.char_counts_received.emit(msg["counts"])
+            elif msg["type"] == "error":
+                self.error_received.emit(msg["error"])
+        except Exception as e:
+            print(f"[RJPQ Sync] Message error: {e}")
+
+    def on_error(self, error):
+        print(f"[RJPQ Sync] Connection error")
+        self.status_changed.emit(False)
+
+    def send_action(self, action):
+        if self.ws.state() == QAbstractSocket.SocketState.ConnectedState:
+            self.ws.sendTextMessage(json.dumps(action))
+
 class SettingsWindow(QWidget):
     config_updated = pyqtSignal()
     request_show = pyqtSignal()
@@ -501,6 +566,92 @@ class SettingsWindow(QWidget):
         exp_tab_layout.addStretch()
         self.tabs.addTab(exp_tab, "📊 經驗值")
 
+        # --- Tab 3: RJPQ YzY ---
+        rjpq_tab = QWidget()
+        rjpq_layout = QVBoxLayout(rjpq_tab)
+        
+        # Room Config
+        room_sub_row = QHBoxLayout()
+        self.rjpq_code_inp = QLineEdit()
+        self.rjpq_code_inp.setPlaceholderText("房間號(6位)")
+        self.rjpq_code_inp.setMaxLength(6)
+        self.rjpq_code_inp.setFixedWidth(85)
+        self.rjpq_code_inp.setStyleSheet("background: #222; color: #ffd700; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        
+        self.rjpq_pwd_inp = QLineEdit()
+        self.rjpq_pwd_inp.setPlaceholderText("密碼")
+        self.rjpq_pwd_inp.setFixedWidth(85)
+        self.rjpq_pwd_inp.setStyleSheet("background: #222; color: #ffd700; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        
+        self.rjpq_conn_btn = QPushButton("連線")
+        self.rjpq_conn_btn.setFixedWidth(60)
+        self.rjpq_conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
+        self.rjpq_conn_btn.clicked.connect(self.on_rjpq_connect_clicked)
+        
+        self.rjpq_status_dot = QFrame()
+        self.rjpq_status_dot.setFixedSize(12, 12)
+        self.rjpq_status_dot.setStyleSheet("background: #555; border-radius: 6px;")
+        
+        room_sub_row.addWidget(QLabel("房:"))
+        room_sub_row.addWidget(self.rjpq_code_inp)
+        room_sub_row.addWidget(QLabel("密:"))
+        room_sub_row.addWidget(self.rjpq_pwd_inp)
+        room_sub_row.addWidget(self.rjpq_conn_btn)
+        room_sub_row.addWidget(self.rjpq_status_dot)
+        room_sub_row.addStretch()
+        rjpq_layout.addLayout(room_sub_row)
+
+        # Char Select
+        char_row = QHBoxLayout()
+        self.char_group = []
+        char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
+        for i in range(4):
+            btn = QPushButton(f"10{i+1}")
+            btn.setCheckable(True)
+            btn.setFixedSize(65, 30)
+            btn.setStyleSheet(f"QPushButton {{ background: #222; color: {char_colors[i]}; border: 1px solid #444; border-radius: 4px; }} "
+                             f"QPushButton:checked {{ background: {char_colors[i]}; color: #fff; font-weight: bold; }}")
+            btn.clicked.connect(lambda checked, idx=i: self.on_rjpq_char_selected(idx))
+            self.char_group.append(btn)
+            char_row.addWidget(btn)
+        rjpq_layout.addLayout(char_row)
+
+        # Grid
+        self.platform_btns = []
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(4)
+        for row in range(10):
+            row_label = QLabel(str(10 - row))
+            row_label.setFixedWidth(20)
+            row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grid_layout.addWidget(row_label, row, 0)
+            for col in range(4):
+                idx = row * 4 + col
+                btn = QPushButton(str(col + 1))
+                btn.setFixedSize(60, 28)
+                btn.setStyleSheet("QPushButton { background: #222; color: #888; border: 1px solid #333; border-radius: 2px; }")
+                btn.clicked.connect(lambda checked, i=idx: self.on_platform_clicked(i))
+                self.platform_btns.append(btn)
+                grid_layout.addWidget(btn, row, col + 1)
+        rjpq_layout.addLayout(grid_layout)
+
+        # Reset
+        reset_rjpq_btn = QPushButton("🔄 重置所有標記")
+        reset_rjpq_btn.setStyleSheet("QPushButton { background: #444; color: #eee; border-radius: 4px; height: 30px; margin-top: 5px; }")
+        reset_rjpq_btn.clicked.connect(self.on_rjpq_reset_clicked)
+        rjpq_layout.addWidget(reset_rjpq_btn)
+        
+        rjpq_layout.addStretch()
+        self.tabs.addTab(rjpq_tab, "🎮 羅茱 YzY")
+
+        # Sync Client Init
+        self.rjpq_client = RJPQSyncClient()
+        self.rjpq_client.status_changed.connect(self.update_rjpq_status)
+        self.rjpq_client.sync_received.connect(self.update_rjpq_grid)
+        self.rjpq_client.sync_received.connect(self.overlay.update_rjpq_data) # Sync to overlay
+        self.selected_rjpq_color = -1
+        self.current_rjpq_data = [4] * 40
+
         # --- Global Controls (Bottom) ---
 
         self.update_profile_dropdown()
@@ -612,6 +763,56 @@ class SettingsWindow(QWidget):
         else:
             self.record_btn.setText("➕ 新增按鍵 (點我後按鍵盤)")
             self.record_btn.setStyleSheet("background-color: #2e7d32; color: white; border-radius: 5px; height: 35px;")
+
+    # --- RJPQ Logic ---
+    def on_rjpq_connect_clicked(self):
+        code = self.rjpq_code_inp.text()
+        pwd = self.rjpq_pwd_inp.text()
+        if len(code) == 6 and pwd:
+            self.rjpq_client.connect_to_room(code, pwd)
+            self.rjpq_conn_btn.setText("連線中")
+            self.rjpq_conn_btn.setEnabled(False)
+
+    def update_rjpq_status(self, connected):
+        color = "#51cf66" if connected else "#ff6b6b"
+        self.rjpq_status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
+        self.rjpq_conn_btn.setText("連線" if not connected else "已連線")
+        self.rjpq_conn_btn.setEnabled(not connected)
+
+    def on_rjpq_char_selected(self, idx):
+        self.selected_rjpq_color = idx
+        for i, btn in enumerate(self.char_group):
+            btn.setChecked(i == idx)
+        self.rjpq_client.send_action({"type": "selectChar", "color": idx})
+        self.overlay.set_rjpq_color(idx) # Sync to overlay
+        self.update_rjpq_grid(self.current_rjpq_data) # Refresh visually
+
+    def on_platform_clicked(self, index):
+        if self.selected_rjpq_color == -1: return
+        
+        # Logic: If already my color, unmark. If other color, do nothing. If empty, mark.
+        current_val = self.current_rjpq_data[index]
+        if current_val == self.selected_rjpq_color:
+            self.rjpq_client.send_action({"type": "unmark", "index": index, "color": self.selected_rjpq_color})
+        elif current_val == 4:
+            self.rjpq_client.send_action({"type": "mark", "index": index, "color": self.selected_rjpq_color})
+
+    def update_rjpq_grid(self, data):
+        self.current_rjpq_data = data
+        char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
+        for i in range(40):
+            val = data[i]
+            btn = self.platform_btns[i]
+            if val < 4:
+                btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: 1px solid #444; border-radius: 2px;")
+                # Dim if not me
+                if self.selected_rjpq_color != -1 and val != self.selected_rjpq_color:
+                    btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: 1px solid #444; border-radius: 2px; opacity: 0.5;")
+            else:
+                btn.setStyleSheet("QPushButton { background: #222; color: #888; border: 1px solid #333; border-radius: 2px; }")
+
+    def on_rjpq_reset_clicked(self):
+        self.rjpq_client.send_action({"type": "reset"})
 
     def safe_show(self):
         self.show(); self.activateWindow(); self.raise_()
@@ -813,6 +1014,7 @@ class ArtaleOverlay(QWidget):
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)
     toggle_exp_request = pyqtSignal()
+    toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
@@ -829,6 +1031,7 @@ class ArtaleOverlay(QWidget):
         # Load configs early
         config = ConfigManager.load_config()
         self.show_exp_panel = config.get("show_exp", True)
+        self.show_rjpq_panel = False # Default off
         self.show_debug = config.get("show_debug", False)
         self.base_opacity = config.get("opacity", 0.5)
         
@@ -837,6 +1040,8 @@ class ArtaleOverlay(QWidget):
         self.exp_x_offset = 0; self.exp_y_offset = 0
         self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
         self.exp_history = [] # List of (timestamp, value, percent)
+        self.rjpq_data = [4] * 40
+        self.selected_color = -1
         self.last_capture_time = 0
         self._tesseract_error_shown = False
         self.last_crop_info = None
@@ -847,6 +1052,7 @@ class ArtaleOverlay(QWidget):
         self.profile_switch_request.connect(self.load_profile_immediately)
         self.exp_update_request.connect(self.on_exp_update)
         self.toggle_exp_request.connect(self.on_toggle_exp)
+        self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         
         # We'll use this signal for tray to talk to settings_window
         self.request_show_settings_signal = pyqtSignal()
@@ -1043,6 +1249,24 @@ class ArtaleOverlay(QWidget):
                 if key in self.active_timers: del self.active_timers[key]
                 self.update(); return True
         return False
+
+    def on_toggle_exp(self):
+        self.show_exp_panel = not self.show_exp_panel
+        self.show_notification(f"經驗值面板: {'已啟用' if self.show_exp_panel else '已關閉'}")
+        self.update()
+
+    def on_toggle_rjpq(self):
+        self.show_rjpq_panel = not self.show_rjpq_panel
+        self.show_notification(f"羅茱路徑面板: {'已啟用' if self.show_rjpq_panel else '已關閉'}")
+        self.update()
+
+    def update_rjpq_data(self, data):
+        self.rjpq_data = data
+        self.update()
+        
+    def set_rjpq_color(self, color):
+        self.selected_color = color
+        self.update()
 
     # --- EXP Tracker Logic ---
     def closeEvent(self, event):
@@ -1412,6 +1636,67 @@ class ArtaleOverlay(QWidget):
         # 0. Draw EXP Statistics Panel (Top Left)
         if self.show_exp_panel:
             self.draw_exp_panel(painter)
+            
+        if self.show_rjpq_panel:
+            self.draw_rjpq_panel(painter)
+
+    def draw_rjpq_panel(self, painter):
+        # Position: Left side
+        pw, ph = 180, 320
+        px = 30 + self.exp_x_offset 
+        py = self.rect().center().y() - ph // 2 + self.exp_y_offset
+        
+        # 1. Background
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(px, py, pw, ph, 12, 12)
+        painter.setPen(QPen(QColor(0, 255, 255, 200), 2))
+        painter.setBrush(QColor(10, 15, 20, int(self.base_opacity * 255)))
+        painter.drawPath(path)
+        
+        # 2. Title
+        painter.setPen(QColor(0, 255, 255))
+        painter.setFont(QFont("Segoe UI Bold", 11))
+        painter.drawText(px + 10, py + 25, "YzY 羅茱同步路徑")
+        
+        # 3. Grid Drawing
+        cell_w, cell_h = 32, 22
+        start_x = px + 35
+        start_y = py + 45
+        char_colors = [QColor("#ff6b6b"), QColor("#51cf66"), QColor("#339af0"), QColor("#cc5de8")]
+        
+        for row in range(10):
+            # Row Number
+            painter.setPen(QColor(150, 150, 150))
+            painter.setFont(QFont("Segoe UI", 8))
+            painter.drawText(px + 10, start_y + row*25 + 16, str(10-row))
+            
+            for col in range(4):
+                idx = row * 4 + col
+                cx = start_x + col * 35
+                cy = start_y + row * 25
+                
+                val = self.rjpq_data[idx]
+                
+                # Draw cell border
+                painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(cx, cy, cell_w, cell_h, 2, 2)
+                
+                if val < 4:
+                    color = char_colors[val]
+                    alpha = 255 if (self.selected_color == -1 or val == self.selected_color) else 100
+                    color.setAlpha(alpha)
+                    
+                    # Draw glowing marker
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(color)
+                    painter.drawEllipse(QPoint(int(cx + cell_w//2), int(cy + cell_h//2)), 7, 7)
+                    
+                    if alpha == 255:
+                        # Inner glow
+                        painter.setBrush(QColor(255, 255, 255, 150))
+                        painter.drawEllipse(QPoint(int(cx + cell_w//2), int(cy + cell_h//2)), 3, 3)
         
         # 0.1 Draw Debug Crop Box (Red Outline)
         if self.show_debug and self.last_crop_info:
