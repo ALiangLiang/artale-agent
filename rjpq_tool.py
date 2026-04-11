@@ -1,4 +1,5 @@
 import json
+import urllib.request
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox
@@ -15,6 +16,7 @@ class RJPQSyncClient(QObject):
     char_counts_received = pyqtSignal(list)
     status_changed = pyqtSignal(bool)
     error_received = pyqtSignal(str)
+    room_created = pyqtSignal(str, str) # New signal
 
     def __init__(self):
         super().__init__()
@@ -60,6 +62,8 @@ class RJPQSyncClient(QObject):
                 self.sync_received.emit(msg["data"])
             elif msg["type"] == "charCounts" and "counts" in msg:
                 self.char_counts_received.emit(msg["counts"])
+            elif msg["type"] == "created":
+                self.room_created.emit(msg["code"], msg.get("password", ""))
             elif msg["type"] == "error":
                 self.error_received.emit(msg["error"])
         except Exception as e:
@@ -68,6 +72,21 @@ class RJPQSyncClient(QObject):
     def on_error(self, error):
         print(f"[RJPQ Sync] Connection error")
         self.status_changed.emit(False)
+
+    def create_room(self, pwd):
+        try:
+            url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={pwd}"
+            with urllib.request.urlopen(url) as response:
+                if response.getcode() == 200:
+                    data = json.loads(response.read().decode())
+                    if "error" in data:
+                        self.error_received.emit(data["error"])
+                    else:
+                        self.room_created.emit(data["code"], data.get("password", ""))
+                else:
+                    self.error_received.emit("伺服器請求失敗")
+        except Exception as e:
+            self.error_received.emit(f"建立房間失敗: {str(e)}")
 
     def send_action(self, action):
         if self.ws and self.ws.state() == QAbstractSocket.SocketState.ConnectedState:
@@ -87,6 +106,7 @@ class RJPQTabContent(QWidget):
         self.client.status_changed.connect(self.update_status)
         self.client.sync_received.connect(self.update_grid)
         self.client.error_received.connect(self.on_error_message)
+        self.client.room_created.connect(self.on_room_created)
 
     def on_error_message(self, error):
         QMessageBox.critical(self, "錯誤", f"YZY 伺服器回傳錯誤：\n{error}")
@@ -114,6 +134,11 @@ class RJPQTabContent(QWidget):
         self.conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
         self.conn_btn.clicked.connect(self.on_connect_clicked)
         
+        self.create_btn = QPushButton("創建")
+        self.create_btn.setFixedWidth(60)
+        self.create_btn.setStyleSheet("QPushButton { background: #333; color: #88ccff; font-weight: bold; border-radius: 4px; height: 26px; }")
+        self.create_btn.clicked.connect(self.on_create_clicked)
+        
         self.status_dot = QFrame()
         self.status_dot.setFixedSize(12, 12)
         self.status_dot.setStyleSheet("background: #555; border-radius: 6px;")
@@ -123,6 +148,7 @@ class RJPQTabContent(QWidget):
         room_row.addWidget(QLabel("密:"))
         room_row.addWidget(self.pwd_inp)
         room_row.addWidget(self.conn_btn)
+        room_row.addWidget(self.create_btn)
         room_row.addWidget(self.status_dot)
         room_row.addStretch()
         self.main_layout.addWidget(self.room_widget)
@@ -177,6 +203,24 @@ class RJPQTabContent(QWidget):
         self.main_layout.addWidget(self.grid_widget)
         
         self.main_layout.addStretch()
+
+    def on_create_clicked(self):
+        pwd = self.pwd_inp.text()
+        if not pwd:
+            QMessageBox.warning(self, "提醒", "請先輸入你想設定的房間密碼")
+            return
+        self.client.create_room(pwd)
+        self.create_btn.setText("創建中")
+        self.create_btn.setEnabled(False)
+
+    def on_room_created(self, code, pwd):
+        # Auto fill the room code and notify
+        self.code_inp.setText(code)
+        self.create_btn.setText("創建")
+        self.create_btn.setEnabled(True)
+        QMessageBox.information(self, "成功", f"房間建立成功！\n房號：{code}\n密碼：{pwd}\n\n已為您自動填入代碼。")
+        # Trigger actual join process
+        self.on_connect_clicked()
 
     def on_connect_clicked(self):
         if self.client.is_connected:
@@ -248,7 +292,10 @@ class RJPQTabContent(QWidget):
                 btn.setStyleSheet("QPushButton { background: #222; color: #888; border: 1px solid #333; border-radius: 2px; }")
 
     def on_reset_clicked(self):
-        self.client.send_action({"type": "reset"})
+        reply = QMessageBox.question(self, "確認重置", "確定要重置所有標記嗎？\n這將清空全隊目前的路徑紀錄。", 
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.client.send_action({"type": "reset"})
 
 # --- Overlay Drawer ---
 def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
