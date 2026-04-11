@@ -1335,16 +1335,25 @@ class ArtaleOverlay(QWidget):
         self.current_exp_data["gained_10m"] = self.ten_min_gain
         self.current_exp_data["percent_10m"] = max(0.0, gain_pct_10m)
         
+        # 3. Level up estimation (New High-Precision Algorithm)
+        # 3a. Estimate total EXP pool for this level
+        cur_p = data.get("percent", 0.0)
+        total_pool = 0
+        if cur_p > 0.1: # Only estimate if we have some progress
+            total_pool = (current_exp * 100.0) / cur_p
+        
+        # 3b. Calculate remaining EXP and time
+        self.current_exp_data["time_to_level"] = -1
+        if gain_10m > 0 and total_pool > current_exp:
+            rem_val = total_pool - current_exp
+            # Rate per second = gain_10m / 600
+            # Seconds = rem_val / (gain_10m / 600)
+            self.current_exp_data["time_to_level"] = int(rem_val * 600 / gain_10m)
+        
         rt = (now - self.exp_session_start_time) if self.exp_session_start_time else 0
         self.current_exp_data["is_estimated"] = rt < 600
         self.current_exp_data["tracking_duration"] = int(rt)
 
-        rem_p = max(0, 100.0 - data["percent"])
-        if gain_pct_10m > 0.0001:
-             self.current_exp_data["time_to_level"] = int(rem_p * 600 / gain_pct_10m)
-        else:
-             self.current_exp_data["time_to_level"] = -1
-             
         self.update()
 
 
