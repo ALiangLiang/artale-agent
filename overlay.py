@@ -401,14 +401,23 @@ class SettingsWindow(QWidget):
         ship_group = QGroupBox("🚢 特殊提醒")
         ship_layout = QVBoxLayout()
         
-        ship_btn = QPushButton("開始下班船班倒數 (十分鐘一班)")
+        ship_btn = QPushButton("🚢 維多利亞/飛船倒數 (15分鐘一班)")
         ship_btn.setStyleSheet("QPushButton { background-color: #0277bd; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
         ship_btn.clicked.connect(self.start_ship_timer)
         ship_layout.addWidget(ship_btn)
         
-        ship_info = QLabel("提示：此功能會自動對準下一個整十分鐘發送通知。")
-        ship_info.setStyleSheet("color: #888; font-size: 11px;")
-        ship_layout.addWidget(ship_info)
+        elevator_row = QHBoxLayout()
+        elevator_down_btn = QPushButton("🔻 赫爾奧斯塔 (下樓)")
+        elevator_down_btn.setStyleSheet("QPushButton { background-color: #5d4037; color: white; font-weight: bold; border-radius: 4px; height: 32px; }")
+        elevator_down_btn.clicked.connect(lambda: self.start_elevator_timer("down"))
+        
+        elevator_up_btn = QPushButton("🔺 赫爾奧斯塔 (上樓)")
+        elevator_up_btn.setStyleSheet("QPushButton { background-color: #ef6c00; color: white; font-weight: bold; border-radius: 4px; height: 32px; }")
+        elevator_up_btn.clicked.connect(lambda: self.start_elevator_timer("up"))
+        
+        elevator_row.addWidget(elevator_down_btn)
+        elevator_row.addWidget(elevator_up_btn)
+        ship_layout.addLayout(elevator_row)
         
         ship_group.setLayout(ship_layout)
         timer_tab_layout.addWidget(ship_group)
@@ -647,23 +656,40 @@ class SettingsWindow(QWidget):
     def start_ship_timer(self):
         import datetime
         now = datetime.datetime.now()
-        # Find next 10-minute mark
         minutes = now.minute
         seconds = now.second
         
-        # Minutes until next 10
-        rem_min = 10 - (minutes % 10)
+        # Victoria/Orbis: Every 15 mins (0, 15, 30, 45)
+        rem_min = 15 - (minutes % 15)
         total_seconds = (rem_min * 60) - seconds
+        if total_seconds <= 0: total_seconds = 900
         
-        # If it's very close (less than 10s), target the recursive one after? 
-        # No, usually people want exactly the next available one.
-        if total_seconds <= 0:
-            total_seconds = 600
-            
-        print(f"[Timer] Starting Ship Reminder: {total_seconds} seconds remaining until next 10m mark.")
-        self.timer_request.emit("船班到站", total_seconds, "buff_pngs/ship_icon.png", True)
-        self.notification_request.emit(f"⚓ 船班提早提醒已啟動！還有 {total_seconds // 60} 分 {total_seconds % 60} 秒。")
+        if self.overlay:
+             self.overlay.timer_request.emit("Ship", total_seconds, "buff_pngs/ship_timer.png", True)
 
+    def start_elevator_timer(self, direction):
+        import datetime
+        now = datetime.datetime.now()
+        minutes = now.minute
+        seconds = now.second
+        
+        if direction == "down": # 4n: 0, 4, 8...
+            rem_min = 4 - (minutes % 4)
+            total_seconds = (rem_min * 60) - seconds
+        else: # 4n+2: 2, 6, 10...
+            # This is complex but: ( (2 - minutes) % 4 ) minutes remaining?
+            # Let's use total cycle logic
+            rem_total = (120 - ((minutes % 4) * 60 + seconds)) % 240
+            total_seconds = rem_total
+            
+        if total_seconds <= 0:
+            total_seconds = 240
+            
+        if self.overlay:
+             icon = "buff_pngs/elevator_down.png" if direction == "down" else "buff_pngs/elevator_up.png"
+             name = "電梯(下)" if direction == "down" else "電梯(上)"
+             self.overlay.timer_request.emit(name, total_seconds, icon, True)
+        
     def refresh_items(self):
         while self.scroll_layout.count():
             item = self.scroll_layout.takeAt(0)
@@ -830,6 +856,7 @@ class ArtaleOverlay(QWidget):
         
         self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
         self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
+        self.world_timers = {} # Keep empty or remove if not used
         
         # Initialize ExpTracker
         if WindowsCapture:
@@ -1464,7 +1491,12 @@ class ArtaleOverlay(QWidget):
         if self.active_timers:
             sorted_active = sorted(self.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
             for k, d in sorted_active: timers_to_draw.append((k, d["seconds"], d["pixmap"]))
-        elif self.show_preview:
+        
+        # Also include world_timers if any are active
+        for k, d in self.world_timers.items():
+            timers_to_draw.append((k, d["seconds"], d["pixmap"]))
+
+        if not timers_to_draw and self.show_preview:
             timers_to_draw.append(("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png"))))
 
         new_click_zones = {}; spacing = 80; total_width = len(timers_to_draw) * spacing
