@@ -398,27 +398,43 @@ class SettingsWindow(QWidget):
         self.scroll.setWidget(self.scroll_content)
         timer_tab_layout.addWidget(self.scroll)
 
+        btn_common_style = """
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #ccc;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                height: 32px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #333;
+                border: 1px solid #555;
+            }
+        """
+
         self.record_btn = QPushButton("➕ 新增按鍵 (點我後按鍵盤)")
-        self.record_btn.setStyleSheet("QPushButton { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
+        self.record_btn.setStyleSheet(btn_common_style)
         self.record_btn.clicked.connect(self.toggle_recording)
         timer_tab_layout.addWidget(self.record_btn)
         
-        # --- Ship Reminder Section (Moved here) ---
+        # --- Ship Reminder Section ---
         ship_group = QGroupBox("🚢 特殊提醒")
+        ship_group.setStyleSheet("QGroupBox { color: #aaa; font-weight: bold; border: 1px solid #333; border-radius: 8px; margin-top: 15px; padding-top: 10px; }")
         ship_layout = QVBoxLayout()
         
-        ship_btn = QPushButton("🚢 維多利亞/飛船倒數 (15分鐘一班)")
-        ship_btn.setStyleSheet("QPushButton { background-color: #0277bd; color: white; font-weight: bold; border-radius: 5px; height: 35px; }")
+        ship_btn = QPushButton("🚢 開始下班船班倒數")
+        ship_btn.setStyleSheet(btn_common_style)
         ship_btn.clicked.connect(self.start_ship_timer)
         ship_layout.addWidget(ship_btn)
         
         elevator_row = QHBoxLayout()
         elevator_down_btn = QPushButton("🔻 赫爾奧斯塔 (下樓)")
-        elevator_down_btn.setStyleSheet("QPushButton { background-color: #5d4037; color: white; font-weight: bold; border-radius: 4px; height: 32px; }")
+        elevator_down_btn.setStyleSheet(btn_common_style)
         elevator_down_btn.clicked.connect(lambda: self.start_elevator_timer("down"))
         
         elevator_up_btn = QPushButton("🔺 赫爾奧斯塔 (上樓)")
-        elevator_up_btn.setStyleSheet("QPushButton { background-color: #ef6c00; color: white; font-weight: bold; border-radius: 4px; height: 32px; }")
+        elevator_up_btn.setStyleSheet(btn_common_style)
         elevator_up_btn.clicked.connect(lambda: self.start_elevator_timer("up"))
         
         elevator_row.addWidget(elevator_down_btn)
@@ -428,9 +444,9 @@ class SettingsWindow(QWidget):
         ship_group.setLayout(ship_layout)
         timer_tab_layout.addWidget(ship_group)
         
-        # --- Timer Position Adjustment (Moved here) ---
+        # --- Timer Position Adjustment ---
         pos_btn = QPushButton("🔱 調整計時器位置")
-        pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 10px;}")
+        pos_btn.setStyleSheet(btn_common_style)
         pos_btn.clicked.connect(self.toggle_timer_handle)
         timer_tab_layout.addWidget(pos_btn)
         
@@ -452,7 +468,7 @@ class SettingsWindow(QWidget):
         exp_tab_layout.addWidget(self.exp_active_cb)
         
         reset_exp_btn = QPushButton("🔄 重新開始紀錄 (歸零重算)")
-        reset_exp_btn.setStyleSheet("QPushButton { background-color: #444; color: #eee; border-radius: 4px; height: 30px; margin-top: 10px; } QPushButton:hover { background: #555; }")
+        reset_exp_btn.setStyleSheet(btn_common_style)
         reset_exp_btn.clicked.connect(self.on_reset_exp_clicked)
         exp_tab_layout.addWidget(reset_exp_btn)
         
@@ -476,7 +492,7 @@ class SettingsWindow(QWidget):
         
         # --- EXP Position Adjustment ---
         exp_pos_btn = QPushButton("📊 調整經驗值面板位置")
-        exp_pos_btn.setStyleSheet("QPushButton { background-color: #5c6bc0; color: white; border-radius: 5px; height: 30px; margin-top: 15px;}")
+        exp_pos_btn.setStyleSheet(btn_common_style)
         exp_pos_btn.clicked.connect(self.toggle_exp_handle)
         exp_tab_layout.addWidget(exp_pos_btn)
         
@@ -523,7 +539,19 @@ class SettingsWindow(QWidget):
         # --- Global Controls (Bottom) ---
 
         save_btn = QPushButton("💾 儲存並套用")
-        save_btn.setStyleSheet("QPushButton { background-color: #ffd700; color: black; font-weight: bold; border-radius: 5px; height: 35px; margin-top: 5px;}")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffd54f, stop:1 #ffb300);
+                color: #222;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+                height: 40px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffea00, stop:1 #ff8f00);
+            }
+        """)
         save_btn.clicked.connect(self.save_and_close)
         self.layout.addWidget(save_btn)
 
@@ -624,7 +652,20 @@ class SettingsWindow(QWidget):
             self.record_btn.setStyleSheet("background-color: #c62828; color: white; border-radius: 5px; height: 35px;")
         else:
             self.record_btn.setText("➕ 新增按鍵 (點我後按鍵盤)")
-            self.record_btn.setStyleSheet("background-color: #2e7d32; color: white; border-radius: 5px; height: 35px;")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #333;
+                    color: #ddd;
+                    border: 1px solid #444;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    height: 35px;
+                }
+                QPushButton:hover {
+                    background-color: #3d3d3d;
+                    border: 1px solid #555;
+                }
+            """)
 
     def safe_show(self):
         self.show(); self.activateWindow(); self.raise_()
@@ -672,10 +713,10 @@ class SettingsWindow(QWidget):
         minutes = now.minute
         seconds = now.second
         
-        # Victoria/Orbis: Every 15 mins (0, 15, 30, 45)
-        rem_min = 15 - (minutes % 15)
+        # Victoria/Orbis: Every 10 mins (0, 10, 20 ...)
+        rem_min = 10 - (minutes % 10)
         total_seconds = (rem_min * 60) - seconds
-        if total_seconds <= 0: total_seconds = 900
+        if total_seconds <= 0: total_seconds = 600
         
         if self.overlay:
              self.overlay.timer_request.emit("Ship", total_seconds, "buff_pngs/ship_timer.png", True)
