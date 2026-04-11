@@ -86,6 +86,11 @@ class RJPQTabContent(QWidget):
         
         self.client.status_changed.connect(self.update_status)
         self.client.sync_received.connect(self.update_grid)
+        self.client.error_received.connect(self.on_error_message)
+
+    def on_error_message(self, error):
+        QMessageBox.critical(self, "錯誤", f"YZY 伺服器回傳錯誤：\n{error}")
+        self.update_status(False)
 
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
