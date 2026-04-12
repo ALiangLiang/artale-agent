@@ -171,7 +171,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             now = time.time()
             if k_name and k_name.startswith('f') and len(k_name) <= 3:
                 f_num = k_name[1:]
-                if f_num.isdigit() and 1 <= int(f_num) <= 9:
+                if f_num.isdigit() and 1 <= int(f_num) <= 8:
                     if last_key == k_name and (now - last_time) < DOUBLE_PRESS_DELAY:
                         # Success! Switch profile
                         p_key = f"F{f_num}"

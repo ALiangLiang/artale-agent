@@ -103,7 +103,7 @@ class ConfigManager:
                     # Migration: "Profile X" -> "FX"
                     new_profiles = {}
                     old_profiles = config.get("profiles", {})
-                    for i in range(1, 10):
+                    for i in range(1, 9):
                         old_key = f"Profile {i}"
                         new_key = f"F{i}"
                         
@@ -766,7 +766,7 @@ class SettingsWindow(QWidget):
         self.profile_box.clear()
         config = ConfigManager.load_config()
         active = config.get("active_profile", "F1")
-        for i in range(1, 10):
+        for i in range(1, 9):
             key = f"F{i}"
             name = config["profiles"][key].get("name", f"Profile {i}")
             self.profile_box.addItem(f"{key}: {name}", key)
