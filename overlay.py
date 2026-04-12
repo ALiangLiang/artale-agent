@@ -1176,7 +1176,6 @@ class ArtaleOverlay(QWidget):
         self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
         self.is_active = True
         if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
-        # Limit UI update to avoid unnecessary repaints
         self.update()
 
     def update_countdown(self):
@@ -1191,6 +1190,7 @@ class ArtaleOverlay(QWidget):
             if rem <= -10: to_remove.append(key)
         for key in to_remove:
             if key in self.active_timers: del self.active_timers[key]
+
         if not self.active_timers:
             self.is_active = False; self.countdown_timer.stop()
         self.update()
@@ -1607,6 +1607,7 @@ class ArtaleOverlay(QWidget):
         except Exception as e:
             if self.show_debug: print(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
 
+
     def on_exp_update(self, data):
         # Initialize session variables if needed
         if not hasattr(self, 'exp_session_start_time'): self.exp_session_start_time = None
@@ -1636,8 +1637,8 @@ class ArtaleOverlay(QWidget):
             
         if is_drop:
             print(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
-            return # Skip this update to preserve session continuity
-
+            return # Skip this update. NOTE: success_time is NOT updated here.
+        
         # 1. Update baseline history
         self.exp_history.append((now, current_exp, data.get("percent", 0)))
         # Keep only 1 hour of history
@@ -1812,6 +1813,7 @@ class ArtaleOverlay(QWidget):
             except Exception as e:
                 pass
 
+        # Guard: If nothing to draw, skip processing
         if not self.is_active and not self.show_preview and self.msg_opacity == 0: 
             return
         
