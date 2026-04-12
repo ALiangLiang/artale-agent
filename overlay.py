@@ -2092,7 +2092,7 @@ class ArtaleOverlay(QWidget):
 
     def export_exp_report(self):
         """ Render the EXP panel to a static image and save it """
-        pw, ph = 330, 200 # Slightly taller for report
+        pw, ph = 330, 220 # Slightly taller for report
         pixmap = QPixmap(pw, ph)
         pixmap.fill(Qt.GlobalColor.transparent)
         
@@ -2138,73 +2138,86 @@ class ArtaleOverlay(QWidget):
             self.show_notification("❌ 產出失敗，請檢查權限")
 
     def _draw_exp_content(self, painter, px, py, pw, ph, is_export=False):
-        # 1.5 Title
+        now = time.time()
+        # 1. Title
         painter.setPen(QColor(255, 255, 255))
         font = QFont("Microsoft JhengHei")
-        font.setPointSize(12 if is_export else 11)
-        font.setBold(True)
+        font.setPointSize(12 if is_export else 11); font.setBold(True)
         painter.setFont(font)
-        painter.drawText(px + 15, py + 30 if is_export else py + 25, f"📊 經驗值監測報告" if is_export else "📊 經驗值監測")
+        y = py + (30 if is_export else 25)
+        painter.drawText(px + 15, y, f"📊 經驗值監測報告" if is_export else "📊 經驗值監測")
         
-        # 2. Recording Duration
+        # 2. Sub-info (Duration & Total on one line)
+        y += (28 if is_export else 25)
         duration_sec = self.current_exp_data.get("tracking_duration", 0)
-        h_dur = duration_sec // 3600
-        m_dur = (duration_sec % 3600) // 60
-        s_dur = duration_sec % 60
-        duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
-            
-        painter.setPen(QColor(200, 200, 200))
-        font.setPointSize(9)
-        font.setBold(False)
-        painter.setFont(font)
-        painter.drawText(px + 15, py + 55 if is_export else py + 48, f"紀錄時長: {duration_text}")
+        h_dur = duration_sec // 3600; m_dur = (duration_sec % 3600) // 60; s_dur = duration_sec % 60
+        val_dur = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
         
-        # New: Total Gained (Incremental)
-        total_gain = self.cumulative_gain
-        total_pct = self.cumulative_pct
-        font.setPointSize(10); font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(px + 140, py + 55 if is_export else py + 48, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
+        # Duration Part
+        painter.setPen(QColor(100, 255, 100))
+        font.setPointSize(9); font.setBold(True); painter.setFont(font)
+        fm_small = painter.fontMetrics()
+        lbl_dur = "紀錄時長:"
+        painter.drawText(px + 15, y, lbl_dur)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(px + 15 + fm_small.horizontalAdvance(lbl_dur) + 5, y, val_dur)
+        
+        # Total Part (Right Aligned)
+        painter.setPen(QColor(100, 255, 100))
+        lbl_total = "總累積:"
+        # Position label based on typical width or middle
+        total_start_x = px + 145
+        painter.drawText(total_start_x, y, lbl_total)
+        painter.setPen(QColor(255, 255, 255))
+        val_total = f"+{self.cumulative_gain:,} ({self.cumulative_pct:+.2f}%)"
+        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_total)
 
         # 3. Time to Level Up
-        painter.setPen(QColor(255, 215, 0))
-        font.setPointSize(14 if is_export else 13); font.setBold(True)
-        painter.setFont(font)
+        y += (32 if is_export else 28)
+        painter.setPen(QColor(100, 255, 100))
+        font.setPointSize(12 if is_export else 11); font.setWeight(QFont.Weight.DemiBold); painter.setFont(font)
+        fm = painter.fontMetrics()
+        
+        lbl_ttl = "升級預計還需: "
+        painter.drawText(px + 15, y, lbl_ttl)
+        
         ttl_sec = self.current_exp_data.get("time_to_level", -1)
-        if ttl_sec > 0:
-            h = ttl_sec // 3600; m = (ttl_sec % 3600) // 60
-            ttl_text = f"升級預計還需: {h}小時 {m}分"
-        else:
-            ttl_text = "升級預計還需: 計算速率中..."
-        painter.drawText(px + 15, py + 88 if is_export else py + 78, ttl_text)
+        val_ttl = f"{ttl_sec // 3600}小時 {(ttl_sec % 3600) // 60}分" if ttl_sec > 0 else "計算速率中..."
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_ttl)
         
         # 4. 10min Efficiency
+        y += (32 if is_export else 28)
         gain_val = self.current_exp_data.get("gained_10m", 0)
         gain_pct = self.current_exp_data.get("percent_10m", 0.0)
         is_est = self.current_exp_data.get("is_estimated", True)
-        label = "（預估）" if is_est else ""
-        gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
         
-        painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
-        font.setPointSize(12 if is_export else 11); font.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(font)
-        painter.drawText(px + 15, py + 118 if is_export else py + 105, gain_text)
+        lbl_eff = f"{'（預估）' if is_est else ''}10分鐘效率: "
+        painter.setPen(QColor(100, 255, 100))
+        painter.drawText(px + 15, y, lbl_eff)
+        
+        val_eff = f"+{gain_val:,} ({gain_pct:+.2f}%)"
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_eff)
 
-        last_y = ty + 15
+        # 5. Highest 10m Record
+        y += (32 if is_export else 28)
+        lbl_max = "十分鐘最高經驗: "
+        painter.setPen(QColor(100, 255, 100))
+        painter.drawText(px + 15, y, lbl_max)
         
-        # Max 10M record
-        if self.max_10m_exp > 0:
-            painter.setPen(QColor(255, 215, 0, 180)) # Goldish
-            painter.setFont(QFont("Microsoft JhengHei", 9))
-            max_10m_str = f"🏆 最高十分鐘: {self.max_10m_exp:,}"
-            painter.drawText(QRect(tx, last_y, tw, 20), Qt.AlignmentFlag.AlignLeft, max_10m_str)
-            last_y += 18
+        session_sec = now - self.exp_session_start_time if (hasattr(self, 'exp_session_start_time') and self.exp_session_start_time) else 0
+        val_max = f"{self.max_10m_exp:,}" if session_sec >= 600 else "(未滿十分鐘)"
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_max)
+        
+        last_y = y # For graph positioning
 
         # 5. Trend Graph
         if len(self.exp_rate_history) > 1:
             max_points = 40
             gh = 50 if is_export else 40; gw = pw - 30
-            gx = px + 15; gy = py + ph - 20 - gh if is_export else py + ph - 15 - gh
+            gx = px + 15; gy = last_y + (15 if is_export else 10)
             
             painter.setPen(QColor(255, 255, 255, 20))
             painter.setBrush(QColor(255, 255, 255, 5))
@@ -2236,7 +2249,7 @@ class ArtaleOverlay(QWidget):
         # Positional logic
         bx = self.rect().center().x() + self.exp_x_offset
         by = self.rect().center().y() + self.exp_y_offset
-        pw, ph = 330, 165 # Increased height for graph
+        pw, ph = 330, 200 # Increased height for graph
         # Right Aligned: bx is the right edge
         panel_rect = QRect(bx - pw, by - 120 - ph // 2, pw, ph)
         px, py = panel_rect.x(), panel_rect.y()
