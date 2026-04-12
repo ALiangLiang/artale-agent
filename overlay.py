@@ -1797,7 +1797,7 @@ class ArtaleOverlay(QWidget):
 
         # 1. Profile/Action Notification (Centered above anchor)
         if self.msg_opacity > 0:
-            font = QFont("Segoe UI Bold", 18); painter.setFont(font)
+            font = QFont("Microsoft JhengHei", 18, QFont.Weight.Bold); painter.setFont(font)
             tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
             # Draw notification right-aligned clearly above the timer block
             bg_rect = QRect(base_x - (tw+40), base_y - 70, tw+40, 45)
@@ -1843,7 +1843,7 @@ class ArtaleOverlay(QWidget):
             display_seconds = max(0, seconds); text = str(display_seconds)
             color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
             if self.show_preview and not self.active_timers: color = QColor(255, 255, 255, 150)
-            font = QFont("Segoe UI Black", 22 if seconds > 3 else 26); painter.setFont(font)
+            font = QFont("Microsoft JhengHei", 22 if seconds > 3 else 26, QFont.Weight.ExtraBold); painter.setFont(font)
             text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
             painter.setPen(QPen(QColor(0,0,0,200), 4)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
             painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
@@ -1877,7 +1877,7 @@ class ArtaleOverlay(QWidget):
         duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
             
         painter.setPen(QColor(200, 200, 200))
-        painter.setFont(QFont("Segoe UI", 9))
+        painter.setFont(QFont("Microsoft JhengHei", 9))
         painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
         
         # New: Total Gained (Incremental)
@@ -1885,18 +1885,18 @@ class ArtaleOverlay(QWidget):
         total_pct = self.cumulative_pct
 
         painter.setPen(QColor(100, 255, 100))
-        painter.setFont(QFont("Segoe UI Bold", 10))
+        painter.setFont(QFont("Microsoft JhengHei", 10, QFont.Weight.Bold))
         painter.drawText(px + 140, py + 32, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
 
         # New: Pause indicator
         if self.exp_paused:
             painter.setPen(QColor(255, 100, 100))
-            painter.setFont(QFont("Segoe UI Bold", 10))
+            painter.setFont(QFont("Microsoft JhengHei", 10, QFont.Weight.Bold))
             painter.drawText(px + pw - 80, py + 32, "⏸ 已暫停")
         
         # 3. Time to Level Up
         painter.setPen(QColor(255, 215, 0))
-        painter.setFont(QFont("Segoe UI Bold", 13))
+        painter.setFont(QFont("Microsoft JhengHei", 13, QFont.Weight.Bold))
         ttl_sec = self.current_exp_data.get("time_to_level", -1)
         if ttl_sec > 0:
             h = ttl_sec // 3600
@@ -1914,7 +1914,7 @@ class ArtaleOverlay(QWidget):
         gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
         
         painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
-        painter.setFont(QFont("Segoe UI Semibold", 11))
+        painter.setFont(QFont("Microsoft JhengHei", 11, QFont.Weight.DemiBold))
         painter.drawText(px + 15, py + 95, gain_text)
 
         # --- Progress Bar Removed ---
