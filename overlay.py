@@ -20,7 +20,7 @@ except ImportError:
     WindowsCapture = None
 
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage
 try:
     from PyQt6.QtWebSockets import QWebSocket
 except ImportError:
@@ -348,7 +348,8 @@ class SettingsWindow(QWidget):
         
         # Connect to EXP updates for live preview
         if self.overlay:
-            self.overlay.exp_update_request.connect(self.on_exp_data_received)
+            self.overlay.exp_update_request.connect(self.update_debug_img)
+            self.overlay.lv_update_request.connect(self.update_lv_debug_img)
             
         self.handle = None
         self.exp_handle = None
@@ -357,23 +358,42 @@ class SettingsWindow(QWidget):
         self.init_ui()
         self.request_show.connect(self.safe_show)
 
-    def on_exp_data_received(self, data):
-        """Update live preview images using robust byte loading"""
-        if not self.isVisible() or self.tabs.currentIndex() != 1:
-            return
-            
-        try:
-            from PyQt6.QtGui import QPixmap
-            if data.get("debug_bytes"):
-                pix = QPixmap()
-                if pix.loadFromData(data["debug_bytes"]):
-                    self.debug_img_lbl.setPixmap(pix.scaled(
-                        self.debug_img_lbl.size(), 
-                        Qt.AspectRatioMode.KeepAspectRatio, 
-                        Qt.TransformationMode.SmoothTransformation
-                    ))
-        except Exception as e:
-            pass
+    def update_debug_img(self, data):
+        if not self.debug_mode_cb.isChecked(): return
+        if "thresh" in data:
+            import numpy as np
+            thresh = data["thresh"]
+            h, w = thresh.shape
+            bytes_per_line = w
+            q_img = QImage(thresh.data, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
+            pixmap = QPixmap.fromImage(q_img)
+            self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+    def update_lv_debug_img(self, data):
+        if not self.debug_mode_cb.isChecked(): return
+        if "thresh" in data:
+            thresh = data["thresh"]
+            h, w = thresh.shape
+            q_img = QImage(thresh.data, w, h, w, QImage.Format.Format_Grayscale8)
+            pixmap = QPixmap.fromImage(q_img)
+            self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
+        if "level" in data and data["level"]:
+            lv_text = data["level"]
+            if self.overlay: 
+                self.overlay.current_lv = lv_text
+                try:
+                    lv_val = int(lv_text)
+                    # Check for Level Up
+                    if self.overlay.last_confirmed_lv is not None and lv_val > self.overlay.last_confirmed_lv:
+                        print(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
+                        self.overlay.exp_initial_val = None # Force recalibration
+                        self.overlay.cumulative_gain = 0
+                        self.overlay.exp_history = []
+                    
+                    self.overlay.last_confirmed_lv = lv_val
+                except:
+                    pass
 
     def init_ui(self):
         self.setWindowTitle("Artale Agent 🍁 控制中心")
@@ -556,6 +576,19 @@ class SettingsWindow(QWidget):
         self.debug_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.debug_img_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_img_lbl)
+
+        # LV OCR Monitor
+        self.debug_lv_info_lbl = QLabel("🔍 LV 監控 (白底黑字則為正常)")
+        self.debug_lv_info_lbl.setStyleSheet("color: #666; font-size: 10px; margin-top: 10px;")
+        self.debug_lv_info_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_lv_info_lbl)
+        
+        self.debug_lv_img_lbl = QLabel()
+        self.debug_lv_img_lbl.setFixedSize(150, 40)
+        self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
+        self.debug_lv_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.debug_lv_img_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_lv_img_lbl)
 
         exp_tab_layout.addStretch()
         self.tabs.addTab(exp_tab, "📊 經驗值")
@@ -953,10 +986,13 @@ class SettingsWindow(QWidget):
             self.update_icon_button(btn, path)
 
     def on_debug_mode_changed(self, checked):
-        if self.overlay:
-            self.overlay.show_debug = checked
-            self.debug_info_lbl.setVisible(checked)
-            self.debug_img_lbl.setVisible(checked)
+        v = checked
+        self.debug_info_lbl.setVisible(v)
+        self.debug_img_lbl.setVisible(v)
+        self.debug_lv_info_lbl.setVisible(v)
+        self.debug_lv_img_lbl.setVisible(v)
+        if self.overlay: 
+            self.overlay.show_debug = v
             self.overlay.show_notification(f"除錯模式: {'開啟' if checked else '關閉'}")
 
     def on_opacity_changed(self, value):
@@ -1011,11 +1047,16 @@ class ArtaleOverlay(QWidget):
     Y_OFF_FROM_BOTTOM = 66   # Fixed vertical offset from bottom
     BASE_CW, BASE_CH = 240, 22
     
+    LV_X_OFF_FROM_LEFT = 100
+    LV_Y_OFF_FROM_BOTTOM = 46
+    LV_BASE_CW, LV_BASE_CH = 75, 26
+    
     timer_request = pyqtSignal(str, int, str, bool) 
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)
+    lv_update_request = pyqtSignal(dict) # New for Level Monitoring
     toggle_exp_request = pyqtSignal()
     toggle_pause_request = pyqtSignal()
     toggle_rjpq_request = pyqtSignal()
@@ -1059,8 +1100,11 @@ class ArtaleOverlay(QWidget):
         self.rjpq_y_offset = 0
         self.rjpq_click_zones = {}
         self.last_capture_time = 0
+        self.current_lv = None 
+        self.last_confirmed_lv = None # To detect level up
         self._tesseract_error_shown = False
         self.last_crop_info = None
+        self.last_lv_crop_info = None
         
         self.timer_request.connect(self.start_timer)
         self.clear_request.connect(self.clear_all_timers)
@@ -1427,6 +1471,31 @@ class ArtaleOverlay(QWidget):
                 # Update debug info for sync visualization
                 self.last_crop_info = (cx, cy, cw, ch, w, h)
                 
+                # LV Crop calculation
+                lv_cx = off_x + int(self.LV_X_OFF_FROM_LEFT * scale)
+                lv_cy = off_y + (ch_ref - int(self.LV_Y_OFF_FROM_BOTTOM * scale))
+                lv_cw = int(self.LV_BASE_CW * scale)
+                lv_ch = int(self.LV_BASE_CH * scale)
+                self.last_lv_crop_info = (lv_cx, lv_cy, lv_cw, lv_ch, w, h)
+                
+                # LV Binarization for debug
+                lv_crop = img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
+                if lv_crop.size > 0:
+                    lv_gray = cv2.cvtColor(lv_crop, cv2.COLOR_BGR2GRAY)
+                    r_lv = 60 / lv_gray.shape[0] if lv_gray.shape[0] > 0 else 3
+                    lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_CUBIC)
+                    _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY_INV)
+                    
+                    # OCR for Level
+                    lv_ocr_text = ""
+                    if pytesseract and pytesseract.pytesseract.tesseract_cmd:
+                        try:
+                            lv_padded = cv2.copyMakeBorder(lv_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                            lv_ocr_text = pytesseract.image_to_string(lv_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
+                        except: pass
+                    
+                    self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
+                
                 if self.exp_paused:
                     last_processed = now
                     self.update()
@@ -1764,26 +1833,14 @@ class ArtaleOverlay(QWidget):
         # 0.1 Draw Debug Crop Box (Red Outline)
         if self.show_debug and self.last_crop_info:
             try:
-                # Logic: last_crop_info is relative to game window top-left
                 import win32gui
                 target_hwnd = None
-                # Try to find the same window we use for capture
-                target_hwnd = None
-                import win32process
-                my_pid = os.getpid()
-                def enum_render(hwnd, lparam):
-                    nonlocal target_hwnd
-                    if target_hwnd: return
-                    if win32gui.IsWindowVisible(hwnd):
-                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                        if pid == my_pid: return # Skip ourselves
-                        title = win32gui.GetWindowText(hwnd)
-                        if "MapleStory Worlds-Artale" in title:
-                            target_hwnd = hwnd
-                win32gui.EnumWindows(enum_render, None)
+                for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
+                    hwnd = win32gui.FindWindow(None, name)
+                    if hwnd and win32gui.IsWindowVisible(hwnd):
+                        target_hwnd = hwnd; break
                 
                 if target_hwnd:
-                    import win32gui
                     # 1. Get Game Client Area size
                     crect = win32gui.GetClientRect(target_hwnd)
                     client_w, client_h = crect[2], crect[3]
@@ -1791,30 +1848,38 @@ class ArtaleOverlay(QWidget):
                     # 2. Get Global Screen coord of Client BOTTOM-LEFT
                     bl_point = win32gui.ClientToScreen(target_hwnd, (0, client_h))
                     
-                    # 3. Map to Overlay Local coordinates
+                    # 3. Map to Overlay Local coordinates (Full Screen Virtual geometry)
                     local_bl = self.mapFromGlobal(QPoint(bl_point[0], bl_point[1]))
                     bx, by = local_bl.x(), local_bl.y()
                     
                     # Sync using Min Ratio logic
                     visual_scale = min(client_w / self.BASE_W, client_h / self.BASE_H)
                     
-                    # Calculated positions and size
-                    target_x = bx + int(self.X_OFF_FROM_LEFT * visual_scale)
-                    target_y = by - int(self.Y_OFF_FROM_BOTTOM * visual_scale)
-                    cw, ch = int(self.BASE_CW * visual_scale), int(self.BASE_CH * visual_scale)
+                    # A. EXP Zone
+                    tx = bx + int(self.X_OFF_FROM_LEFT * visual_scale)
+                    ty = by - int(self.Y_OFF_FROM_BOTTOM * visual_scale)
+                    tw, th = int(self.BASE_CW * visual_scale), int(self.BASE_CH * visual_scale)
                     
-                    # Use synchronized depth for the visual box
                     painter.setPen(QPen(QColor(255, 0, 0, 200), 2, Qt.PenStyle.DashLine))
                     painter.setBrush(QColor(255, 0, 0, 40))
-                    painter.drawRect(int(target_x), int(target_y), int(cw), int(ch))
-                    
-                    painter.setPen(QPen(QColor(255, 0, 0, 255)))
-                    painter.drawText(int(target_x), int(target_y - 5), "EXP Capture Zone (Min Ratio Mode)")
-            except Exception as e:
-                pass
+                    painter.drawRect(int(tx), int(ty), int(tw), int(th))
+                    painter.setPen(QPen(QColor(255, 0, 0)))
+                    painter.drawText(int(tx), int(ty - 5), "EXP Zone")
 
-        # Guard: If nothing to draw, skip processing
-        if not self.is_active and not self.show_preview and self.msg_opacity == 0: 
+                    # B. LV Zone
+                    lvx = bx + int(self.LV_X_OFF_FROM_LEFT * visual_scale)
+                    lvy = by - int(self.LV_Y_OFF_FROM_BOTTOM * visual_scale)
+                    lcw, lch = int(self.LV_BASE_CW * visual_scale), int(self.LV_BASE_CH * visual_scale)
+                    
+                    painter.setPen(QPen(QColor(255, 165, 0, 200), 2, Qt.PenStyle.DashLine))
+                    painter.setBrush(QColor(255, 165, 0, 40))
+                    painter.drawRect(int(lvx), int(lvy), int(lcw), int(lch))
+                    painter.setPen(QPen(QColor(255, 165, 0)))
+                    painter.drawText(int(lvx), int(lvy - 5), "LV Zone")
+            except: pass
+
+        # Guard: Stop painting if idle and no debug info
+        if not self.is_active and not self.show_preview and self.msg_opacity == 0 and not self.show_debug: 
             return
         
         # Base coordinates
@@ -1902,6 +1967,16 @@ class ArtaleOverlay(QWidget):
         painter.setPen(QPen(QColor(255, 215, 0, 255), 2))
         painter.setBrush(QColor(10, 10, 15, int(self.base_opacity * 255))) 
         painter.drawPath(path)
+        
+        # 1.5 Title & Level
+        painter.setPen(QColor(255, 255, 255))
+        font = QFont()
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setPointSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+        lv_str = f"Lv. {self.current_lv}" if self.current_lv else "Lv. ---"
+        painter.drawText(px + 15, py + 26, f"📊 經驗監測 {lv_str}")
         
         # 2. Recording Duration
         duration_sec = self.current_exp_data.get("tracking_duration", 0)
