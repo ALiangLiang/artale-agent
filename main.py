@@ -228,7 +228,9 @@ def check_network_drive():
 def run_app():
     app = QApplication(sys.argv)
     from PyQt6.QtGui import QFont
-    app.setFont(QFont("Microsoft JhengHei"))
+    font = QFont()
+    font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+    app.setFont(font)
     app.setQuitOnLastWindowClosed(False)
     
     # Check for Samba/Network drive issues

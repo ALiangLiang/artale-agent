@@ -370,14 +370,14 @@ class SettingsWindow(QWidget):
             
         config = ConfigManager.load_config()
         self.layout = QVBoxLayout(self)
-        self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
+        self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;")
         
         # (Redundant body title removed as it matches window title-bar)
         
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #333; background: #121212; }
-            QTabBar::tab { background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; }
+            QTabBar::tab { background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }
             QTabBar::tab:selected { background: #333; color: #ffd700; font-weight: bold; }
         """)
         self.layout.addWidget(self.tabs)
@@ -427,7 +427,8 @@ class SettingsWindow(QWidget):
                 border: 1px solid #3d3d3d;
                 border-radius: 4px;
                 height: 32px;
-                font-weight: 500;
+                font-weight: bold;
+                font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;
             }
             QPushButton:hover {
                 background-color: #333;
@@ -594,7 +595,7 @@ class SettingsWindow(QWidget):
             btn = QPushButton(hotkeys.get(hk_id, "None").upper())
             btn.setFixedWidth(100)
             btn.setStyleSheet("""
-                QPushButton { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold; }
+                QPushButton { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }
                 QPushButton:hover { background: #444; border-color: #ffd700; }
             """)
             btn.clicked.connect(lambda checked, h=hk_id: self.start_recording_global(h))
@@ -1797,7 +1798,11 @@ class ArtaleOverlay(QWidget):
 
         # 1. Profile/Action Notification (Centered above anchor)
         if self.msg_opacity > 0:
-            font = QFont("Microsoft JhengHei", 18, QFont.Weight.Bold); painter.setFont(font)
+            font = QFont()
+            font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+            font.setPointSize(18)
+            font.setBold(True)
+            painter.setFont(font)
             tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
             # Draw notification right-aligned clearly above the timer block
             bg_rect = QRect(base_x - (tw+40), base_y - 70, tw+40, 45)
@@ -1843,7 +1848,11 @@ class ArtaleOverlay(QWidget):
             display_seconds = max(0, seconds); text = str(display_seconds)
             color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
             if self.show_preview and not self.active_timers: color = QColor(255, 255, 255, 150)
-            font = QFont("Microsoft JhengHei", 22 if seconds > 3 else 26, QFont.Weight.ExtraBold); painter.setFont(font)
+            font = QFont()
+            font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+            font.setPointSize(22 if seconds > 3 else 26)
+            font.setBold(True)
+            painter.setFont(font)
             text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
             painter.setPen(QPen(QColor(0,0,0,200), 4)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
             painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
@@ -1877,26 +1886,39 @@ class ArtaleOverlay(QWidget):
         duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
             
         painter.setPen(QColor(200, 200, 200))
-        painter.setFont(QFont("Microsoft JhengHei", 9))
+        font = QFont()
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setPointSize(9)
+        painter.setFont(font)
         painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
         
         # New: Total Gained (Incremental)
         total_gain = self.cumulative_gain
         total_pct = self.cumulative_pct
 
-        painter.setPen(QColor(100, 255, 100))
-        painter.setFont(QFont("Microsoft JhengHei", 10, QFont.Weight.Bold))
+        font = QFont()
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
         painter.drawText(px + 140, py + 32, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
 
         # New: Pause indicator
         if self.exp_paused:
-            painter.setPen(QColor(255, 100, 100))
-            painter.setFont(QFont("Microsoft JhengHei", 10, QFont.Weight.Bold))
+            font = QFont()
+            font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
             painter.drawText(px + pw - 80, py + 32, "⏸ 已暫停")
         
         # 3. Time to Level Up
         painter.setPen(QColor(255, 215, 0))
-        painter.setFont(QFont("Microsoft JhengHei", 13, QFont.Weight.Bold))
+        font = QFont()
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setPointSize(13)
+        font.setBold(True)
+        painter.setFont(font)
         ttl_sec = self.current_exp_data.get("time_to_level", -1)
         if ttl_sec > 0:
             h = ttl_sec // 3600
@@ -1914,7 +1936,11 @@ class ArtaleOverlay(QWidget):
         gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
         
         painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
-        painter.setFont(QFont("Microsoft JhengHei", 11, QFont.Weight.DemiBold))
+        font = QFont()
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setPointSize(11)
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
         painter.drawText(px + 15, py + 95, gain_text)
 
         # --- Progress Bar Removed ---
