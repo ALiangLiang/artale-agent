@@ -1102,6 +1102,7 @@ class ArtaleOverlay(QWidget):
         self.last_capture_time = 0
         self.current_lv = None 
         self.last_confirmed_lv = None # To detect level up
+        self.exp_rate_history = [] # Rolling 10m rates for the graph
         self._tesseract_error_shown = False
         self.last_crop_info = None
         self.last_lv_crop_info = None
@@ -1753,6 +1754,14 @@ class ArtaleOverlay(QWidget):
         self.current_exp_data["gained_10m"] = self.ten_min_gain
         self.current_exp_data["percent_10m"] = max(0.0, gain_pct_10m)
         
+        # Update Rate History for Graph (Sampling every 5 second)
+        if not hasattr(self, 'last_graph_sample_time'): self.last_graph_sample_time = 0
+        if now - self.last_graph_sample_time >= 5:
+            # Store PER MINUTE gain (10m gain / 10)
+            self.exp_rate_history.append(self.ten_min_gain / 10.0)
+            if len(self.exp_rate_history) > 40: self.exp_rate_history.pop(0)
+            self.last_graph_sample_time = now
+        
         # 3. Level up estimation (New High-Precision Algorithm)
         # 3a. Estimate total EXP pool for this level
         cur_p = data.get("percent", 0.0)
@@ -1956,7 +1965,7 @@ class ArtaleOverlay(QWidget):
         # Positional logic
         bx = self.rect().center().x() + self.exp_x_offset
         by = self.rect().center().y() + self.exp_y_offset
-        pw, ph = 330, 115 # Reduced height
+        pw, ph = 330, 165 # Increased height for graph
         # Right Aligned: bx is the right edge
         panel_rect = QRect(bx - pw, by - 120 - ph // 2, pw, ph)
         px, py = panel_rect.x(), panel_rect.y()
@@ -1976,7 +1985,7 @@ class ArtaleOverlay(QWidget):
         font.setBold(True)
         painter.setFont(font)
         lv_str = f"Lv. {self.current_lv}" if self.current_lv else "Lv. ---"
-        painter.drawText(px + 15, py + 26, f"📊 經驗監測 {lv_str}")
+        painter.drawText(px + 15, py + 25, f"📊 經驗值監測")
         
         # 2. Recording Duration
         duration_sec = self.current_exp_data.get("tracking_duration", 0)
@@ -1990,7 +1999,7 @@ class ArtaleOverlay(QWidget):
         font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
         font.setPointSize(9)
         painter.setFont(font)
-        painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
+        painter.drawText(px + 15, py + 48, f"紀錄時長: {duration_text}")
         
         # New: Total Gained (Incremental)
         total_gain = self.cumulative_gain
@@ -2001,7 +2010,7 @@ class ArtaleOverlay(QWidget):
         font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(px + 140, py + 32, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
+        painter.drawText(px + 140, py + 48, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
 
         # New: Pause indicator
         if self.exp_paused:
@@ -2010,7 +2019,7 @@ class ArtaleOverlay(QWidget):
             font.setPointSize(10)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(px + pw - 80, py + 32, "⏸ 已暫停")
+            painter.drawText(px + pw - 80, py + 48, "⏸ 已暫停")
         
         # 3. Time to Level Up
         painter.setPen(QColor(255, 215, 0))
@@ -2026,7 +2035,7 @@ class ArtaleOverlay(QWidget):
             ttl_text = f"升級預計還需: {h}小時 {m}分"
         else:
             ttl_text = "升級預計還需: 計算速率中..."
-        painter.drawText(px + 15, py + 62, ttl_text)
+        painter.drawText(px + 15, py + 78, ttl_text)
         
         # 4. 10min Efficiency
         gain_val = self.current_exp_data.get("gained_10m", 0)
@@ -2041,7 +2050,43 @@ class ArtaleOverlay(QWidget):
         font.setPointSize(11)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
-        painter.drawText(px + 15, py + 95, gain_text)
+        painter.drawText(px + 15, py + 105, gain_text)
+
+        # 5. Trend Graph
+        if len(self.exp_rate_history) > 1:
+            # Max points for a fixed X-scale
+            max_points = 40
+            gh = 40; gw = pw - 30
+            gx = px + 15; gy = py + ph - 15 - gh
+            
+            # Background for graph
+            painter.setPen(QColor(255, 255, 255, 20))
+            painter.setBrush(QColor(255, 255, 255, 5))
+            painter.drawRoundedRect(gx, gy, gw, gh, 4, 4)
+            
+            # Max value for vertical scaling
+            max_v = max(self.exp_rate_history)
+            if max_v <= 0: max_v = 1
+            
+            path = QPainterPath()
+            step_x = gw / (max_points - 1)
+            
+            for i, v in enumerate(self.exp_rate_history):
+                vx = gx + i * step_x
+                # Standardize to 0 bottom, max_v top
+                vy = gy + gh - (v / max_v * gh)
+                if i == 0: path.moveTo(vx, vy)
+                else: path.lineTo(vx, vy)
+            
+            painter.setPen(QPen(QColor(100, 255, 100, 150), 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+            
+            # Label
+            painter.setPen(QColor(255, 255, 255, 80))
+            font.setPointSize(7)
+            painter.setFont(font)
+            painter.drawText(gx + 2, gy - 2, "分鐘效率 (EXP/min Trend)")
 
         # --- Progress Bar Removed ---
         
