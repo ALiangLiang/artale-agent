@@ -20,7 +20,7 @@ except ImportError:
     WindowsCapture = None
 
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject, QStandardPaths
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage, QLinearGradient
 try:
     from PyQt6.QtWebSockets import QWebSocket
 except ImportError:
@@ -2231,16 +2231,27 @@ class ArtaleOverlay(QWidget):
             
             for i, v in enumerate(self.exp_rate_history):
                 vx = gx + i * step_x
-                vy = gy + gh - (v / max_v * gh)
+                vy = gy + gh - (v / max_v * (gh - 4)) - 2 # Padding inside rect
                 if i == 0: path.moveTo(vx, vy)
                 else: path.lineTo(vx, vy)
             
-            painter.setPen(QPen(QColor(100, 255, 100, 180), 2))
+            # --- Draw Fill (Area) ---
+            fill_path = QPainterPath(path)
+            last_idx = len(self.exp_rate_history) - 1
+            fill_path.lineTo(gx + last_idx * step_x, gy + gh)
+            fill_path.lineTo(gx, gy + gh)
+            fill_path.closeSubpath()
+            
+            # Gradient green matching the theme
+            grad = QLinearGradient(gx, gy, gx, gy + gh)
+            grad.setColorAt(0, QColor(100, 255, 100, 80))  # Semi-transparent green
+            grad.setColorAt(1, QColor(100, 255, 100, 0))   # Fades to transparent
+            painter.fillPath(fill_path, grad)
+            
+            # --- Draw Stroke (Line) ---
+            painter.setPen(QPen(QColor(100, 255, 100), 2)) # Solid green line
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
-            
-            # Label removed as per user request
-            pass
 
     def draw_exp_panel(self, painter):
         if not self.show_exp_panel:
