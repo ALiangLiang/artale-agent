@@ -268,6 +268,11 @@ class RJPQTabContent(QWidget):
         self.main_layout.addWidget(self.grid_widget)
         
         self.main_layout.addStretch()
+        
+        yzy_credit = QLabel("💫 感謝 YzY 公會提供優秀補助工具")
+        yzy_credit.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
+        yzy_credit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(yzy_credit)
 
     def find_target_row(self):
         if self.selected_color == -1: return -1
