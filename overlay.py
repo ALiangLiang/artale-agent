@@ -33,7 +33,7 @@ import os
 from rjpq_tool import RJPQSyncClient, QWebSocket, RJPQTabContent, draw_rjpq_panel
 import urllib.request
 
-VERSION = "v0.2.2"
+VERSION = "v0.2.3"
 REPO_URL = "ALiangLiang/artale-agent"
 
 # Tesseract Portable Setup (LOCAL ONLY)
@@ -1170,6 +1170,7 @@ class ArtaleOverlay(QWidget):
         self.selected_color = -1
         self.cumulative_gain = 0
         self.cumulative_pct = 0.0
+        self.max_10m_exp = 0 # Track max 10m gain
         self.last_exp_pct = 0.0
         self.rjpq_data = [4] * 40
         self.rjpq_x_offset = -400
@@ -1263,6 +1264,7 @@ class ArtaleOverlay(QWidget):
         self.exp_rate_history = []
         self.cumulative_gain = 0
         self.cumulative_pct = 0.0
+        self.max_10m_exp = 0
         self.exp_initial_val = None
         self.last_exp_pct = 0.0
         if not silent:
@@ -1871,6 +1873,10 @@ class ArtaleOverlay(QWidget):
         self.current_exp_data["gained_10m"] = self.ten_min_gain
         self.current_exp_data["percent_10m"] = max(0.0, gain_pct_10m)
         
+        # Track session peak 10m efficiency
+        if self.ten_min_gain > self.max_10m_exp:
+             self.max_10m_exp = self.ten_min_gain
+        
         # Update Rate History for Graph (Sampling every 5 second)
         if not hasattr(self, 'last_graph_sample_time'): self.last_graph_sample_time = 0
         if now - self.last_graph_sample_time >= 5:
@@ -2174,6 +2180,16 @@ class ArtaleOverlay(QWidget):
         font.setPointSize(12 if is_export else 11); font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
         painter.drawText(px + 15, py + 118 if is_export else py + 105, gain_text)
+
+        last_y = ty + 15
+        
+        # Max 10M record
+        if self.max_10m_exp > 0:
+            painter.setPen(QColor(255, 215, 0, 180)) # Goldish
+            painter.setFont(QFont("Microsoft JhengHei", 9))
+            max_10m_str = f"🏆 最高十分鐘: {self.max_10m_exp:,}"
+            painter.drawText(QRect(tx, last_y, tw, 20), Qt.AlignmentFlag.AlignLeft, max_10m_str)
+            last_y += 18
 
         # 5. Trend Graph
         if len(self.exp_rate_history) > 1:
