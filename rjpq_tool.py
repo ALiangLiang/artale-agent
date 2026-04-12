@@ -408,7 +408,7 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     
     painter.setPen(QColor(0, 255, 255))
     painter.setFont(QFont("Segoe UI Bold", 11))
-    painter.drawText(px + 10, py + 25, "YzY 羅茱同步路徑")
+    painter.drawText(px + 10, py + 25, "羅茱平台標記")
     
     cell_w, cell_h = 32, 22
     start_x = px + 35

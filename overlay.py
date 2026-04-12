@@ -554,7 +554,7 @@ class SettingsWindow(QWidget):
         self.overlay.rjpq_cell_clicked.connect(self.rjpq_tab.platform_clicked)
         
         # Add Drag button to RJPQ tab
-        move_rjpq_btn = QPushButton("🔱 調整 YzY 面板位置")
+        move_rjpq_btn = QPushButton("🔱 調整羅茱面板位置")
         move_rjpq_btn.setStyleSheet(btn_common_style)
         move_rjpq_btn.clicked.connect(self.toggle_rjpq_handle)
         self.rjpq_tab.main_layout.insertWidget(2, move_rjpq_btn) # Insert after toggle
@@ -603,6 +603,12 @@ class SettingsWindow(QWidget):
             
         sys_tab_layout.addLayout(hk_grid)
         sys_tab_layout.addStretch()
+        
+        credit_lbl = QLabel('✨ Crafted with ❤️ by <a href="https://github.com/ALiangLiang" style="color: #aaa; text-decoration: none;">ALiangLiang</a>')
+        credit_lbl.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+        credit_lbl.setOpenExternalLinks(True)
+        credit_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sys_tab_layout.addWidget(credit_lbl)
         
         self.tabs.addTab(sys_tab, "⚙️ 設定")
 
@@ -1911,18 +1917,7 @@ class ArtaleOverlay(QWidget):
         painter.setFont(QFont("Segoe UI Semibold", 11))
         painter.drawText(px + 15, py + 95, gain_text)
 
-        # 6. Progress Bar (Bottom)
-        progress_pct = self.current_exp_data.get("percent", 0.0)
-        bar_full_width = pw - 30
-        bar_width = int(bar_full_width * (max(0, min(100, progress_pct)) / 100.0))
-        
-        painter.setBrush(QColor(255, 255, 255, 30))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRect(px + 15, py + 128, bar_full_width, 3) 
-        
-        if bar_width > 0:
-            painter.setBrush(QColor(255, 215, 0, 180))
-            painter.drawRect(px + 15, py + 128, bar_width, 3)
+        # --- Progress Bar Removed ---
         
 
 
