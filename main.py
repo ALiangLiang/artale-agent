@@ -152,6 +152,10 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 overlay.toggle_pause_request.emit()
                 return
 
+            if k_name == hks.get("exp_report", "f12"):
+                overlay.export_report_request.emit()
+                return
+
             # --- RJPQ SMART HOTKEYS ---
             rjpq_keys = {
                 hks.get("rjpq_1", "1"): 0,

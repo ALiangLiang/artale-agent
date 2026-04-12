@@ -149,7 +149,8 @@ class ConfigManager:
                     default_hks = {
                         "exp_toggle": "f10",
                         "exp_pause": "f11",
-                        "reset": "f12",
+                        "reset": "f9",
+                        "exp_report": "f12",
                         "rjpq_1": "1",
                         "rjpq_2": "2",
                         "rjpq_3": "3",
@@ -642,7 +643,8 @@ class SettingsWindow(QWidget):
         hk_labels = {
             "exp_toggle": "📊 顯示/隱藏經驗面板",
             "exp_pause": "⏸ 暫停/恢復紀錄 (F11)",
-            "reset": "🧹 重置清空所有計時器",
+            "reset": "🧹 重置清空所有計時器 (F9)",
+            "exp_report": "📸 產出經驗成果圖 (F12)",
             "rjpq_1": "🎮 羅茱 - 標記本列位置 1",
             "rjpq_2": "🎮 羅茱 - 標記本列位置 2",
             "rjpq_3": "🎮 羅茱 - 標記本列位置 3",
@@ -1087,6 +1089,7 @@ class ArtaleOverlay(QWidget):
     toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     rjpq_cell_clicked = pyqtSignal(int)
+    export_report_request = pyqtSignal()
     
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
@@ -1140,6 +1143,7 @@ class ArtaleOverlay(QWidget):
         self.toggle_exp_request.connect(self.on_toggle_exp)
         self.toggle_pause_request.connect(self.on_toggle_pause)
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
+        self.export_report_request.connect(self.export_exp_report)
         
         # We'll use this signal for tray to talk to settings_window
         self.request_show_settings_signal = pyqtSignal()
@@ -2017,8 +2021,12 @@ class ArtaleOverlay(QWidget):
         save_path = os.path.join(pictures_dir, filename)
         
         if pixmap.save(save_path, "PNG"):
-            print(f"[ExpTracker] Report exported to {save_path}")
-            self.show_notification(f"✅ 成果圖已產出！\n檔名: {filename}")
+            # Copy to clipboard
+            from PyQt6.QtWidgets import QApplication
+            QApplication.clipboard().setPixmap(pixmap)
+            
+            print(f"[ExpTracker] Report exported to {save_path} and copied to clipboard")
+            self.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
             # Try to open the file
             import subprocess
             try: subprocess.Popen(f'explorer /select,"{save_path}"')
