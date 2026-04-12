@@ -1,4 +1,4 @@
-# 🍁 Artale Agent - Artale 全方位冒險助手
+# 🍁 Artale 瑞士刀 - Artale 全方位冒險助手
 
 這是一個專為 MapleStory Worlds - Artale 設計的非侵入式遊戲輔助工具。它不僅提供精準的 Buff 計時提醒，更整合了高效率的經驗值監測系統與團隊路徑同步工具，助您在冒險中如虎添翼。
 

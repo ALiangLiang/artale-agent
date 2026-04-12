@@ -225,7 +225,7 @@ def check_network_drive():
                 from PyQt6.QtWidgets import QMessageBox
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle("環境建議 - Artale Agent")
+                msg.setWindowTitle("環境建議 - Artale 瑞士刀")
                 msg.setText("偵測到程式正在網路磁碟機 (Samba) 上執行。")
                 msg.setInformativeText("在網路硬碟上執行可能會導致視窗捕捉失敗 (0x80070490)。\n\n建議將程式複製到「本機磁碟」(如桌面或 C 槽) 以獲得最佳穩定性。")
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
@@ -261,7 +261,7 @@ def run_app():
     # Auto-show Control Center on startup
     settings_window.safe_show()
     
-    print("[Main] Artale Agent initialized. Waiting for input...")
+    print("[Main] Artale 瑞士刀 initialized. Waiting for input...")
     sys.exit(app.exec())
 
 if __name__ == "__main__":
