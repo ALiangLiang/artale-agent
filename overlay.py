@@ -305,7 +305,7 @@ class SettingsWindow(QWidget):
     def __init__(self, overlay=None):
         super().__init__()
         self.overlay = overlay
-        self.setWindowTitle("Artale Agent - Settings")
+        self.setWindowTitle("Artale Agent - Control Center")
         self.setFixedSize(360, 750)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
@@ -338,7 +338,7 @@ class SettingsWindow(QWidget):
             pass
 
     def init_ui(self):
-        self.setWindowTitle("Artale Agent ⚙️ 設定")
+        self.setWindowTitle("Artale Agent 🚀 控制中心")
         # Set Window Icon
         icon_path = resource_path("app_icon.png")
         if os.path.exists(icon_path):
@@ -349,7 +349,7 @@ class SettingsWindow(QWidget):
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
         
         top_row = QHBoxLayout()
-        title = QLabel("🎹 設定清單")
+        title = QLabel("🚀 控制中心")
         title.setFont(QFont("Segoe UI Semibold", 18))
         title.setStyleSheet("color: #ffd700;")
         top_row.addWidget(title)
@@ -942,7 +942,7 @@ class ArtaleOverlay(QWidget):
         # Create context menu
         tray_menu = QMenu()
         
-        show_settings_action = QAction("⚙️ 開啟設定 (Pause)", self)
+        show_settings_action = QAction("🚀 開啟控制中心 (Pause)", self)
         show_settings_action.triggered.connect(self.request_show_settings)
         tray_menu.addAction(show_settings_action)
         

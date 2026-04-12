@@ -175,7 +175,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
 
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
-    print("[Input] Listener active. Press 'Pause Break' for settings.")
+    print("[Input] Listener active. Press 'Pause Break' for Control Center.")
 
 def check_network_drive():
     try:
