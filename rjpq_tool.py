@@ -218,7 +218,7 @@ class RJPQTabContent(QWidget):
         self.code_inp.setText(code)
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
-        QMessageBox.information(self, "成功", f"房間建立成功！\n房號：{code}\n密碼：{pwd}\n\n已為您自動填入代碼。")
+        # Removed success popup as per user request
         # Trigger actual join process
         self.on_connect_clicked()
 

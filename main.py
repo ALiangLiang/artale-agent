@@ -87,7 +87,6 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     settings_window.config_updated.connect(update_local_config)
 
     def on_press(key):
-        print(f"[Raw Input] {key}") 
         nonlocal last_key, last_time, current_config, is_globally_enabled
         try:
             k_name = None
@@ -118,9 +117,6 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                     if k_name.startswith(base):
                         k_name = base
                         break
-                print(f"[Debug] Key Pressed: {k_name}")
-            else:
-                print(f"[Debug] Still Unknown: {key}")
             
             # 3. Profile Switching (Double Press F1-F9) or Disable (F12)
             now = time.time()
