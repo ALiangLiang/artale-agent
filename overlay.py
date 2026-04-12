@@ -865,6 +865,7 @@ class ArtaleOverlay(QWidget):
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)
     toggle_exp_request = pyqtSignal()
+    toggle_pause_request = pyqtSignal()
     toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     
@@ -882,6 +883,10 @@ class ArtaleOverlay(QWidget):
         # Load configs early
         config = ConfigManager.load_config()
         self.show_exp_panel = config.get("show_exp", True)
+        self.exp_paused = False # New state
+        self.total_pause_time = 0 # Cumulative pause duration
+        self.pause_start_time = 0
+        self.needs_calibration = False # Flag for resume frame
         self.show_rjpq_panel = False # Default off
         self.show_debug = config.get("show_debug", False)
         self.base_opacity = config.get("opacity", 0.5)
@@ -903,6 +908,7 @@ class ArtaleOverlay(QWidget):
         self.profile_switch_request.connect(self.load_profile_immediately)
         self.exp_update_request.connect(self.on_exp_update)
         self.toggle_exp_request.connect(self.on_toggle_exp)
+        self.toggle_pause_request.connect(self.on_toggle_pause)
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         
         # We'll use this signal for tray to talk to settings_window
@@ -1103,7 +1109,39 @@ class ArtaleOverlay(QWidget):
 
     def on_toggle_exp(self):
         self.show_exp_panel = not self.show_exp_panel
-        self.show_notification(f"經驗值面板: {'已啟用' if self.show_exp_panel else '已關閉'}")
+        status = "已啟用" if self.show_exp_panel else "已關閉"
+        print(f"[Overlay] EXP Panel toggled: {status}")
+        self.show_notification(f"📊 經驗監測系統 {status} (F10)")
+        if not self.show_exp_panel:
+            self.current_exp_data = {
+                "text": "---", "value": 0, "percent": 0.0, 
+                "gained_10m": 0, "percent_10m": 0.0, 
+                "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
+            }
+            self.exp_history = []
+        self.update()
+
+    def on_toggle_pause(self):
+        now = time.time()
+        self.exp_paused = not self.exp_paused
+        status = "已暫停" if self.exp_paused else "已恢復"
+        
+        if self.exp_paused:
+            self.pause_start_time = now
+        else:
+            # Resuming
+            if self.pause_start_time > 0:
+                shift = now - self.pause_start_time
+                self.total_pause_time += shift
+                # Important: Shift the session start time so duration doesn't grow during pause
+                if hasattr(self, 'exp_session_start_time') and self.exp_session_start_time:
+                    self.exp_session_start_time += shift
+                # Shift all history timestamps to maintain efficiency without dilution
+                self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
+            self.needs_calibration = True # Skip next frame's gain calculation
+            
+        print(f"[ExpTracker] Recording {status}")
+        self.show_notification(f"📊 經驗追蹤 {status} (F11)")
         self.update()
 
     def on_toggle_rjpq(self):
@@ -1201,6 +1239,11 @@ class ArtaleOverlay(QWidget):
                 # Update debug info for sync visualization
                 self.last_crop_info = (cx, cy, cw, ch, w, h)
                 
+                if self.exp_paused:
+                    last_processed = now
+                    self.update()
+                    return
+
                 # OCR Processing
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
                 target_ocr_h = 60
@@ -1407,11 +1450,16 @@ class ArtaleOverlay(QWidget):
             
         self.last_exp_val = current_exp
 
-        # Robust history management
-        # Must store 3 values to keep compatibility with existing drawing code
+        # 1. Update baseline history
         self.exp_history.append((now, current_exp, data.get("percent", 0)))
         # Keep only 1 hour of history
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
+        
+        # Finally, check if we need to calibrate after resume (SKIP gain calculation for this frame)
+        if self.needs_calibration:
+            self.needs_calibration = False
+            self.update()
+            return
         
         # Calculate rates using sliding window
         ten_min_ago = now - 600
@@ -1605,22 +1653,6 @@ class ArtaleOverlay(QWidget):
             painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
 
-    def on_toggle_exp(self):
-        self.show_exp_panel = not self.show_exp_panel
-        status = "已啟用" if self.show_exp_panel else "已關閉"
-        print(f"[Overlay] EXP Panel toggled: {status}")
-        self.show_notification(f"📊 經驗監測系統 {status} (F10)")
-        if not self.show_exp_panel:
-            # Reset all session variables
-            self.current_exp_data = {
-                "text": "---", "value": 0, "percent": 0.0, 
-                "gained_10m": 0, "percent_10m": 0.0, 
-                "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
-            }
-            self.exp_history = []
-            self.exp_session_start_time = None
-            self.exp_initial_val = None
-        self.update()
 
     def draw_exp_panel(self, painter):
         if not self.show_exp_panel:
@@ -1651,6 +1683,12 @@ class ArtaleOverlay(QWidget):
         painter.setPen(QColor(200, 200, 200))
         painter.setFont(QFont("Segoe UI", 9))
         painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
+        
+        # New: Pause indicator
+        if self.exp_paused:
+            painter.setPen(QColor(255, 100, 100))
+            painter.setFont(QFont("Segoe UI Bold", 10))
+            painter.drawText(px + pw - 80, py + 32, "⏸ 已暫停")
         
         # 3. Time to Level Up
         painter.setPen(QColor(255, 215, 0))

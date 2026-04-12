@@ -128,7 +128,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 return
 
             if k_name == 'f11':
-                overlay.toggle_rjpq_request.emit()
+                overlay.toggle_pause_request.emit()
                 return
 
             # 3. Profile Switching (Double Press F1-F9)
