@@ -591,6 +591,19 @@ class SettingsWindow(QWidget):
         self.debug_lv_img_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_lv_img_lbl)
 
+        # Export Report Button
+        export_btn = QPushButton("📸 產出成果圖 (截圖分享)")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background: #444; color: white; border-radius: 6px; height: 40px; 
+                margin-top: 20px; font-weight: bold; font-size: 13px;
+                border: 1px solid #666;
+            }
+            QPushButton:hover { background: #555; border-color: #ffd700; }
+        """)
+        export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None)
+        exp_tab_layout.addWidget(export_btn)
+
         exp_tab_layout.addStretch()
         self.tabs.addTab(exp_tab, "📊 經驗值")
 
@@ -1970,6 +1983,129 @@ class ArtaleOverlay(QWidget):
         self.click_zones = new_click_zones
 
 
+    def export_exp_report(self):
+        """ Render the EXP panel to a static image and save it """
+        pw, ph = 330, 200 # Slightly taller for report
+        pixmap = QPixmap(pw, ph)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 1. Background
+        rect = QRect(0, 0, pw, ph)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect).adjusted(2, 2, -2, -2), 15, 15)
+        painter.setPen(QPen(QColor(255, 215, 0), 2))
+        painter.setBrush(QColor(10, 10, 15, 240)) # More opaque for report
+        painter.drawPath(path)
+        
+        # Add a more visible watermark
+        painter.setPen(QPen(QColor(255, 255, 255, 80))) # Increased opacity
+        font = QFont("Microsoft JhengHei", 9)
+        font.setItalic(True)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(0, 0, -15, -10), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "使用 Artale 瑞士刀記錄")
+
+        # Reuse drawing logic but relative to (0,0)
+        self._draw_exp_content(painter, 0, 0, pw, ph, is_export=True)
+        painter.end()
+        
+        # Save to file
+        filename = f"exp_report_{int(time.time())}.png"
+        save_path = os.path.join(os.getcwd(), filename)
+        if pixmap.save(save_path, "PNG"):
+            print(f"[ExpTracker] Report exported to {save_path}")
+            self.show_notification(f"✅ 成果圖已產出！\n檔名: {filename}")
+            # Try to open the file
+            import subprocess
+            try: subprocess.Popen(f'explorer /select,"{save_path}"')
+            except: pass
+        else:
+            self.show_notification("❌ 產出失敗，請檢查權限")
+
+    def _draw_exp_content(self, painter, px, py, pw, ph, is_export=False):
+        # 1.5 Title
+        painter.setPen(QColor(255, 255, 255))
+        font = QFont("Microsoft JhengHei")
+        font.setPointSize(12 if is_export else 11)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(px + 15, py + 30 if is_export else py + 25, f"📊 經驗值監測報告" if is_export else "📊 經驗值監測")
+        
+        # 2. Recording Duration
+        duration_sec = self.current_exp_data.get("tracking_duration", 0)
+        h_dur = duration_sec // 3600
+        m_dur = (duration_sec % 3600) // 60
+        s_dur = duration_sec % 60
+        duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
+            
+        painter.setPen(QColor(200, 200, 200))
+        font.setPointSize(9)
+        font.setBold(False)
+        painter.setFont(font)
+        painter.drawText(px + 15, py + 55 if is_export else py + 48, f"紀錄時長: {duration_text}")
+        
+        # New: Total Gained (Incremental)
+        total_gain = self.cumulative_gain
+        total_pct = self.cumulative_pct
+        font.setPointSize(10); font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(px + 140, py + 55 if is_export else py + 48, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
+
+        # 3. Time to Level Up
+        painter.setPen(QColor(255, 215, 0))
+        font.setPointSize(14 if is_export else 13); font.setBold(True)
+        painter.setFont(font)
+        ttl_sec = self.current_exp_data.get("time_to_level", -1)
+        if ttl_sec > 0:
+            h = ttl_sec // 3600; m = (ttl_sec % 3600) // 60
+            ttl_text = f"升級預計還需: {h}小時 {m}分"
+        else:
+            ttl_text = "升級預計還需: 計算速率中..."
+        painter.drawText(px + 15, py + 88 if is_export else py + 78, ttl_text)
+        
+        # 4. 10min Efficiency
+        gain_val = self.current_exp_data.get("gained_10m", 0)
+        gain_pct = self.current_exp_data.get("percent_10m", 0.0)
+        is_est = self.current_exp_data.get("is_estimated", True)
+        label = "（預估）" if is_est else ""
+        gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
+        
+        painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
+        font.setPointSize(12 if is_export else 11); font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.drawText(px + 15, py + 118 if is_export else py + 105, gain_text)
+
+        # 5. Trend Graph
+        if len(self.exp_rate_history) > 1:
+            max_points = 40
+            gh = 50 if is_export else 40; gw = pw - 30
+            gx = px + 15; gy = py + ph - 20 - gh if is_export else py + ph - 15 - gh
+            
+            painter.setPen(QColor(255, 255, 255, 20))
+            painter.setBrush(QColor(255, 255, 255, 5))
+            painter.drawRoundedRect(gx, gy, gw, gh, 4, 4)
+            
+            max_v = max(self.exp_rate_history)
+            if max_v <= 0: max_v = 1
+            
+            path = QPainterPath()
+            step_x = gw / (max_points - 1)
+            
+            for i, v in enumerate(self.exp_rate_history):
+                vx = gx + i * step_x
+                vy = gy + gh - (v / max_v * gh)
+                if i == 0: path.moveTo(vx, vy)
+                else: path.lineTo(vx, vy)
+            
+            painter.setPen(QPen(QColor(100, 255, 100, 180), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+            
+            # Label removed as per user request
+            pass
+
     def draw_exp_panel(self, painter):
         if not self.show_exp_panel:
             return
@@ -1989,118 +2125,11 @@ class ArtaleOverlay(QWidget):
         painter.setBrush(QColor(10, 10, 15, int(self.base_opacity * 255))) 
         painter.drawPath(path)
         
+        # Use refactored drawing logic
+        self._draw_exp_content(painter, px, py, pw, ph, is_export=False)
+
         # 1.5 Title & Level
-        painter.setPen(QColor(255, 255, 255))
-        font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-        font.setPointSize(11)
-        font.setBold(True)
-        painter.setFont(font)
-        lv_str = f"Lv. {self.current_lv}" if self.current_lv else "Lv. ---"
-        painter.drawText(px + 15, py + 25, f"📊 經驗值監測")
-        
-        # 2. Recording Duration
-        duration_sec = self.current_exp_data.get("tracking_duration", 0)
-        h_dur = duration_sec // 3600
-        m_dur = (duration_sec % 3600) // 60
-        s_dur = duration_sec % 60
-        duration_text = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
-            
-        painter.setPen(QColor(200, 200, 200))
-        font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-        font.setPointSize(9)
-        painter.setFont(font)
-        painter.drawText(px + 15, py + 48, f"紀錄時長: {duration_text}")
-        
-        # New: Total Gained (Incremental)
-        total_gain = self.cumulative_gain
-        total_pct = self.cumulative_pct
-
-        font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-        font.setPointSize(10)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(px + 140, py + 48, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
-
-        # New: Pause indicator
-        if self.exp_paused:
-            font = QFont()
-            font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-            font.setPointSize(10)
-            font.setBold(True)
-            painter.setFont(font)
-            painter.drawText(px + pw - 80, py + 48, "⏸ 已暫停")
-        
-        # 3. Time to Level Up
-        painter.setPen(QColor(255, 215, 0))
-        font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-        font.setPointSize(13)
-        font.setBold(True)
-        painter.setFont(font)
-        ttl_sec = self.current_exp_data.get("time_to_level", -1)
-        if ttl_sec > 0:
-            h = ttl_sec // 3600
-            m = (ttl_sec % 3600) // 60
-            ttl_text = f"升級預計還需: {h}小時 {m}分"
-        else:
-            ttl_text = "升級預計還需: 計算速率中..."
-        painter.drawText(px + 15, py + 78, ttl_text)
-        
-        # 4. 10min Efficiency
-        gain_val = self.current_exp_data.get("gained_10m", 0)
-        gain_pct = self.current_exp_data.get("percent_10m", 0.0)
-        is_est = self.current_exp_data.get("is_estimated", True)
-        label = "（預估）" if is_est else ""
-        gain_text = f"{label}10分鐘效率: +{gain_val:,} ({gain_pct:+.2f}%)"
-        
-        painter.setPen(QColor(100, 255, 100) if gain_val >= 0 else QColor(255, 100, 100))
-        font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-        font.setPointSize(11)
-        font.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(font)
-        painter.drawText(px + 15, py + 105, gain_text)
-
-        # 5. Trend Graph
-        if len(self.exp_rate_history) > 1:
-            # Max points for a fixed X-scale
-            max_points = 40
-            gh = 40; gw = pw - 30
-            gx = px + 15; gy = py + ph - 15 - gh
-            
-            # Background for graph
-            painter.setPen(QColor(255, 255, 255, 20))
-            painter.setBrush(QColor(255, 255, 255, 5))
-            painter.drawRoundedRect(gx, gy, gw, gh, 4, 4)
-            
-            # Max value for vertical scaling
-            max_v = max(self.exp_rate_history)
-            if max_v <= 0: max_v = 1
-            
-            path = QPainterPath()
-            step_x = gw / (max_points - 1)
-            
-            for i, v in enumerate(self.exp_rate_history):
-                vx = gx + i * step_x
-                # Standardize to 0 bottom, max_v top
-                vy = gy + gh - (v / max_v * gh)
-                if i == 0: path.moveTo(vx, vy)
-                else: path.lineTo(vx, vy)
-            
-            painter.setPen(QPen(QColor(100, 255, 100, 150), 1.5))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
-            
-            # Label
-            painter.setPen(QColor(255, 255, 255, 80))
-            font.setPointSize(7)
-            painter.setFont(font)
-            painter.drawText(gx + 2, gy - 2, "分鐘效率 (EXP/min Trend)")
-
-        # --- Progress Bar Removed ---
+        # (Content moved to _draw_exp_content)
         
 
 
