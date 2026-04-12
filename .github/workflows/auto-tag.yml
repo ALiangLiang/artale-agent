@@ -1,0 +1,60 @@
+name: Auto Tag on Version Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Version and Message
+        id: get_data
+        run: |
+          # Extract version string from 1st line
+          VERSION=$(head -n 1 VERSION | tr -d '\r' | xargs)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Extract message from 2nd line onwards
+          MESSAGE=$(tail -n +2 VERSION | tr -d '\r')
+          if [ -z "$MESSAGE" ]; then 
+            MESSAGE="Release $VERSION"
+          fi
+          
+          # Use GITHUB_OUTPUT heredoc for multiline strings
+          echo "MESSAGE<<EOF" >> $GITHUB_OUTPUT
+          echo "$MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "Detected version: $VERSION"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG=${{ steps.get_data.outputs.VERSION }}
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG=${{ steps.get_data.outputs.VERSION }}
+          MSG="${{ steps.get_data.outputs.MESSAGE }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$MSG"
+          git push origin "$TAG"

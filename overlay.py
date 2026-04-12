@@ -33,7 +33,16 @@ import os
 from rjpq_tool import RJPQSyncClient, QWebSocket, RJPQTabContent, draw_rjpq_panel
 import urllib.request
 
-VERSION = "v0.2.3"
+def get_version():
+    try:
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        v_path = os.path.join(base_dir, "VERSION")
+        with open(v_path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except:
+        return "v0.2.3" # Fallback
+
+VERSION = get_version()
 REPO_URL = "ALiangLiang/artale-agent"
 
 # Tesseract Portable Setup (LOCAL ONLY)
