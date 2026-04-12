@@ -30,7 +30,11 @@ import cv2
 import re
 import pytesseract
 import os
-from rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
+from rjpq_tool import RJPQSyncClient, QWebSocket, RJPQTabContent, draw_rjpq_panel
+import urllib.request
+
+VERSION = "v0.2.2"
+REPO_URL = "ALiangLiang/artale-agent"
 
 # Tesseract Portable Setup (LOCAL ONLY)
 def get_tess_cmd():
@@ -352,6 +356,7 @@ class SettingsWindow(QWidget):
         if self.overlay:
             self.overlay.exp_update_request.connect(self.update_debug_img)
             self.overlay.lv_update_request.connect(self.update_lv_debug_img)
+            self.overlay.update_found.connect(self.show_update_banner)
             
         self.handle = None
         self.exp_handle = None
@@ -396,6 +401,22 @@ class SettingsWindow(QWidget):
                     self.overlay.last_confirmed_lv = lv_val
                 except:
                     pass
+
+    def show_update_banner(self, tag, url):
+        if hasattr(self, 'update_banner'):
+            self.update_banner.setText(f'✨ <a href="{url}" style="color: #ffdd00; text-decoration: underline;">發現新版本 {tag}！點此前往下載更新</a>')
+            self.update_banner.setVisible(True)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_items()
+        if self.overlay:
+            # Check cached version info
+            if hasattr(self.overlay, '_latest_version_info') and self.overlay._latest_version_info:
+                self.show_update_banner(*self.overlay._latest_version_info)
+            else:
+                # Auto check in silent/auto mode
+                self.overlay.check_for_updates(auto=True)
 
     def init_ui(self):
         self.setWindowTitle("Artale 瑞士刀")
@@ -680,6 +701,24 @@ class SettingsWindow(QWidget):
         credit_lbl.setOpenExternalLinks(True)
         credit_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sys_tab_layout.addWidget(credit_lbl)
+        
+        # Check Update Button
+        update_btn = QPushButton(f"🔍 檢查更新 (目前版本: {VERSION})")
+        update_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #888; border: none; font-size: 11px; margin-top: 5px;
+            }
+            QPushButton:hover { color: #fff; text-decoration: underline; }
+        """)
+        update_btn.clicked.connect(self.overlay.check_for_updates if self.overlay else lambda: None)
+        sys_tab_layout.addWidget(update_btn)
+        
+        self.update_banner = QLabel("")
+        self.update_banner.setStyleSheet("color: #ffdd00; font-size: 11px; margin-top: 5px;")
+        self.update_banner.setOpenExternalLinks(True)
+        self.update_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.update_banner.setVisible(False)
+        sys_tab_layout.addWidget(self.update_banner)
         
         self.tabs.addTab(sys_tab, "⚙️ 設定")
 
@@ -1098,6 +1137,7 @@ class ArtaleOverlay(QWidget):
     settings_show_request = pyqtSignal()
     rjpq_cell_clicked = pyqtSignal(int)
     export_report_request = pyqtSignal()
+    update_found = pyqtSignal(str, str)
     
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
@@ -1152,6 +1192,7 @@ class ArtaleOverlay(QWidget):
         self.toggle_pause_request.connect(self.on_toggle_pause)
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         self.export_report_request.connect(self.export_exp_report)
+        self.update_found.connect(self.on_update_found)
         
         # We'll use this signal for tray to talk to settings_window
         self.request_show_settings_signal = pyqtSignal()
@@ -1226,6 +1267,36 @@ class ArtaleOverlay(QWidget):
         self.last_exp_pct = 0.0
         if not silent:
             self.show_notification("📊 經驗值統計已重置")
+
+    def on_update_found(self, tag, url):
+        self._latest_version_info = (tag, url)
+        # We don't need any special logic here, 
+        # but if SettingsWindow is already open, it should know.
+        pass
+
+    def check_for_updates(self, auto=False):
+        """Check GitHub for new releases"""
+        def _check():
+            try:
+                import urllib.request, json, webbrowser
+                url = f"https://api.github.com/repos/{REPO_URL}/releases/latest"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    latest_tag = data.get("tag_name", VERSION)
+                    if latest_tag != VERSION:
+                        html_url = data.get("html_url", f"https://github.com/{REPO_URL}/releases")
+                        self.update_found.emit(latest_tag, html_url)
+                        msg = f"✨ 發現新版本: {latest_tag}！請下載更新"
+                        self.notification_request.emit(msg)
+                        if not auto: webbrowser.open(html_url)
+                    else:
+                        if not auto: self.notification_request.emit("✅ 目前已是最新版本")
+            except Exception as e:
+                if not auto: self.notification_request.emit(f"❌ 檢查失敗: {e}")
+        
+        threading.Thread(target=_check, daemon=True).start()
+
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)
@@ -1351,7 +1422,7 @@ class ArtaleOverlay(QWidget):
     def clear_all_timers(self, show_msg=True):
         self.active_timers = {}; self.click_zones = {}; self.is_active = False
         if self.countdown_timer.isActive(): self.countdown_timer.stop()
-        if show_msg: self.show_notification("⚠️ 已強制關閉並重設 (F12)")
+        if show_msg: self.show_notification("⚠️ 已強制關閉並重設計時器")
         self.update()
 
     def check_left_click(self, gx, gy):
