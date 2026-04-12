@@ -338,6 +338,7 @@ class SettingsWindow(QWidget):
             
         self.handle = None
         self.exp_handle = None
+        self.rjpq_handle = None
         
         self.init_ui()
         self.request_show.connect(self.safe_show)
@@ -549,6 +550,17 @@ class SettingsWindow(QWidget):
         self.rjpq_tab = RJPQTabContent(self.rjpq_client)
         self.rjpq_tab.color_selected.connect(self.overlay.set_rjpq_color)
         self.rjpq_client.sync_received.connect(self.overlay.update_rjpq_data)
+        self.rjpq_client.overlay_toggle_request.connect(self.overlay.set_rjpq_overlay_visible)
+        self.overlay.rjpq_cell_clicked.connect(self.rjpq_tab.platform_clicked)
+        
+        # Add Drag button to RJPQ tab
+        move_rjpq_btn = QPushButton("🔱 調整 YzY 面板位置")
+        move_rjpq_btn.setStyleSheet(btn_common_style)
+        move_rjpq_btn.clicked.connect(self.toggle_rjpq_handle)
+        self.rjpq_tab.main_layout.insertWidget(2, move_rjpq_btn) # Insert after toggle
+
+        # Sync checkbox state
+        self.rjpq_tab.overlay_cb.setChecked(self.overlay.show_rjpq_panel)
         self.tabs.addTab(self.rjpq_tab, "🎮 羅茱 YzY")
         
         # --- Tab 4: System Settings ---
@@ -788,25 +800,38 @@ class SettingsWindow(QWidget):
             self.handle.show(); self.handle.raise_()
 
     def toggle_exp_handle(self):
-        if not hasattr(self, 'exp_handle') or not self.exp_handle:
-            # Consistent styling with timer handle
+        if not self.exp_handle:
+            config = ConfigManager.load_config()
+            ox, oy = config.get("exp_offset", [0, 0])
             self.exp_handle = PositionHandle()
-            if self.overlay: self.exp_handle.position_changed.connect(self.overlay.update_exp_offset)
-        
-        if self.exp_handle.isVisible():
-            self.exp_handle.hide()
+            self.exp_handle.move(self.overlay.rect().center().x() + ox - 30, self.overlay.rect().center().y() + oy - 150)
+            self.exp_handle.position_changed.connect(self.overlay.update_exp_offset)
+            self.exp_handle.show()
         else:
-            if self.overlay:
-                geo = self.overlay.geometry()
-                bx = geo.width() // 2 + self.overlay.exp_x_offset
-                by = geo.height() // 2 + self.overlay.exp_y_offset
-                # Top-Right corner logic from draw_exp_panel
-                # Right is bx, Top is by - 120 - ph // 2
-                ph = 115
-                target_x = geo.x() + bx
-                target_y = geo.y() + by - 120 - ph // 2
-                self.exp_handle.move(target_x - 30, target_y - 30)
-            self.exp_handle.show(); self.exp_handle.raise_()
+            self.exp_handle.close()
+            self.exp_handle = None
+            self.save_and_close()
+
+    def toggle_rjpq_handle(self):
+        if not self.rjpq_handle:
+            # Re-read to get latest
+            config = ConfigManager.load_config()
+            ox, oy = config.get("rjpq_offset", [-200, 0])
+            self.rjpq_handle = PositionHandle()
+            
+            # Map center to global, then add offset
+            center_global = self.overlay.mapToGlobal(self.overlay.rect().center())
+            self.rjpq_handle.move(center_global.x() + ox - 30, center_global.y() + oy - 30)
+            
+            self.rjpq_handle.position_changed.connect(self.overlay.update_rjpq_offset)
+            self.rjpq_handle.show()
+            if self.overlay: 
+                self.overlay.show_rjpq_panel = True
+                self.overlay.update()
+        else:
+            self.rjpq_handle.close()
+            self.rjpq_handle = None
+            self.save_and_close()
 
     def start_ship_timer(self):
         import datetime
@@ -947,8 +972,7 @@ class SettingsWindow(QWidget):
         if self.overlay: 
             config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
             config["exp_offset"] = [self.overlay.exp_x_offset, self.overlay.exp_y_offset]
-        config["active_profile"] = p_key
-        config["opacity"] = self.opacity_slider.value() / 100.0
+        config["rjpq_offset"] = [self.overlay.rjpq_x_offset, self.overlay.rjpq_y_offset]
         ConfigManager.save_config(config)
         if self.handle: self.handle.hide()
         if hasattr(self, 'exp_handle') and self.exp_handle: self.exp_handle.hide()
@@ -971,6 +995,7 @@ class ArtaleOverlay(QWidget):
     toggle_pause_request = pyqtSignal()
     toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
+    rjpq_cell_clicked = pyqtSignal(int)
     
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
@@ -1005,6 +1030,9 @@ class ArtaleOverlay(QWidget):
         self.cumulative_pct = 0.0
         self.last_exp_pct = 0.0
         self.rjpq_data = [4] * 40
+        self.rjpq_x_offset = -400
+        self.rjpq_y_offset = 0
+        self.rjpq_click_zones = {}
         self.last_capture_time = 0
         self._tesseract_error_shown = False
         self.last_crop_info = None
@@ -1200,11 +1228,26 @@ class ArtaleOverlay(QWidget):
         self.exp_x_offset = local.x() - self.rect().center().x()
         self.exp_y_offset = local.y() - self.rect().center().y() + 120 + (ph // 2)
         self.update()
+
+    def update_rjpq_offset(self, gx, gy):
+        local = self.mapFromGlobal(QPoint(gx, gy))
+        self.rjpq_x_offset = local.x() - self.rect().center().x()
+        self.rjpq_y_offset = local.y() - self.rect().center().y()
+        self.update()
     def clear_all_timers(self, show_msg=True):
         self.active_timers = {}; self.click_zones = {}; self.is_active = False
         if self.countdown_timer.isActive(): self.countdown_timer.stop()
         if show_msg: self.show_notification("⚠️ 已強制關閉並重設 (F12)")
         self.update()
+
+    def check_left_click(self, gx, gy):
+        p = QPoint(gx, gy)
+        if self.show_rjpq_panel:
+            for idx, rect in self.rjpq_click_zones.items():
+                if rect.contains(p):
+                    self.rjpq_cell_clicked.emit(idx)
+                    return True
+        return False
 
     def check_right_click(self, gx, gy):
         p = QPoint(gx, gy)
@@ -1262,6 +1305,10 @@ class ArtaleOverlay(QWidget):
         
     def set_rjpq_color(self, color):
         self.selected_color = color
+        self.update()
+
+    def set_rjpq_overlay_visible(self, visible):
+        self.show_rjpq_panel = visible
         self.update()
 
     # --- EXP Tracker Logic ---
@@ -1636,6 +1683,7 @@ class ArtaleOverlay(QWidget):
         self.active_profile_name = active
         self.x_offset, self.y_offset = config.get("offset", [0, 0])
         self.exp_x_offset, self.exp_y_offset = config.get("exp_offset", [0, 0])
+        self.rjpq_x_offset, self.rjpq_y_offset = config.get("rjpq_offset", [-400, 0])
         self.show_notification(f"切換至 {active}: {nickname}"); self.update()
 
     def show_notification(self, text):
@@ -1658,8 +1706,29 @@ class ArtaleOverlay(QWidget):
             self.draw_exp_panel(painter)
             
         if self.show_rjpq_panel:
-            draw_rjpq_panel(painter, 30 + self.exp_x_offset, self.rect().center().y() - 160 + self.exp_y_offset, 
-                          180, 320, self.base_opacity, self.rjpq_data, self.selected_color)
+            # Multi-profile check: Use current session offsets if not reloaded yet
+            pw, ph = 180, 320
+            # Anchor (ax, ay) is Top-Right
+            ax = self.rect().center().x() + self.rjpq_x_offset
+            ay = self.rect().center().y() + self.rjpq_y_offset
+            # draw_rjpq_panel uses Top-Left as start, so start_x = ax - pw
+            draw_rjpq_panel(painter, ax - pw, ay, 
+                          pw, ph, self.base_opacity, self.rjpq_data, self.selected_color)
+            
+            # --- Update Click Zones ---
+            self.rjpq_click_zones = {}
+            start_x = ax - pw + 35
+            start_y = ay + 45
+            cell_w, cell_h = 32, 22
+            for row in range(10):
+                for col in range(4):
+                    idx = row * 4 + col
+                    cx = start_x + col * 35
+                    cy = start_y + row * 25
+                    local_rect = QRect(int(cx), int(cy), cell_w, cell_h)
+                    # Convert to GLOBAL coordinates for main.py listener
+                    global_topleft = self.mapToGlobal(local_rect.topLeft())
+                    self.rjpq_click_zones[idx] = QRect(global_topleft, local_rect.size())
         
         # 0.1 Draw Debug Crop Box (Red Outline)
         if self.show_debug and self.last_crop_info:

@@ -16,7 +16,8 @@ class RJPQSyncClient(QObject):
     char_counts_received = pyqtSignal(list)
     status_changed = pyqtSignal(bool)
     error_received = pyqtSignal(str)
-    room_created = pyqtSignal(str, str) # New signal
+    room_created = pyqtSignal(str, str)
+    overlay_toggle_request = pyqtSignal(bool) # New signal to talk to overlay
 
     def __init__(self):
         super().__init__()
@@ -181,6 +182,18 @@ class RJPQTabContent(QWidget):
         room_row.addStretch()
         self.main_layout.addWidget(self.room_widget)
 
+        # 1.1 Overlay Visibility Toggle
+        self.overlay_ctrl = QWidget()
+        ctrl_layout = QHBoxLayout(self.overlay_ctrl)
+        ctrl_layout.setContentsMargins(10, 0, 10, 5)
+        
+        from PyQt6.QtWidgets import QCheckBox
+        self.overlay_cb = QCheckBox("在遊戲畫面顯示路徑面板")
+        self.overlay_cb.setStyleSheet("color: #00ffff; font-size: 11px; font-weight: bold;")
+        self.overlay_cb.toggled.connect(self.client.overlay_toggle_request.emit)
+        ctrl_layout.addWidget(self.overlay_cb)
+        self.main_layout.addWidget(self.overlay_ctrl)
+
         # 2. Char Widget (Visible after Connected)
         self.char_widget = QWidget()
         char_row = QHBoxLayout(self.char_widget)
@@ -199,31 +212,55 @@ class RJPQTabContent(QWidget):
         self.main_layout.addWidget(self.char_widget)
 
         # 3. Grid Widget (Visible after Char Selected)
-        self.grid_widget = QWidget()
+        self.grid_widget = QFrame()
+        self.grid_widget.setObjectName("Dashboard")
+        self.grid_widget.setStyleSheet("""
+            QFrame#Dashboard { 
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a1a, stop:1 #121212);
+                border: 1px solid #333; 
+                border-radius: 12px;
+                padding: 10px;
+            }
+        """)
         grid_vbox = QVBoxLayout(self.grid_widget)
-        grid_vbox.setContentsMargins(0, 5, 0, 0)
+        grid_vbox.setContentsMargins(10, 15, 10, 10)
+        
+        dashboard_title = QLabel("📡 YzY 團隊路徑中控台")
+        dashboard_title.setStyleSheet("color: #888; font-size: 10px; font-weight: bold; margin-bottom: 5px;")
+        dashboard_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        grid_vbox.addWidget(dashboard_title)
         
         self.platform_btns = []
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(4)
+        grid_layout.setSpacing(6)
         for row in range(10):
             row_label = QLabel(str(10 - row))
             row_label.setFixedWidth(20)
+            row_label.setStyleSheet("color: #444; font-weight: bold; font-family: 'Consolas';")
             row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid_layout.addWidget(row_label, row, 0)
             for col in range(4):
                 idx = row * 4 + col
                 btn = QPushButton(str(col + 1))
-                btn.setFixedSize(60, 28)
-                btn.setStyleSheet("QPushButton { background: #222; color: #888; border: 1px solid #333; border-radius: 2px; }")
+                btn.setFixedSize(58, 28)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                # Standard glass style
+                btn.setStyleSheet("QPushButton { background: rgba(255,255,255,0.05); color: #666; border: 1px solid #222; border-radius: 4px; font-weight: bold; } "
+                                 "QPushButton:hover { background: rgba(255,255,255,0.1); border-color: #444; }")
                 btn.clicked.connect(lambda checked, i=idx: self.platform_clicked(i))
                 self.platform_btns.append(btn)
                 grid_layout.addWidget(btn, row, col + 1)
         grid_vbox.addLayout(grid_layout)
 
         # Reset button in grid widget
-        reset_btn = QPushButton("🔄 重置所有人的標記")
-        reset_btn.setStyleSheet("QPushButton { background: #444; color: #eee; border-radius: 4px; height: 30px; margin-top: 5px; }")
+        reset_btn = QPushButton("🔄 重置所有人的標記 (全隊歸零)")
+        reset_btn.setStyleSheet("""
+            QPushButton { 
+                background: #331111; color: #ff8888; border: 1px solid #552222; 
+                border-radius: 6px; height: 32px; margin-top: 10px; font-weight: bold;
+            }
+            QPushButton:hover { background: #442222; }
+        """)
         reset_btn.clicked.connect(self.on_reset_clicked)
         grid_vbox.addWidget(reset_btn)
         
@@ -346,11 +383,13 @@ class RJPQTabContent(QWidget):
             border_style = "2px solid #ffd700" if is_target else "1px solid #333"
             
             if val < 4:
-                btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 2px;")
+                # Active state: Glow background with white text
+                btn.setStyleSheet(f"QPushButton {{ background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; }}")
                 if self.selected_color != -1 and val != self.selected_color:
-                    btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 2px; opacity: 0.5;")
+                    btn.setStyleSheet(f"QPushButton {{ background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; opacity: 0.6; }}")
             else:
-                btn.setStyleSheet(f"QPushButton {{ background: #222; color: #888; border: {border_style}; border-radius: 2px; }}")
+                # Idle state: Darkened glass
+                btn.setStyleSheet(f"QPushButton {{ background: rgba(255,255,255,0.03); color: #444; border: {border_style}; border-radius: 4px; }}")
 
     def on_reset_clicked(self):
         reply = QMessageBox.question(self, "確認重置", "確定要重置所有標記嗎？\n這將清空全隊目前的路徑紀錄。", 

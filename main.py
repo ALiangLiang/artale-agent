@@ -58,9 +58,13 @@ import time
 def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # --- Mouse Listener for Right Click Cancellation ---
     def on_click(x, y, button, pressed):
-        if button == mouse.Button.right and pressed:
-            if focus_tracker.is_game_active:
-                overlay.check_right_click(x, y)
+        if not pressed: return
+        if not focus_tracker.is_game_active: return
+        
+        if button == mouse.Button.right:
+            overlay.check_right_click(x, y)
+        elif button == mouse.Button.left:
+            overlay.check_left_click(x, y)
 
     mouse_l = mouse.Listener(on_click=on_click)
     mouse_l.start()
