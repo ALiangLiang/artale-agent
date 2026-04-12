@@ -30,6 +30,12 @@ class RJPQSyncClient(QObject):
         self.room_code = ""
         self.room_pwd = ""
         self.is_connected = False
+        self.reconnect_enabled = False # Becomes True after user manually connects
+        
+        # Reconnect timer
+        self.reconnect_timer = QTimer(self)
+        self.reconnect_timer.setSingleShot(True)
+        self.reconnect_timer.timeout.connect(self.perform_reconnect)
 
     def connect_to_room(self, code, pwd):
         if self.ws is None:
@@ -37,16 +43,19 @@ class RJPQSyncClient(QObject):
             return
         self.room_code = code
         self.room_pwd = pwd
+        self.reconnect_enabled = True # Enable auto-reconnect
         url = "wss://rjpq.juanwang.cc"
         self.ws.open(QUrl(url))
 
     def disconnect_from_room(self):
+        self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
         if self.ws:
             self.ws.close()
 
     def on_connected(self):
         self.is_connected = True
         self.status_changed.emit(True)
+        self.reconnect_timer.stop()
         join_msg = {"type": "join", "code": self.room_code, "password": self.room_pwd}
         if self.ws:
             self.ws.sendTextMessage(json.dumps(join_msg))
@@ -54,6 +63,15 @@ class RJPQSyncClient(QObject):
     def on_disconnected(self):
         self.is_connected = False
         self.status_changed.emit(False)
+        
+        # Trigger auto-reconnect if enabled
+        if self.reconnect_enabled:
+            print("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 5s...")
+            self.reconnect_timer.start(5000)
+            
+    def perform_reconnect(self):
+        if self.reconnect_enabled and not self.is_connected:
+            self.connect_to_room(self.room_code, self.room_pwd)
 
     def on_message(self, message):
         try:
@@ -66,6 +84,12 @@ class RJPQSyncClient(QObject):
                 self.room_created.emit(msg["code"], msg.get("password", ""))
             elif msg["type"] == "error":
                 self.error_received.emit(msg["error"])
+            elif msg["type"] == "pong":
+                # Silently ignore pong
+                pass
+            else:
+                # Silently ignore other unknown types to avoid terminal spam/errors
+                pass
         except Exception as e:
             print(f"[RJPQ Sync] Message error: {e}")
 
@@ -109,7 +133,10 @@ class RJPQTabContent(QWidget):
         self.client.room_created.connect(self.on_room_created)
 
     def on_error_message(self, error):
-        QMessageBox.critical(self, "錯誤", f"YZY 伺服器回傳錯誤：\n{error}")
+        print(f"[RJPQ Sync Error] {error}")
+        # Only show critical popups for real failures, not protocol warnings
+        if "失敗" in error or "連線" in error:
+            QMessageBox.critical(self, "錯誤", f"YZY 伺服器錯誤：\n{error}")
         self.update_status(False)
 
     def init_ui(self):
@@ -126,6 +153,7 @@ class RJPQTabContent(QWidget):
         
         self.pwd_inp = QLineEdit()
         self.pwd_inp.setPlaceholderText("密碼")
+        self.pwd_inp.setMaxLength(4)
         self.pwd_inp.setFixedWidth(70)
         self.pwd_inp.setStyleSheet("background: #222; color: #ffd700; border: 1px solid #444; border-radius: 4px; padding: 4px;")
         
@@ -194,7 +222,7 @@ class RJPQTabContent(QWidget):
         grid_vbox.addLayout(grid_layout)
 
         # Reset button in grid widget
-        reset_btn = QPushButton("🔄 重置所有標記")
+        reset_btn = QPushButton("🔄 重置所有人的標記")
         reset_btn.setStyleSheet("QPushButton { background: #444; color: #eee; border-radius: 4px; height: 30px; margin-top: 5px; }")
         reset_btn.clicked.connect(self.on_reset_clicked)
         grid_vbox.addWidget(reset_btn)
@@ -203,6 +231,30 @@ class RJPQTabContent(QWidget):
         self.main_layout.addWidget(self.grid_widget)
         
         self.main_layout.addStretch()
+
+    def find_target_row(self):
+        if self.selected_color == -1: return -1
+        # Loop from row 1 (bottom) to 10 (top). Grid indices 0-3 is row 10, 36-39 is row 1
+        for row in range(9, -1, -1):
+            row_marked_by_me = False
+            for col in range(4):
+                idx = row * 4 + col
+                if self.current_data[idx] == self.selected_color:
+                    row_marked_by_me = True
+                    break
+            if not row_marked_by_me:
+                return row
+        return -1
+
+    def mark_by_hotkey(self, col_index):
+        if not self.client.is_connected or self.selected_color == -1:
+            return False
+        target_row = self.find_target_row()
+        if target_row != -1:
+            idx = target_row * 4 + col_index
+            self.platform_clicked(idx)
+            return True
+        return False
 
     def on_create_clicked(self):
         pwd = self.pwd_inp.text()
@@ -218,6 +270,7 @@ class RJPQTabContent(QWidget):
         self.code_inp.setText(code)
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
+        self.create_btn.setVisible(False) # Hide after success
         # Removed success popup as per user request
         # Trigger actual join process
         self.on_connect_clicked()
@@ -249,6 +302,7 @@ class RJPQTabContent(QWidget):
         
         # Dynamic Visibility
         self.char_widget.setVisible(connected)
+        self.create_btn.setVisible(not connected) # Hide when connected
         if not connected:
             self.grid_widget.setVisible(False)
             self.selected_color = -1
@@ -281,15 +335,22 @@ class RJPQTabContent(QWidget):
     def update_grid(self, data):
         self.current_data = data
         char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
+        target_row = self.find_target_row()
+        
         for i in range(40):
             val = data[i]
             btn = self.platform_btns[i]
+            row_i = i // 4
+            
+            is_target = (row_i == target_row)
+            border_style = "2px solid #ffd700" if is_target else "1px solid #333"
+            
             if val < 4:
-                btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: 1px solid #444; border-radius: 2px;")
+                btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 2px;")
                 if self.selected_color != -1 and val != self.selected_color:
-                    btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: 1px solid #444; border-radius: 2px; opacity: 0.5;")
+                    btn.setStyleSheet(f"background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 2px; opacity: 0.5;")
             else:
-                btn.setStyleSheet("QPushButton { background: #222; color: #888; border: 1px solid #333; border-radius: 2px; }")
+                btn.setStyleSheet(f"QPushButton {{ background: #222; color: #888; border: {border_style}; border-radius: 2px; }}")
 
     def on_reset_clicked(self):
         reply = QMessageBox.question(self, "確認重置", "確定要重置所有標記嗎？\n這將清空全隊目前的路徑紀錄。", 
@@ -340,3 +401,23 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
                 if alpha == 255:
                     painter.setBrush(QColor(255, 255, 255, 150))
                     painter.drawEllipse(QPoint(int(cx + cell_w//2), int(cy + cell_h//2)), 3, 3)
+
+    # Draw Target Row Highlight (Yellow Border)
+    if selected_color != -1:
+        # Find target row using duplicate logic for drawer
+        target_row = -1
+        for row in range(9, -1, -1):
+            row_marked_by_me = False
+            for col in range(4):
+                if data[row * 4 + col] == selected_color:
+                    row_marked_by_me = True
+                    break
+            if not row_marked_by_me:
+                target_row = row
+                break
+        
+        if target_row != -1:
+            row_y = start_y + target_row * 25
+            painter.setPen(QPen(QColor(255, 215, 0, 180), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(start_x - 5, row_y - 2, cell_w * 4 + 15, cell_h + 4, 4, 4)
