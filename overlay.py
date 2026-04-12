@@ -19,7 +19,7 @@ try:
 except ImportError:
     WindowsCapture = None
 
-from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject
+from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject, QStandardPaths
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage
 try:
     from PyQt6.QtWebSockets import QWebSocket
@@ -2011,9 +2011,11 @@ class ArtaleOverlay(QWidget):
         self._draw_exp_content(painter, 0, 0, pw, ph, is_export=True)
         painter.end()
         
-        # Save to file
-        filename = f"exp_report_{int(time.time())}.png"
-        save_path = os.path.join(os.getcwd(), filename)
+        # Save to Pictures folder
+        filename = f"Artale瑞士刀_{int(time.time())}.png"
+        pictures_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
+        save_path = os.path.join(pictures_dir, filename)
+        
         if pixmap.save(save_path, "PNG"):
             print(f"[ExpTracker] Report exported to {save_path}")
             self.show_notification(f"✅ 成果圖已產出！\n檔名: {filename}")
