@@ -153,10 +153,18 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 return
 
             # --- RJPQ SMART HOTKEYS ---
-            if k_name in ["1", "2", "3", "4"]:
+            rjpq_keys = {
+                hks.get("rjpq_1", "1"): 0,
+                hks.get("rjpq_2", "2"): 1,
+                hks.get("rjpq_3", "3"): 2,
+                hks.get("rjpq_4", "4"): 3,
+            }
+            
+            if k_name in rjpq_keys:
+                col_idx = rjpq_keys[k_name]
                 # Check if RJPQ is active and connected
                 if hasattr(settings_window, 'rjpq_tab') and settings_window.rjpq_tab.client.is_connected:
-                    if settings_window.rjpq_tab.mark_by_hotkey(int(k_name) - 1):
+                    if settings_window.rjpq_tab.mark_by_hotkey(col_idx):
                         return # Consume the key if it was used for RJPQ
 
             # 3. Profile Switching (Double Press F1-F9)

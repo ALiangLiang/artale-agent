@@ -146,12 +146,22 @@ class ConfigManager:
                     if "opacity" not in config:
                         config["opacity"] = 0.5
                     
+                    default_hks = {
+                        "exp_toggle": "f10",
+                        "exp_pause": "f11",
+                        "reset": "f12",
+                        "rjpq_1": "1",
+                        "rjpq_2": "2",
+                        "rjpq_3": "3",
+                        "rjpq_4": "4"
+                    }
                     if "hotkeys" not in config:
-                        config["hotkeys"] = {
-                            "exp_toggle": "f10",
-                            "exp_pause": "f11",
-                            "reset": "f12"
-                        }
+                        config["hotkeys"] = default_hks
+                    else:
+                        # Ensure missing keys are added
+                        for k, v in default_hks.items():
+                            if k not in config["hotkeys"]:
+                                config["hotkeys"][k] = v
 
                     return config
             except Exception as e: 
@@ -170,7 +180,11 @@ class ConfigManager:
             "hotkeys": {
                 "exp_toggle": "f10",
                 "exp_pause": "f11",
-                "reset": "f12"
+                "reset": "f12",
+                "rjpq_1": "1",
+                "rjpq_2": "2",
+                "rjpq_3": "3",
+                "rjpq_4": "4"
             }
         }
 
@@ -581,7 +595,11 @@ class SettingsWindow(QWidget):
         hk_labels = {
             "exp_toggle": "📊 顯示/隱藏經驗面板",
             "exp_pause": "⏸ 暫停/恢復紀錄 (F11)",
-            "reset": "🧹 重置清空所有計時器"
+            "reset": "🧹 重置清空所有計時器",
+            "rjpq_1": "🎮 羅茱 - 標記本列位置 1",
+            "rjpq_2": "🎮 羅茱 - 標記本列位置 2",
+            "rjpq_3": "🎮 羅茱 - 標記本列位置 3",
+            "rjpq_4": "🎮 羅茱 - 標記本列位置 4"
         }
         
         config = ConfigManager.load_config()
@@ -605,8 +623,8 @@ class SettingsWindow(QWidget):
         sys_tab_layout.addLayout(hk_grid)
         sys_tab_layout.addStretch()
         
-        credit_lbl = QLabel('✨ Crafted with ❤️ by <a href="https://github.com/ALiangLiang" style="color: #aaa; text-decoration: none;">ALiangLiang</a>')
-        credit_lbl.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+        credit_lbl = QLabel('✨ 由 <a href="https://github.com/ALiangLiang" style="color: #aaa; text-decoration: none;">ALiangLiang</a> 傾心製作 ❤️ | <a href="https://github.com/ALiangLiang/artale-agent" style="color: #88ccff; text-decoration: none;">🔗 原始碼</a> | <a href="https://buymeacoffee.com/aliangliang" style="color: #ffdd00; text-decoration: none;">🍵 請開發者喝杯茶</a>')
+        credit_lbl.setStyleSheet("color: #666; font-size: 10px;")
         credit_lbl.setOpenExternalLinks(True)
         credit_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sys_tab_layout.addWidget(credit_lbl)

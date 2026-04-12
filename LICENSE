@@ -1,0 +1,31 @@
+# Artale Agent - 自由改作暨強制作者標記授權協議 (Modifiable with Mandatory Attribution License)
+
+Copyright (c) 2024-2026 ALiangLiang (https://github.com/ALiangLiang). All rights reserved.
+
+## 1. 授權與開放 (Grant of License)
+本專案採開放態度推廣技術交流，在完全遵守本協議之前提下，使用者獲准執行下列行為：
+- **檢視與使用**：獲准下載、執行並使用本專案。
+- **修改與改作 (Modification)**：獲准針對原始碼進行任何修改、功能增減或介面重置。
+- **公開發行 (Redistribution)**：獲准公開發布您修改後的原始碼或執行檔，**但必須嚴格遵守下方的標記保留條款**。
+
+## 2. 強制性標記保留條款 (Mandatory Attribution Preservation)
+為了尊重原創開發者的勞動成果，不論您對專案進行了多大程度的修改（包括重新命名專案、更換 UI 介面等），**必須在所有版本中完整保留以下內容，且不得進行任何修改：**
+
+- **原作者姓名宣告**：必須在程式的「關於」、「設定」或「說明」頁面中，明確標示「Original Developer: ALiangLiang」或「核心開發：ALiangLiang」。
+- **原始贊助連結 (Donation Protection)**：程式內建的所有 Buy Me a Tea/Coffee 連結或原始碼中的贊助連結，**必須完整保留且不得中斷其功能，亦不得將其修改為他人的收款帳戶**。
+- **原始碼來源**：必須保留指向本官方儲存庫 (https://github.com/ALiangLiang/artale-agent) 的連結。
+
+## 3. 責任歸屬 (Responsibility)
+- **非官方聲明**：若您發布改作版本，必須明確聲明該版本為「非官方分發版」，並標註修改人之資訊，以區分原版。
+- **禁止冒充**：嚴禁在發布改作版本時，讓使用者誤以為該版本是由 ALiangLiang 官方發布或維護。
+
+## 4. 法律責任與免責聲明 (Disclaimer)
+- 本軟體按「原樣」提供，作者對因使用本軟體產生的任何損害不負責任。
+- **若被發現有刻意刪除原作者標記或篡改贊助連結之行為，本授權將自動終止，且原作者保留法律追究之權利。**
+
+## 5. 貢獻條款 (Contributions)
+提交至本專案之任何貢獻（Pull Request），即視為您同意將該修改內容之發布主導權交由原作者 ALiangLiang，並同樣受本協議約束。
+
+## 6. 免責聲明 (Disclaimer)
+- 本軟體非官方輔助，使用者需自行承擔任何使用風險。
+- 開發者對因使用本軟體導致之任何損害不負責任。
