@@ -1112,7 +1112,7 @@ class ArtaleOverlay(QWidget):
         
         # Load configs early
         config = ConfigManager.load_config()
-        self.show_exp_panel = config.get("show_exp", True)
+        self.show_exp_panel = config.get("show_exp", False)
         self.exp_paused = False # New state
         self.total_pause_time = 0 # Cumulative pause duration
         self.pause_start_time = 0
