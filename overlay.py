@@ -896,8 +896,12 @@ class ArtaleOverlay(QWidget):
         self.exp_x_offset = 0; self.exp_y_offset = 0
         self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
         self.exp_history = [] # List of (timestamp, value, percent)
-        self.rjpq_data = [4] * 40
+        self.exp_initial_val = None # Initialize to avoid AttributeError
         self.selected_color = -1
+        self.cumulative_gain = 0
+        self.cumulative_pct = 0.0
+        self.last_exp_pct = 0.0
+        self.rjpq_data = [4] * 40
         self.last_capture_time = 0
         self._tesseract_error_shown = False
         self.last_crop_info = None
@@ -1433,6 +1437,10 @@ class ArtaleOverlay(QWidget):
 
         now = data["timestamp"]
         current_exp = data["value"]
+        current_pct = data.get("percent", 0.0)
+        
+        # Initialize last_exp_pct if needed
+        if not hasattr(self, 'last_exp_pct'): self.last_exp_pct = current_pct
         
         # Reset baseline if a massive drop is detected (OCR error)
         # 200k is a safer threshold for Artale
@@ -1443,23 +1451,33 @@ class ArtaleOverlay(QWidget):
             is_drop = True
             
         if is_drop:
-            print(f"[ExpTracker] Massive drop detected ({self.last_exp_val} -> {current_exp}), resetting stats.")
+            print(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), resetting stats.")
             self.exp_initial_val = current_exp
             self.exp_session_start_time = None # Reset session start
             self.exp_history = [] # Wipe old junk history
-            
-        self.last_exp_val = current_exp
+            self.cumulative_gain = 0 # Reset accumulation on drop
+            self.cumulative_pct = 0.0
 
         # 1. Update baseline history
         self.exp_history.append((now, current_exp, data.get("percent", 0)))
         # Keep only 1 hour of history
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         
-        # Finally, check if we need to calibrate after resume (SKIP gain calculation for this frame)
-        if self.needs_calibration:
-            self.needs_calibration = False
-            self.update()
-            return
+        # Accumulate gains ONLY when active
+        last_v = getattr(self, 'last_exp_val', None)
+        last_p = getattr(self, 'last_exp_pct', None)
+        
+        if not self.needs_calibration and last_v is not None:
+            v_diff = current_exp - last_v
+            p_diff = current_pct - last_p
+            if v_diff > 0: 
+                self.cumulative_gain += v_diff
+                self.cumulative_pct += p_diff
+        
+        # Calibration done or first frame seen
+        self.needs_calibration = False
+        self.last_exp_val = current_exp
+        self.last_exp_pct = current_pct
         
         # Calculate rates using sliding window
         ten_min_ago = now - 600
@@ -1684,6 +1702,14 @@ class ArtaleOverlay(QWidget):
         painter.setFont(QFont("Segoe UI", 9))
         painter.drawText(px + 15, py + 32, f"紀錄時長: {duration_text}")
         
+        # New: Total Gained (Incremental)
+        total_gain = self.cumulative_gain
+        total_pct = self.cumulative_pct
+
+        painter.setPen(QColor(100, 255, 100))
+        painter.setFont(QFont("Segoe UI Bold", 10))
+        painter.drawText(px + 140, py + 32, f"總累積: +{total_gain:,} ({total_pct:+.2f}%)")
+
         # New: Pause indicator
         if self.exp_paused:
             painter.setPen(QColor(255, 100, 100))
