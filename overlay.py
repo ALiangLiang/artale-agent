@@ -391,6 +391,8 @@ class SettingsWindow(QWidget):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setSpacing(2)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll.setWidget(self.scroll_content)
         timer_tab_layout.addWidget(self.scroll)
 
@@ -1576,7 +1578,7 @@ class ArtaleOverlay(QWidget):
         if not timers_to_draw and self.show_preview:
             timers_to_draw.append(("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png"))))
 
-        new_click_zones = {}; spacing = 80; total_width = len(timers_to_draw) * spacing
+        new_click_zones = {}; spacing = 56; total_width = len(timers_to_draw) * spacing
         # Right Aligned: The anchor base_x is the RIGHT edge of the timer group
         block_start_x = base_x - total_width
         block_center_y = base_y + 60
