@@ -1288,12 +1288,21 @@ class ArtaleOverlay(QWidget):
         print(f"[Overlay] EXP Panel toggled: {status}")
         self.show_notification(f"📊 經驗監測系統 {status} (F10)")
         if not self.show_exp_panel:
+            # Full logic reset on toggle off
             self.current_exp_data = {
                 "text": "---", "value": 0, "percent": 0.0, 
                 "gained_10m": 0, "percent_10m": 0.0, 
                 "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
             }
             self.exp_history = []
+            self.exp_initial_val = None
+            self.exp_session_start_time = None
+            self.cumulative_gain = 0
+            self.cumulative_pct = 0.0
+            self.total_pause_time = 0
+            self.pause_start_time = 0
+            self.exp_paused = False
+            self.needs_calibration = False
         self.update()
 
     def on_toggle_pause(self):
@@ -1626,12 +1635,8 @@ class ArtaleOverlay(QWidget):
             is_drop = True
             
         if is_drop:
-            print(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), resetting stats.")
-            self.exp_initial_val = current_exp
-            self.exp_session_start_time = None # Reset session start
-            self.exp_history = [] # Wipe old junk history
-            self.cumulative_gain = 0 # Reset accumulation on drop
-            self.cumulative_pct = 0.0
+            print(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
+            return # Skip this update to preserve session continuity
 
         # 1. Update baseline history
         self.exp_history.append((now, current_exp, data.get("percent", 0)))
