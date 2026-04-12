@@ -151,10 +151,10 @@ class ConfigManager:
                         "exp_pause": "f11",
                         "reset": "f9",
                         "exp_report": "f12",
-                        "rjpq_1": "1",
-                        "rjpq_2": "2",
-                        "rjpq_3": "3",
-                        "rjpq_4": "4",
+                        "rjpq_1": "num_1",
+                        "rjpq_2": "num_2",
+                        "rjpq_3": "num_3",
+                        "rjpq_4": "num_4",
                         "show_settings": "pause"
                     }
                     if "hotkeys" not in config:
@@ -645,10 +645,10 @@ class SettingsWindow(QWidget):
             "exp_pause": "⏸ 暫停/恢復紀錄 (F11)",
             "reset": "🧹 重置清空所有計時器 (F9)",
             "exp_report": "📸 產出經驗成果圖 (F12)",
-            "rjpq_1": "🎮 羅茱 - 標記本列位置 1",
-            "rjpq_2": "🎮 羅茱 - 標記本列位置 2",
-            "rjpq_3": "🎮 羅茱 - 標記本列位置 3",
-            "rjpq_4": "🎮 羅茱 - 標記本列位置 4",
+            "rjpq_1": "🎮 羅茱 - 標記位置 1 (Num1)",
+            "rjpq_2": "🎮 羅茱 - 標記位置 2 (Num2)",
+            "rjpq_3": "🎮 羅茱 - 標記位置 3 (Num3)",
+            "rjpq_4": "🎮 羅茱 - 標記位置 4 (Num4)",
             "show_settings": "🍁 顯示/隱藏控制中心"
         }
         
@@ -729,7 +729,7 @@ class SettingsWindow(QWidget):
         is_escape = (key_code == Qt.Key.Key_Escape)
         
         if self.recording_global_key:
-            key_name = "none" if is_escape else self.qt_key_to_name(key_code)
+            key_name = "none" if is_escape else self.qt_key_to_name(event)
             if key_name:
                 config = ConfigManager.load_config()
                 config["hotkeys"][self.recording_global_key] = key_name
@@ -746,7 +746,7 @@ class SettingsWindow(QWidget):
                 self.toggle_recording()
                 if self.overlay: self.overlay.show_notification("已取消新增按鍵")
                 return
-            key_name = self.qt_key_to_name(key_code)
+            key_name = self.qt_key_to_name(event)
             if key_name:
                 p_key = self.profile_box.itemData(self.profile_box.currentIndex())
                 if not p_key: p_key = "F1"
@@ -816,26 +816,34 @@ class SettingsWindow(QWidget):
         if self.overlay: self.overlay.load_profile_immediately()
         self.config_updated.emit()
 
-    def qt_key_to_name(self, code):
+    def qt_key_to_name(self, event):
+        code = event.key()
+        is_numpad = bool(event.modifiers() & Qt.KeyboardModifier.KeypadModifier)
+        
         special_map = {
             Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3", Qt.Key.Key_F4: "f4",
             Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6", Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8",
             Qt.Key.Key_F9: "f9", Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", 
             Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", 
             Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space",
-            Qt.Key.Key_Pause: "pause",
-            # Numpad Mapping
-            Qt.Key.Key_0: "0", Qt.Key.Key_1: "1", Qt.Key.Key_2: "2", Qt.Key.Key_3: "3",
-            Qt.Key.Key_4: "4", Qt.Key.Key_5: "5", Qt.Key.Key_6: "6", Qt.Key.Key_7: "7",
-            Qt.Key.Key_8: "8", Qt.Key.Key_9: "9"
+            Qt.Key.Key_Pause: "pause"
         }
-        # Numpad Handling (Qt6 standard values)
-        if 0x01000021 <= code <= 0x01000029: # Numpad 1-9
-            return str(code - 0x01000021 + 1)
-        if code == 0x01000020: # Numpad 0
-            return "0"
-        if code == 0x0100002c: # Numpad .
-            return "."
+        
+        # Priority 1: Check for Numpad 0-9 and Dot
+        if is_numpad:
+            if Qt.Key.Key_0 <= code <= Qt.Key.Key_9:
+                return f"num_{code - Qt.Key.Key_0}"
+            if code == Qt.Key.Key_Period or code == Qt.Key.Key_Comma or code == 0x0100002c: # Dot or Comma on keypad
+                return "num_dot"
+            # Fallback for Qt's specific keypad range if above didn't catch it
+            if 0x01000020 <= code <= 0x01000029:
+                return f"num_{code - 0x01000020}"
+        
+        if code in special_map: return special_map[code]
+        try:
+            name = chr(code).lower() if 32 <= code <= 126 else None
+            return name
+        except: return None
             
         if code in special_map: return special_map[code]
         try:
@@ -1208,10 +1216,16 @@ class ArtaleOverlay(QWidget):
     def request_show_settings(self):
         self.settings_show_request.emit()
 
-    def reset_exp_stats(self):
+    def reset_exp_stats(self, silent=False):
         """Reset EXP tracking baseline"""
         self.exp_history = []
-        self.show_notification("📊 經驗值統計已重置")
+        self.exp_rate_history = []
+        self.cumulative_gain = 0
+        self.cumulative_pct = 0.0
+        self.exp_initial_val = None
+        self.last_exp_pct = 0.0
+        if not silent:
+            self.show_notification("📊 經驗值統計已重置")
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)
@@ -1333,6 +1347,7 @@ class ArtaleOverlay(QWidget):
         self.rjpq_x_offset = local.x() - self.rect().center().x()
         self.rjpq_y_offset = local.y() - self.rect().center().y()
         self.update()
+
     def clear_all_timers(self, show_msg=True):
         self.active_timers = {}; self.click_zones = {}; self.is_active = False
         if self.countdown_timer.isActive(): self.countdown_timer.stop()
@@ -1369,10 +1384,12 @@ class ArtaleOverlay(QWidget):
                 "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
             }
             self.exp_history = []
+            self.exp_rate_history = [] # Reset the graph data
             self.exp_initial_val = None
             self.exp_session_start_time = None
             self.cumulative_gain = 0
             self.cumulative_pct = 0.0
+            self.last_exp_pct = 0.0
             self.total_pause_time = 0
             self.pause_start_time = 0
             self.exp_paused = False

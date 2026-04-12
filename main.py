@@ -94,27 +94,28 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
         nonlocal last_key, last_time, current_config, is_globally_enabled
         try:
             k_name = None
-            # 1. Try to get name or char
-            if hasattr(key, 'name'):
-                k_name = key.name
-            elif hasattr(key, 'char') and key.char:
-                k_name = key.char.lower()
+            # 1. Prioritize VK for Numpad keys (96-105, 110) to distinguish from top row
+            vk = getattr(key, 'vk', None)
+            if vk is None:
+                s_key = str(key)
+                if s_key.startswith('<') and s_key.endswith('>'):
+                    try: vk = int(s_key[1:-1])
+                    except: pass
             
-            # 2. Hard fallback for VK codes (Numpad <96>-<105>)
+            if vk is not None:
+                if 96 <= vk <= 105:
+                    k_name = f"num_{vk - 96}"
+                elif vk == 110: # Numpad dot
+                    k_name = "num_dot"
+            
+            # 2. Try to get name or char if not a numpad key
             if k_name is None:
-                vk = getattr(key, 'vk', None)
-                if vk is None:
-                    # Fallback for some pynput versions/OS where vk is hidden in string
-                    s_key = str(key)
-                    if s_key.startswith('<') and s_key.endswith('>'):
-                        try: vk = int(s_key[1:-1])
-                        except: pass
+                if hasattr(key, 'name'):
+                    k_name = key.name
+                elif hasattr(key, 'char') and key.char:
+                    k_name = key.char.lower()
                 
-                if vk is not None:
-                    if 96 <= vk <= 105:
-                        k_name = str(vk - 96)
-                    elif vk == 110: # Numpad dot
-                        k_name = "."
+                pass
             
             if k_name:
                 for base in ["alt", "shift", "ctrl"]:
@@ -158,10 +159,10 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
 
             # --- RJPQ SMART HOTKEYS ---
             rjpq_keys = {
-                hks.get("rjpq_1", "1"): 0,
-                hks.get("rjpq_2", "2"): 1,
-                hks.get("rjpq_3", "3"): 2,
-                hks.get("rjpq_4", "4"): 3,
+                hks.get("rjpq_1", "num_1"): 0,
+                hks.get("rjpq_2", "num_2"): 1,
+                hks.get("rjpq_3", "num_3"): 2,
+                hks.get("rjpq_4", "num_4"): 3,
             }
             
             if k_name in rjpq_keys:
