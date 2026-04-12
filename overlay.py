@@ -556,6 +556,13 @@ class SettingsWindow(QWidget):
         self.exp_active_cb.toggled.connect(self.on_exp_toggle_changed)
         exp_tab_layout.addWidget(self.exp_active_cb)
         
+        self.money_active_cb = QCheckBox("開啟金錢記錄追蹤 (連動經驗面板)")
+        self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;")
+        if self.overlay:
+            self.money_active_cb.setChecked(getattr(self.overlay, 'show_money_log', True))
+        self.money_active_cb.toggled.connect(self.on_money_toggle_changed)
+        exp_tab_layout.addWidget(self.money_active_cb)
+        
         reset_exp_btn = QPushButton("🔄 重新開始紀錄 (歸零重算)")
         reset_exp_btn.setStyleSheet(btn_common_style)
         reset_exp_btn.clicked.connect(self.on_reset_exp_clicked)
@@ -584,6 +591,12 @@ class SettingsWindow(QWidget):
         exp_pos_btn.setStyleSheet(btn_common_style)
         exp_pos_btn.clicked.connect(self.toggle_exp_handle)
         exp_tab_layout.addWidget(exp_pos_btn)
+        
+        # Export Report Button
+        self.export_btn = QPushButton("📸 產出成果圖 (截圖分享)")
+        self.export_btn.setStyleSheet(btn_common_style)
+        self.export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None)
+        exp_tab_layout.addWidget(self.export_btn)
         
         # Add Stretch to push debug info to the VERY BOTTOM
         exp_tab_layout.addStretch()
@@ -622,18 +635,7 @@ class SettingsWindow(QWidget):
         self.debug_lv_img_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_lv_img_lbl)
 
-        # Export Report Button
-        export_btn = QPushButton("📸 產出成果圖 (截圖分享)")
-        export_btn.setStyleSheet("""
-            QPushButton {
-                background: #444; color: white; border-radius: 6px; height: 40px; 
-                margin-top: 20px; font-weight: bold; font-size: 13px;
-                border: 1px solid #666;
-            }
-            QPushButton:hover { background: #555; border-color: #ffd700; }
-        """)
-        export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None)
-        exp_tab_layout.addWidget(export_btn)
+
 
         exp_tab_layout.addStretch()
         self.tabs.addTab(exp_tab, "📊 經驗值")
@@ -1068,6 +1070,13 @@ class SettingsWindow(QWidget):
             self.trigger_data[key]["icon"] = path
             self.update_icon_button(btn, path)
 
+    def on_money_toggle_changed(self, checked):
+        if self.overlay:
+            self.overlay.show_money_log = checked
+            self.overlay.save_current_offset() # Helper to save all
+            status = "已啟用" if checked else "已關閉"
+            print(f"[Overlay] Money Log toggled: {status}")
+
     def on_debug_mode_changed(self, checked):
         v = checked
         self.debug_info_lbl.setVisible(v)
@@ -1116,6 +1125,10 @@ class SettingsWindow(QWidget):
         if self.overlay: 
             config["offset"] = [self.overlay.x_offset, self.overlay.y_offset]
             config["exp_offset"] = [self.overlay.exp_x_offset, self.overlay.exp_y_offset]
+            config["show_exp"] = self.overlay.show_exp_panel
+            config["show_money_log"] = getattr(self.overlay, 'show_money_log', True)
+            config["show_debug"] = self.overlay.show_debug
+            config["opacity"] = self.overlay.base_opacity
         config["rjpq_offset"] = [self.overlay.rjpq_x_offset, self.overlay.rjpq_y_offset]
         ConfigManager.save_config(config)
         if self.handle: self.handle.hide()
@@ -1162,6 +1175,7 @@ class ArtaleOverlay(QWidget):
         # Load configs early
         config = ConfigManager.load_config()
         self.show_exp_panel = config.get("show_exp", False)
+        self.show_money_log = config.get("show_money_log", True)  # Use persistent config
         self.exp_paused = False # New state
         self.total_pause_time = 0 # Cumulative pause duration
         self.pause_start_time = 0
@@ -1223,8 +1237,19 @@ class ArtaleOverlay(QWidget):
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
+        self.last_coin_pos = None # (x, y, w, h) in client coords
+        self.last_coin_info_pos = None
+        self.last_coin_ocr = ""
         self.load_profile_immediately()
         self.init_tray()
+        
+        # Load coin template for matching
+        self.coin_tpl = None
+        if os.path.exists("coin.png"):
+            self.coin_tpl = cv2.imread("coin.png")
+            if self.coin_tpl is not None:
+                print(f"[ExpTracker] Loaded coin template: {self.coin_tpl.shape}")
+        
         self.init_ui()
 
     def init_tray(self):
@@ -1625,6 +1650,56 @@ class ArtaleOverlay(QWidget):
                     
                     self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
                 
+                # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
+                if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
+                    try:
+                        tpl_h, tpl_w = self.coin_tpl.shape[:2]
+                        scaled_tpl_w = int(tpl_w * scale); scaled_tpl_h = int(tpl_h * scale)
+                        if scaled_tpl_w > 5 and scaled_tpl_h > 5:
+                            tpl_resized = cv2.resize(self.coin_tpl, (scaled_tpl_w, scaled_tpl_h))
+                            res = cv2.matchTemplate(img, tpl_resized, cv2.TM_CCOEFF_NORMED)
+                            _, max_val, _, max_loc = cv2.minMaxLoc(res)
+                            
+                            if max_val > 0.8:
+                                # Primary coin box
+                                self.last_coin_pos = (max_loc[0] - off_x, max_loc[1] - off_y, scaled_tpl_w, scaled_tpl_h)
+                                
+                                # Secondary Info Area (Right 30px, 280x30)
+                                info_w = int(280 * scale); info_h = int(30 * scale)
+                                info_ix = max_loc[0] + scaled_tpl_w + int(30 * scale)
+                                # Move down 2px total as requested
+                                info_iy = max_loc[1] + (scaled_tpl_h // 2) - (info_h // 2) + int(2 * scale)
+                                self.last_coin_info_pos = (info_ix - off_x, info_iy - off_y, info_w, info_h)
+                                
+                                # --- OCR for Coin Info Area ---
+                                coin_info_text = ""
+                                info_crop = img[max(0, info_iy):min(h, info_iy+info_h), max(0, info_ix):min(w, info_ix+info_w)]
+                                if info_crop.size > 0:
+                                    ic_gray = cv2.cvtColor(info_crop, cv2.COLOR_BGR2GRAY)
+                                    ic_r = 60 / ic_gray.shape[0] if ic_gray.shape[0] > 0 else 3
+                                    ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_CUBIC)
+                                    _, ic_thresh = cv2.threshold(ic_gray, 180, 255, cv2.THRESH_BINARY_INV)
+                                    if pytesseract and pytesseract.pytesseract.tesseract_cmd:
+                                        try:
+                                            # Efficient single-call OCR
+                                            ic_padded = cv2.copyMakeBorder(ic_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                                            coin_info_text = pytesseract.image_to_string(ic_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789,').strip()
+                                            
+                                            if coin_info_text:
+                                                # Standard log (High performance)
+                                                print(f"[ExpTracker] Coin Match: {max_val:.2f} | OCR: {coin_info_text}")
+                                        except Exception as e:
+                                            print(f"[Debug] OCR Failed: {e}")
+                                self.last_coin_ocr = coin_info_text
+                            else:
+                                self.last_coin_pos = None
+                                self.last_coin_info_pos = None
+                                self.last_coin_ocr = ""
+                    except: 
+                        self.last_coin_pos = None
+                        self.last_coin_info_pos = None
+                        self.last_coin_ocr = ""
+                
                 if self.exp_paused:
                     last_processed = now
                     self.update()
@@ -1641,7 +1716,7 @@ class ArtaleOverlay(QWidget):
                 if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                     try:
                         padded = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                        tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%|'
+                        tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%'
                         text = pytesseract.image_to_string(padded, config=tess_config).strip()
                     except: pass
                 
@@ -1939,9 +2014,44 @@ class ArtaleOverlay(QWidget):
         else: self.fade_timer.stop()
 
     def paintEvent(self, event):
-        # Always draw EXP panel if we have data, even if not active
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
+        # 0. Draw Debug Coin Location
+        if self.show_debug and hasattr(self, 'last_coin_pos') and self.last_coin_pos:
+            try:
+                import win32gui
+                for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
+                    hwnd = win32gui.FindWindow(None, name)
+                    if hwnd:
+                        cx, cy, cw, ch = self.last_coin_pos
+                        # Convert client coords to global screen coords
+                        screen_pt = win32gui.ClientToScreen(hwnd, (cx, cy))
+                        # Geometry offset (Virtual Desktop)
+                        v_rect = QApplication.primaryScreen().virtualGeometry()
+                        px = screen_pt[0] - v_rect.x()
+                        py = screen_pt[1] - v_rect.y()
+                        
+                        painter.setPen(QPen(QColor(255, 255, 0, 200), 2))
+                        painter.drawRect(px, py, cw, ch)
+                        painter.setPen(QColor(255, 255, 0))
+                        painter.drawText(px, py - 5, "🪙 Coin")
+                        
+                        # Draw Secondary Box (Cyan for distinction)
+                        if hasattr(self, 'last_coin_info_pos') and self.last_coin_info_pos:
+                            ix, iy, iw, ih = self.last_coin_info_pos
+                            # Convert to global (same as above)
+                            info_pt = win32gui.ClientToScreen(hwnd, (ix, iy))
+                            ipx = info_pt[0] - v_rect.x()
+                            ipy = info_pt[1] - v_rect.y()
+                            
+                            painter.setPen(QPen(QColor(0, 255, 255, 180), 2)) # Cyan box
+                            painter.drawRect(ipx, ipy, iw, ih)
+                            if hasattr(self, 'last_coin_ocr') and self.last_coin_ocr:
+                                painter.setPen(QColor(0, 255, 255))
+                                painter.drawText(ipx, ipy - 5, f"Value: {self.last_coin_ocr}")
+                        break
+            except: pass
+
         # 0. Draw EXP Statistics Panel (Top Left)
         if self.show_exp_panel:
             self.draw_exp_panel(painter)
