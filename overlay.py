@@ -870,7 +870,7 @@ class SettingsWindow(QWidget):
         if total_seconds <= 0: total_seconds = 600
         
         if self.overlay:
-             self.overlay.timer_request.emit("Ship", total_seconds, "buff_pngs/ship_timer.png", True)
+             self.overlay.timer_request.emit("Ship", total_seconds, "buff_pngs/Others/ship_icon.png", True)
 
     def start_elevator_timer(self, direction):
         import datetime
@@ -891,7 +891,7 @@ class SettingsWindow(QWidget):
             total_seconds = 240
             
         if self.overlay:
-             icon = "buff_pngs/elevator_down.png" if direction == "down" else "buff_pngs/elevator_up.png"
+             icon = "buff_pngs/Others/elevator_down.png" if direction == "down" else "buff_pngs/Others/elevator_up.png"
              name = "電梯(下)" if direction == "down" else "電梯(上)"
              self.overlay.timer_request.emit(name, total_seconds, icon, True)
         
