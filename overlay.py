@@ -153,7 +153,8 @@ class ConfigManager:
                         "rjpq_1": "1",
                         "rjpq_2": "2",
                         "rjpq_3": "3",
-                        "rjpq_4": "4"
+                        "rjpq_4": "4",
+                        "show_settings": "pause"
                     }
                     if "hotkeys" not in config:
                         config["hotkeys"] = default_hks
@@ -632,7 +633,8 @@ class SettingsWindow(QWidget):
             "rjpq_1": "🎮 羅茱 - 標記本列位置 1",
             "rjpq_2": "🎮 羅茱 - 標記本列位置 2",
             "rjpq_3": "🎮 羅茱 - 標記本列位置 3",
-            "rjpq_4": "🎮 羅茱 - 標記本列位置 4"
+            "rjpq_4": "🎮 羅茱 - 標記本列位置 4",
+            "show_settings": "🍁 顯示/隱藏控制中心"
         }
         
         config = ConfigManager.load_config()
@@ -643,7 +645,9 @@ class SettingsWindow(QWidget):
             lbl.setStyleSheet("color: #ccc; font-size: 12px;")
             hk_grid.addWidget(lbl, idx, 0)
             
-            btn = QPushButton(hotkeys.get(hk_id, "None").upper())
+            raw_val = hotkeys.get(hk_id, "None").upper()
+            display_val = "無" if raw_val == "NONE" else raw_val
+            btn = QPushButton(display_val)
             btn.setFixedWidth(100)
             btn.setStyleSheet("""
                 QPushButton { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }
@@ -657,7 +661,7 @@ class SettingsWindow(QWidget):
         sys_tab_layout.addStretch()
         
         credit_lbl = QLabel('✨ 由 <a href="https://github.com/ALiangLiang" style="color: #aaa; text-decoration: none;">ALiangLiang</a> 傾心製作 ❤️ | <a href="https://github.com/ALiangLiang/artale-agent" style="color: #88ccff; text-decoration: none;">🔗 原始碼</a> | <a href="https://buymeacoffee.com/aliangliang" style="color: #ffdd00; text-decoration: none;">🍵 請開發者喝杯茶</a>')
-        credit_lbl.setStyleSheet("color: #666; font-size: 10px;")
+        credit_lbl.setStyleSheet("color: #666; font-size: 11px;")
         credit_lbl.setOpenExternalLinks(True)
         credit_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sys_tab_layout.addWidget(credit_lbl)
@@ -705,20 +709,28 @@ class SettingsWindow(QWidget):
         self.global_hk_buttons[hk_id].setStyleSheet("background: #552222; color: #ff5555; border: 1px solid #ff0000; border-radius: 4px; padding: 5px; font-weight: bold;")
 
     def keyPressEvent(self, event):
+        key_code = event.key()
+        # Handle ESC as "None" (unbind)
+        is_escape = (key_code == Qt.Key.Key_Escape)
+        
         if self.recording_global_key:
-            key_code = event.key()
-            key_name = self.qt_key_to_name(key_code)
+            key_name = "none" if is_escape else self.qt_key_to_name(key_code)
             if key_name:
                 config = ConfigManager.load_config()
                 config["hotkeys"][self.recording_global_key] = key_name
                 ConfigManager.save_config(config)
-                self.global_hk_buttons[self.recording_global_key].setText(key_name.upper())
+                display_name = "無" if key_name == "none" else key_name.upper()
+                self.global_hk_buttons[self.recording_global_key].setText(display_name)
                 self.global_hk_buttons[self.recording_global_key].setStyleSheet("background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold;")
                 self.recording_global_key = None
+                if self.overlay and is_escape: self.overlay.show_notification("已清除該全域快捷鍵綁定")
             return
 
         if self.is_recording:
-            key_code = event.key()
+            if is_escape:
+                self.toggle_recording()
+                if self.overlay: self.overlay.show_notification("已取消新增按鍵")
+                return
             key_name = self.qt_key_to_name(key_code)
             if key_name:
                 p_key = self.profile_box.itemData(self.profile_box.currentIndex())

@@ -125,18 +125,18 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             # 3. Profile Switching (Double Press F1-F9) or Disable (F12)
             now = time.time()
             
+            # Use configurable hotkeys
+            hks = current_config.get("hotkeys", {})
+
             # 2. Always-on controls
-            if k_name == 'pause':
-                print("[Input] Pause Break pressed. Emitting show signal.")
+            if k_name == hks.get("show_settings", "pause"):
+                print(f"[Input] {k_name.upper()} pressed. Emitting show signal.")
                 settings_window.request_show.emit()
                 return
             
             # --- BLOCK TRIGGERS IF RECORDING ---
             if settings_window.is_recording or settings_window.recording_global_key:
                 return
-
-            # Use configurable hotkeys
-            hks = current_config.get("hotkeys", {})
             
             if k_name == hks.get("reset", "f12"):
                 print(f"[Input] {k_name.upper()} Reset Triggered.")
@@ -257,6 +257,9 @@ def run_app():
     overlay.settings_show_request.connect(settings_window.safe_show)
     
     start_keyboard_listener(overlay, settings_window, focus_tracker)
+    
+    # Auto-show Control Center on startup
+    settings_window.safe_show()
     
     print("[Main] Artale Agent initialized. Waiting for input...")
     sys.exit(app.exec())
