@@ -49,7 +49,8 @@ class GameFocusTracker:
             if self.is_game_active != was_active:
                 status = "focused" if self.is_game_active else "lost focus"
                 print(f"[Focus] {self.TARGET_PROCESS} {status}")
-        except:
+        except Exception as e:
+            print(f"[Input Error] {e}")
             self.is_game_active = False
 
 import time
@@ -86,27 +87,40 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     settings_window.config_updated.connect(update_local_config)
 
     def on_press(key):
+        print(f"[Raw Input] {key}") 
         nonlocal last_key, last_time, current_config, is_globally_enabled
         try:
-            # 1. Check for Pause Break to show settings (always works)
-            if key == keyboard.Key.pause:
-                print("[Input] Pause Break pressed. Emitting show signal.")
-                settings_window.request_show.emit()
-                return
-
-            # 2. Key Identification
-            k_name = ""
-            if hasattr(key, 'name'): k_name = key.name
-            elif hasattr(key, 'char'):
-                k_name = key.char
-                if k_name: k_name = k_name.lower()
+            k_name = None
+            # 1. Try to get name or char
+            if hasattr(key, 'name'):
+                k_name = key.name
+            elif hasattr(key, 'char') and key.char:
+                k_name = key.char.lower()
             
-            # Normalize: alt_l/alt_r -> alt, shift_r -> shift, ctrl_l -> ctrl
+            # 2. Hard fallback for VK codes (Numpad <96>-<105>)
+            if k_name is None:
+                vk = getattr(key, 'vk', None)
+                if vk is None:
+                    # Fallback for some pynput versions/OS where vk is hidden in string
+                    s_key = str(key)
+                    if s_key.startswith('<') and s_key.endswith('>'):
+                        try: vk = int(s_key[1:-1])
+                        except: pass
+                
+                if vk is not None:
+                    if 96 <= vk <= 105:
+                        k_name = str(vk - 96)
+                    elif vk == 110: # Numpad dot
+                        k_name = "."
+            
             if k_name:
                 for base in ["alt", "shift", "ctrl"]:
                     if k_name.startswith(base):
                         k_name = base
                         break
+                print(f"[Debug] Key Pressed: {k_name}")
+            else:
+                print(f"[Debug] Still Unknown: {key}")
             
             # 3. Profile Switching (Double Press F1-F9) or Disable (F12)
             now = time.time()
@@ -116,18 +130,25 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 print("[Input] Pause Break pressed. Emitting show signal.")
                 settings_window.request_show.emit()
                 return
+            
+            # --- BLOCK TRIGGERS IF RECORDING ---
+            if settings_window.is_recording or settings_window.recording_global_key:
+                return
 
-            if k_name == 'f12':
-                print("[Input] F12 Reset Triggered.")
+            # Use configurable hotkeys
+            hks = current_config.get("hotkeys", {})
+            
+            if k_name == hks.get("reset", "f12"):
+                print(f"[Input] {k_name.upper()} Reset Triggered.")
                 is_globally_enabled = False
                 overlay.clear_request.emit()
                 return
 
-            if k_name == 'f10':
+            if k_name == hks.get("exp_toggle", "f10"):
                 overlay.toggle_exp_request.emit()
                 return
 
-            if k_name == 'f11':
+            if k_name == hks.get("exp_pause", "f11"):
                 overlay.toggle_pause_request.emit()
                 return
 

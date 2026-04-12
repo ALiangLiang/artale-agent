@@ -145,6 +145,13 @@ class ConfigManager:
                     
                     if "opacity" not in config:
                         config["opacity"] = 0.5
+                    
+                    if "hotkeys" not in config:
+                        config["hotkeys"] = {
+                            "exp_toggle": "f10",
+                            "exp_pause": "f11",
+                            "reset": "f12"
+                        }
 
                     return config
             except Exception as e: 
@@ -155,7 +162,17 @@ class ConfigManager:
         default_profiles = {}
         for i in range(1, 10):
             default_profiles[f"F{i}"] = {"name": f"切換組 F{i}", "triggers": {}}
-        return {"active_profile": "F1", "offset": [0, 0], "opacity": 0.5, "profiles": default_profiles}
+        return {
+            "active_profile": "F1", 
+            "offset": [0, 0], 
+            "opacity": 0.5, 
+            "profiles": default_profiles,
+            "hotkeys": {
+                "exp_toggle": "f10",
+                "exp_pause": "f11",
+                "reset": "f12"
+            }
+        }
 
     @staticmethod
     def save_config(config):
@@ -306,16 +323,22 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.overlay = overlay
         self.setWindowTitle("Artale Agent - Control Center")
-        self.setFixedSize(360, 750)
+        self.setFixedSize(400, 750)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
-        self.handle = None
+        self.overlay = overlay
         self.trigger_data = {}
+        self.is_recording = False
+        self.recording_global_key = None # Which global hotkey we are recording
+        self.global_hk_buttons = {} # Store button refs
         
         # Connect to EXP updates for live preview
         if self.overlay:
             self.overlay.exp_update_request.connect(self.on_exp_data_received)
             
+        self.handle = None
+        self.exp_handle = None
+        
         self.init_ui()
         self.request_show.connect(self.safe_show)
 
@@ -353,7 +376,7 @@ class SettingsWindow(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #333; background: #121212; }
-            QTabBar::tab { background: #222; color: #888; padding: 10px; min-width: 80px; }
+            QTabBar::tab { background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; }
             QTabBar::tab:selected { background: #333; color: #ffd700; font-weight: bold; }
         """)
         self.layout.addWidget(self.tabs)
@@ -527,6 +550,49 @@ class SettingsWindow(QWidget):
         self.rjpq_tab.color_selected.connect(self.overlay.set_rjpq_color)
         self.rjpq_client.sync_received.connect(self.overlay.update_rjpq_data)
         self.tabs.addTab(self.rjpq_tab, "🎮 羅茱 YzY")
+        
+        # --- Tab 4: System Settings ---
+        sys_tab = QWidget()
+        sys_tab_layout = QVBoxLayout(sys_tab)
+        
+        sys_info = QLabel("⚙️ 輔助全局快捷鍵設定")
+        sys_info.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; margin-top: 10px;")
+        sys_tab_layout.addWidget(sys_info)
+        
+        sys_desc = QLabel("點擊下方按鈕後，按下鍵盤上的按鍵即可變更快捷鍵。")
+        sys_desc.setStyleSheet("color: #888; font-size: 11px;")
+        sys_tab_layout.addWidget(sys_desc)
+        
+        # Hotkey Rows
+        hk_grid = QGridLayout()
+        hk_labels = {
+            "exp_toggle": "📊 顯示/隱藏經驗面板",
+            "exp_pause": "⏸ 暫停/恢復紀錄 (F11)",
+            "reset": "🧹 重置清空所有計時器"
+        }
+        
+        config = ConfigManager.load_config()
+        hotkeys = config.get("hotkeys", {})
+        
+        for idx, (hk_id, label_text) in enumerate(hk_labels.items()):
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet("color: #ccc; font-size: 12px;")
+            hk_grid.addWidget(lbl, idx, 0)
+            
+            btn = QPushButton(hotkeys.get(hk_id, "None").upper())
+            btn.setFixedWidth(100)
+            btn.setStyleSheet("""
+                QPushButton { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold; }
+                QPushButton:hover { background: #444; border-color: #ffd700; }
+            """)
+            btn.clicked.connect(lambda checked, h=hk_id: self.start_recording_global(h))
+            hk_grid.addWidget(btn, idx, 1)
+            self.global_hk_buttons[hk_id] = btn
+            
+        sys_tab_layout.addLayout(hk_grid)
+        sys_tab_layout.addStretch()
+        
+        self.tabs.addTab(sys_tab, "⚙️ 設定")
 
         # --- Global Controls (Bottom) ---
 
@@ -560,7 +626,27 @@ class SettingsWindow(QWidget):
         
 
 
+    def start_recording_global(self, hk_id):
+        # Reset any active recording
+        self.is_recording = False 
+        self.recording_global_key = hk_id
+        for btn in self.global_hk_buttons.values(): btn.setText(btn.text().replace(" (錄製中...)", ""))
+        self.global_hk_buttons[hk_id].setText("錄製中...")
+        self.global_hk_buttons[hk_id].setStyleSheet("background: #552222; color: #ff5555; border: 1px solid #ff0000; border-radius: 4px; padding: 5px; font-weight: bold;")
+
     def keyPressEvent(self, event):
+        if self.recording_global_key:
+            key_code = event.key()
+            key_name = self.qt_key_to_name(key_code)
+            if key_name:
+                config = ConfigManager.load_config()
+                config["hotkeys"][self.recording_global_key] = key_name
+                ConfigManager.save_config(config)
+                self.global_hk_buttons[self.recording_global_key].setText(key_name.upper())
+                self.global_hk_buttons[self.recording_global_key].setStyleSheet("background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold;")
+                self.recording_global_key = None
+            return
+
         if self.is_recording:
             key_code = event.key()
             key_name = self.qt_key_to_name(key_code)
@@ -573,6 +659,9 @@ class SettingsWindow(QWidget):
                 if key_name not in config["profiles"][p_key]["triggers"]:
                     config["profiles"][p_key]["triggers"][key_name] = {"seconds": 300, "icon": ""}
                     ConfigManager.save_config(config)
+                    if self.overlay: self.overlay.show_notification(f"已新增按鍵: {key_name.upper()}")
+                else:
+                    if self.overlay: self.overlay.show_notification(f"按鍵 {key_name.upper()} 已存在")
                 self.refresh_items()
                 self.toggle_recording()
 
@@ -634,9 +723,23 @@ class SettingsWindow(QWidget):
         special_map = {
             Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3", Qt.Key.Key_F4: "f4",
             Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6", Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8",
-            Qt.Key.Key_F9: "f9", Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", 
-            Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space"
+            Qt.Key.Key_F9: "f9", Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", 
+            Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", 
+            Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space",
+            Qt.Key.Key_Pause: "pause",
+            # Numpad Mapping
+            Qt.Key.Key_0: "0", Qt.Key.Key_1: "1", Qt.Key.Key_2: "2", Qt.Key.Key_3: "3",
+            Qt.Key.Key_4: "4", Qt.Key.Key_5: "5", Qt.Key.Key_6: "6", Qt.Key.Key_7: "7",
+            Qt.Key.Key_8: "8", Qt.Key.Key_9: "9"
         }
+        # Numpad Handling (Qt6 standard values)
+        if 0x01000021 <= code <= 0x01000029: # Numpad 1-9
+            return str(code - 0x01000021 + 1)
+        if code == 0x01000020: # Numpad 0
+            return "0"
+        if code == 0x0100002c: # Numpad .
+            return "."
+            
         if code in special_map: return special_map[code]
         try:
             name = chr(code).lower() if 32 <= code <= 126 else None
