@@ -338,7 +338,7 @@ class SettingsWindow(QWidget):
             pass
 
     def init_ui(self):
-        self.setWindowTitle("Artale Agent 🚀 控制中心")
+        self.setWindowTitle("Artale Agent 🍁 控制中心")
         # Set Window Icon
         icon_path = resource_path("app_icon.png")
         if os.path.exists(icon_path):
@@ -348,11 +348,7 @@ class SettingsWindow(QWidget):
         self.layout = QVBoxLayout(self)
         self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI';")
         
-        top_row = QHBoxLayout()
-        title = QLabel("🚀 控制中心")
-        title.setFont(QFont("Segoe UI Semibold", 18))
-        title.setStyleSheet("color: #ffd700;")
-        top_row.addWidget(title)
+        # (Redundant body title removed as it matches window title-bar)
         
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
