@@ -102,7 +102,9 @@ class RJPQSyncClient(QObject):
 
     def create_room(self, pwd):
         try:
-            url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={pwd}"
+            import urllib.parse
+            quoted_pwd = urllib.parse.quote(pwd)
+            url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
             with urllib.request.urlopen(url) as response:
                 if response.getcode() == 200:
                     data = json.loads(response.read().decode())
@@ -137,6 +139,11 @@ class RJPQTabContent(QWidget):
 
     def on_error_message(self, error):
         logging.error(f"[RJPQ Sync Error] {error}")
+        # Reset button state immediately before popping up dialogs
+        self.create_btn.setText("創建")
+        self.create_btn.setEnabled(True)
+        self.create_btn.setVisible(True)
+        
         # Show critical popups for real failures (including password errors)
         if any(kw in error for kw in ["失敗", "連線", "密碼錯誤", "密码错误"]):
             # If it's a password error, disable auto-reconnect to stop the loop

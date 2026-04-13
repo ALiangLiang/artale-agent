@@ -2327,10 +2327,18 @@ class ArtaleOverlay(QWidget):
 
     def show_notification(self, text):
         # Internal Overlay Animation
-        self.msg_text = text; self.msg_opacity = 255
-        if hasattr(self, 'fade_timer') and self.fade_timer.isActive(): self.fade_timer.stop()
-        self.fade_timer = QTimer(self); self.fade_timer.timeout.connect(self.step_fade)
-        QTimer.singleShot(3000, lambda: self.fade_timer.start(16)); self.update()
+        try:
+            import sip
+            if sip.isdeleted(self): return
+            self.msg_text = text; self.msg_opacity = 255
+            if hasattr(self, 'fade_timer'):
+                try:
+                    if self.fade_timer.isActive(): self.fade_timer.stop()
+                except (RuntimeError, AttributeError): pass
+            self.fade_timer = QTimer(self); self.fade_timer.timeout.connect(self.step_fade)
+            QTimer.singleShot(3000, lambda: self.fade_timer.start(16)); self.update()
+        except Exception as e:
+            logger.debug(f"[Overlay] Notification Error: {e}")
 
     def step_fade(self):
         if self.msg_opacity > 0: self.msg_opacity = max(0, self.msg_opacity - 5); self.update()
