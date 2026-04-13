@@ -18,6 +18,7 @@ python -m PyInstaller `
     --add-data "buff_pngs;buff_pngs" `
     --add-data "Tesseract-OCR;Tesseract-OCR" `
     --add-data "app_icon.png;." `
+    --add-data "VERSION;." `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
     --hidden-import "win32process" `
