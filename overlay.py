@@ -40,7 +40,7 @@ def get_version():
         with open(v_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except:
-        return "v0.2.3" # Fallback
+        return "v0.2.4" # Fallback
 
 VERSION = get_version()
 REPO_URL = "ALiangLiang/artale-agent"
