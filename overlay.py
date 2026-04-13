@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import json
 import os
 import threading
@@ -407,16 +407,29 @@ class SettingsWindow(QWidget):
             self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
         lv_text = data.get("level")
-        if lv_text and self.overlay: 
-            self.overlay.current_lv = lv_text
+        lv_conf = data.get("conf", 0)
+        
+        # Display simulated confidence based on consensus
+        self.debug_lv_conf_lbl.setText(f"Conf: {lv_conf:.0f}%")
+        conf_color = "#51cf66" if lv_conf >= 100 else ("#ffd700" if lv_conf >= 50 else "#ff6b6b")
+        self.debug_lv_conf_lbl.setStyleSheet(f"color: {conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
+
+        # Only act if consensus reached (e.g. 100% = 3 consecutive identical frames)
+        if lv_text and lv_conf >= 100 and self.overlay: 
             try:
                 lv_val = int(lv_text)
-                # Check for Level Up
-                if self.overlay.last_confirmed_lv is not None and lv_val > self.overlay.last_confirmed_lv:
-                    logger.info(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
-                    self.overlay.exp_initial_val = None # Force recalibration
-                    self.overlay.cumulative_gain = 0
-                    self.overlay.exp_history = []
+                self.overlay.current_lv = f"LV.{lv_val}"
+                
+                if self.overlay.last_confirmed_lv is not None:
+                    level_diff = lv_val - self.overlay.last_confirmed_lv
+                    # Reasonable Jump Check
+                    if 0 < level_diff <= 2:
+                        logger.info(f"[ExpTracker] Confirmed Level UP! {self.overlay.last_confirmed_lv} -> {lv_val}")
+                        self.overlay.exp_initial_val = None
+                        self.overlay.cumulative_gain = 0
+                        self.overlay.exp_history = []
+                    elif level_diff != 0:
+                        logger.debug(f"[ExpTracker] Filtered out unreasonable jump: {self.overlay.last_confirmed_lv} -> {lv_val}")
                 
                 self.overlay.last_confirmed_lv = lv_val
             except:
@@ -639,12 +652,21 @@ class SettingsWindow(QWidget):
         self.debug_lv_info_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_lv_info_lbl)
         
+        lv_row = QHBoxLayout()
         self.debug_lv_img_lbl = QLabel()
         self.debug_lv_img_lbl.setFixedSize(150, 40)
         self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
         self.debug_lv_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.debug_lv_img_lbl.setVisible(self.debug_mode_cb.isChecked())
-        exp_tab_layout.addWidget(self.debug_lv_img_lbl)
+        
+        self.debug_lv_conf_lbl = QLabel("Conf: --%")
+        self.debug_lv_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-weight: bold; font-size: 12px; margin-left: 10px;")
+        self.debug_lv_conf_lbl.setVisible(self.debug_mode_cb.isChecked())
+        
+        lv_row.addWidget(self.debug_lv_img_lbl)
+        lv_row.addWidget(self.debug_lv_conf_lbl)
+        lv_row.addStretch()
+        exp_tab_layout.addLayout(lv_row)
 
 
 
@@ -1105,6 +1127,7 @@ class SettingsWindow(QWidget):
         self.debug_img_lbl.setVisible(v)
         self.debug_lv_info_lbl.setVisible(v)
         self.debug_lv_img_lbl.setVisible(v)
+        self.debug_lv_conf_lbl.setVisible(v)
         if self.overlay: 
             self.overlay.show_debug = v
             self.overlay.show_notification(f"除錯模式: {'開啟' if checked else '關閉'}")
@@ -1672,16 +1695,36 @@ class ArtaleOverlay(QWidget):
                     # Use higher threshold for LV (Yellow/White text on map background)
                     _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY_INV)
                     
-                    # OCR for Level
+                    # OCR for Level with Consensus
                     lv_ocr_text = ""
+                    lv_conf = 0
                     if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                         try:
                             lv_padded = cv2.copyMakeBorder(lv_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                            lv_ocr_text = pytesseract.image_to_string(lv_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
+                            # Use simple image_to_string as it is robust for digits
+                            ocr_res = pytesseract.image_to_string(lv_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
+                            
+                            if ocr_res:
+                                lv_ocr_text = ocr_res
+                                # Initialize consensus counter if not exists
+                                if not hasattr(self, '_lv_consensus'):
+                                    self._lv_consensus = {"last_text": "", "count": 0}
+                                
+                                # Compare with previous frames for consensus
+                                if ocr_res == self._lv_consensus["last_text"]:
+                                    self._lv_consensus["count"] += 1
+                                else:
+                                    self._lv_consensus["last_text"] = ocr_res
+                                    self._lv_consensus["count"] = 1
+                                
+                                # Simulated confidence: 1 frame = 33%, 2 = 66%, 3+ = 100%
+                                lv_conf = min(100, self._lv_consensus["count"] * 34)
+                            else:
+                                lv_conf = 0
                         except Exception as e:
                             logger.debug(f"[ExpTracker] LV OCR failed: {e}")
                     
-                    if not sip.isdeleted(self): self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
+                    if not sip.isdeleted(self): self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
                 
                 # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
