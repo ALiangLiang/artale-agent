@@ -1,4 +1,6 @@
-import sys
+﻿import sys
+import logging
+logger = logging.getLogger(__name__)
 import ctypes
 import ctypes.wintypes
 import win32process
@@ -49,9 +51,9 @@ class GameFocusTracker:
             self.is_game_active = (proc.name().lower() == self.TARGET_PROCESS)
             if self.is_game_active != was_active:
                 status = "focused" if self.is_game_active else "lost focus"
-                logging.info(f"[Focus] {self.TARGET_PROCESS} {status}")
+                logger.info(f"[Focus] {self.TARGET_PROCESS} {status}")
         except Exception as e:
-            logging.error(f"[Focus] Process tracking error: {e}")
+            logger.error(f"[Focus] Process tracking error: {e}")
             self.is_game_active = False
 
 import time
@@ -86,7 +88,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
         p_data = current_config["profiles"].get(active, {"triggers": {}})
         triggers = p_data.get("triggers", {})
         is_globally_enabled = True # Re-enable on profile switch
-        logging.info(f"[Config] Switched to {active}. Triggers: {list(triggers.keys())}")
+        logger.info(f"[Config] Switched to {active}. Triggers: {list(triggers.keys())}")
 
     # Connect settings signal to update listener
     settings_window.config_updated.connect(update_local_config)
@@ -102,7 +104,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 if s_key.startswith('<') and s_key.endswith('>'):
                     try: vk = int(s_key[1:-1])
                     except Exception as e: 
-                        logging.debug(f"[Input] Failed to parse VK: {e}")
+                        logger.debug(f"[Input] Failed to parse VK: {e}")
             
             if vk is not None:
                 if 96 <= vk <= 105:
@@ -133,7 +135,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
 
             # 2. Always-on controls
             if k_name == hks.get("show_settings", "pause"):
-                logging.info(f"[Input] {k_name.upper()} pressed. Emitting show signal.")
+                logger.info(f"[Input] {k_name.upper()} pressed. Emitting show signal.")
                 settings_window.request_show.emit()
                 return
             
@@ -142,7 +144,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 return
             
             if k_name == hks.get("reset", "f12"):
-                logging.info(f"[Input] {k_name.upper()} Reset Triggered.")
+                logger.info(f"[Input] {k_name.upper()} Reset Triggered.")
                 is_globally_enabled = False
                 overlay.clear_request.emit()
                 return
@@ -214,11 +216,11 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 overlay.timer_request.emit(k_name, seconds, icon if icon else "", sound)
                 
         except Exception as e:
-            logging.error(f"[Error] Listener: {e}")
+            logger.error(f"[Error] Listener: {e}")
 
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
-    logging.info("[Input] Listener active. Press 'Pause Break' for Control Center (🍁).")
+    logger.info("[Input] Listener active. Press 'Pause Break' for Control Center (🍁).")
 
 def check_network_drive():
     try:
@@ -233,12 +235,12 @@ def check_network_drive():
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Icon.Warning)
                 msg.setWindowTitle("環境建議 - Artale 瑞士刀")
-                msg.setText("偵測到程式正在網路磁碟機 (Samba) 上執行。")
+                msg.setText("偵測到程式正在網路磁碟機 (Samba) 上執行，這可能導致 OCR 效能嚴重下降或辨識失敗。請考慮將程式移動到本機硬碟執行以獲得最佳效能。")
                 msg.setInformativeText("在網路硬碟上執行可能會導致視窗捕捉失敗 (0x80070490)。\n\n建議將程式複製到「本機磁碟」(如桌面或 C 槽) 以獲得最佳穩定性。")
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
     except Exception as e:
-        logging.debug(f"[Main] Network drive check skipped or failed: {e}")
+        logger.debug(f"[Main] Network drive check skipped or failed: {e}")
 
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -253,7 +255,7 @@ def run_app():
     )
 
     # --- Initialize Sentry (Only in bundled/production mode) ---
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, 'frozen', True):
         sentry_sdk.init(
             dsn="https://b120418a69ec5d8ccd74a0bb4d2acacf@o4511210222452736.ingest.us.sentry.io/4511210254565376",
             integrations=[
@@ -263,10 +265,11 @@ def run_app():
                 ),
             ],
             traces_sample_rate=1.0,
+            enable_logs=True,
             release=f"artale-agent@{overlay.get_version()}"
         )
     else:
-        logging.info(f"[Main] Dev mode: Sentry disabled. (Shift+F7 to simulate crash)")
+        logger.info(f"[Main] Dev mode: Sentry disabled.")
 
     # --- Enable High DPI Awareness ---
     # Qt 6 defaults to PerMonitorAwareV2, so manual ctypes calls are redundant and cause "Access Denied" errors.
@@ -274,7 +277,7 @@ def run_app():
     try:
         QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     except Exception as e:
-        logging.debug(f"[Main] Rounding policy set failed: {e}")
+        logger.debug(f"[Main] Rounding policy set failed: {e}")
 
     app = QApplication(sys.argv)
     
@@ -304,7 +307,7 @@ def run_app():
     # Auto-show Control Center on startup
     settings_window.safe_show()
     
-    logging.info("[Main] Artale 瑞士刀 initialized. Waiting for input...")
+    logger.info("[Main] Artale 瑞士刀 initialized. Waiting for input...")
     sys.exit(app.exec())
 
 if __name__ == "__main__":

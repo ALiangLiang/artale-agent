@@ -29,6 +29,8 @@ from PyQt6.QtNetwork import QAbstractSocket
 import cv2
 import re
 import logging
+logger = logging.getLogger(__name__)
+from PyQt6 import sip
 import pytesseract
 import os
 from rjpq_tool import RJPQSyncClient, QWebSocket, RJPQTabContent, draw_rjpq_panel
@@ -181,7 +183,7 @@ class ConfigManager:
 
                     return config
             except Exception as e: 
-                logging.error(f"Error loading config: {e}")
+                logger.error(f"Error loading config: {e}")
                 pass
             
         # Default Multi-Profile Config
@@ -403,7 +405,7 @@ class SettingsWindow(QWidget):
                     lv_val = int(lv_text)
                     # Check for Level Up
                     if self.overlay.last_confirmed_lv is not None and lv_val > self.overlay.last_confirmed_lv:
-                        logging.info(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
+                        logger.info(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
                         self.overlay.exp_initial_val = None # Force recalibration
                         self.overlay.cumulative_gain = 0
                         self.overlay.exp_history = []
@@ -823,7 +825,7 @@ class SettingsWindow(QWidget):
                     "sound": ui["cb_sound"].isChecked()
                 }
             except Exception as e:
-                logging.debug(f"[Settings] UI capture failed for {key}: {e}")
+                logger.debug(f"[Settings] UI capture failed for {key}: {e}")
                 active_ui_data[key] = {"seconds": 300, "icon": ui["icon"], "sound": True}
         return active_ui_data
 
@@ -896,7 +898,7 @@ class SettingsWindow(QWidget):
             name = chr(code).lower() if 32 <= code <= 126 else None
             return name
         except Exception as e:
-            logging.debug(f"[Settings] Key conversion failed: {e}")
+            logger.debug(f"[Settings] Key conversion failed: {e}")
             return None
             
         if code in special_map: return special_map[code]
@@ -904,7 +906,7 @@ class SettingsWindow(QWidget):
             name = chr(code).lower() if 32 <= code <= 126 else None
             return name
         except Exception as e:
-            logging.debug(f"[Settings] Key conversion failed: {e}")
+            logger.debug(f"[Settings] Key conversion failed: {e}")
             return None
 
     def toggle_recording(self):
@@ -1080,14 +1082,14 @@ class SettingsWindow(QWidget):
         if self.overlay:
             self.overlay.show_money_log = checked
             status = "已啟用" if checked else "已關閉"
-            logging.info(f"[Overlay] Money Log toggled: {status}")
+            logger.info(f"[Overlay] Money Log toggled: {status}")
             # Save preference
             try:
                 config = ConfigManager.load_config()
                 config["show_money_log"] = checked
                 ConfigManager.save_config(config)
             except Exception as e:
-                logging.debug(f"[Overlay] Money toggle save failed: {e}")
+                logger.debug(f"[Overlay] Money toggle save failed: {e}")
 
     def on_debug_mode_changed(self, checked):
         v = checked
@@ -1132,7 +1134,7 @@ class SettingsWindow(QWidget):
                     "sound": data["cb_sound"].isChecked()
                 }
             except Exception as e:
-                logging.debug(f"[Settings] Save trigger failed for {key}: {e}")
+                logger.debug(f"[Settings] Save trigger failed for {key}: {e}")
         config["profiles"][p_key]["triggers"] = new_triggers
         config["profiles"][p_key]["name"] = self.nickname_inp.text()
         if self.overlay: 
@@ -1246,7 +1248,7 @@ class ArtaleOverlay(QWidget):
             self.exp_tracker_thread = threading.Thread(target=self.run_exp_tracker, daemon=True)
             self.exp_tracker_thread.start()
         else:
-            logging.warning("[Warning] windows-capture is not installed. EXP tracking disabled.")
+            logger.warning("[Warning] windows-capture is not installed. EXP tracking disabled.")
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
@@ -1261,7 +1263,7 @@ class ArtaleOverlay(QWidget):
         if os.path.exists("coin.png"):
             self.coin_tpl = cv2.imread("coin.png")
             if self.coin_tpl is not None:
-                logging.info(f"[ExpTracker] Loaded coin template: {self.coin_tpl.shape}")
+                logger.info(f"[ExpTracker] Loaded coin template: {self.coin_tpl.shape}")
         
         self.init_ui()
 
@@ -1342,7 +1344,7 @@ class ArtaleOverlay(QWidget):
                     else:
                         if not auto: self.notification_request.emit("✅ 目前已是最新版本")
             except Exception as e:
-                logging.debug(f"[Update] Check failed: {e}")
+                logger.debug(f"[Update] Check failed: {e}")
                 if not auto: self.notification_request.emit(f"❌ 檢查失敗: {e}")
         
         threading.Thread(target=_check, daemon=True).start()
@@ -1363,7 +1365,7 @@ class ArtaleOverlay(QWidget):
         # Subtle trick for Windows composition: 0.99 opacity can force full-window rendering
         self.setWindowOpacity(0.99)
         
-        logging.debug(f"[Debug] Overlay spans: {v_rect.x()}, {v_rect.y()} to {v_rect.width()}, {v_rect.height()}")
+        logger.debug(f"[Debug] Overlay spans: {v_rect.x()}, {v_rect.y()} to {v_rect.width()}, {v_rect.height()}")
         self.show()
 
     def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
@@ -1377,10 +1379,10 @@ class ArtaleOverlay(QWidget):
             if os.path.exists(real_path):
                 pixmap = QPixmap(real_path)
                 if pixmap.isNull():
-                    logging.error(f"[Timer] Failed to load icon (Malformed): {real_path}")
+                    logger.error(f"[Timer] Failed to load icon (Malformed): {real_path}")
                     pixmap = None
             else:
-                logging.warning(f"[Timer] Icon not found in any search path: {icon_path}")
+                logger.warning(f"[Timer] Icon not found in any search path: {icon_path}")
         
         self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
         self.is_active = True
@@ -1409,7 +1411,7 @@ class ArtaleOverlay(QWidget):
         def worker():
             for _ in range(times):
                 try: winsound.Beep(800, 150); time.sleep(0.12)
-                except Exception as e: logging.debug(f"[Sound] Beep failed: {e}")
+                except Exception as e: logger.debug(f"[Sound] Beep failed: {e}")
         threading.Thread(target=worker, daemon=True).start()
 
     def sync_with_game_window(self):
@@ -1431,7 +1433,7 @@ class ArtaleOverlay(QWidget):
                 return True
             win32gui.EnumWindows(callback, None)
         except Exception as e:
-            logging.debug(f"[Overlay] Window search failed: {e}")
+            logger.debug(f"[Overlay] Window search failed: {e}")
             hwnd = 0
         
         if hwnd:
@@ -1450,7 +1452,7 @@ class ArtaleOverlay(QWidget):
                 local_bl = self.mapFromGlobal(logical_gl_pt)
                 self.bx, self.by = local_bl.x(), local_bl.y()
             except Exception as e:
-                logging.debug(f"[Overlay] ClientToScreen mapping failed: {e}")
+                logger.debug(f"[Overlay] ClientToScreen mapping failed: {e}")
             
         # Ensure overlay is visible and on top, but DON'T change its geometry
         if not self.isVisible(): self.show()
@@ -1504,7 +1506,7 @@ class ArtaleOverlay(QWidget):
     def on_toggle_exp(self):
         self.show_exp_panel = not self.show_exp_panel
         status = "已啟用" if self.show_exp_panel else "已關閉"
-        logging.info(f"[Overlay] EXP Panel toggled: {status}")
+        logger.info(f"[Overlay] EXP Panel toggled: {status}")
         self.show_notification(f"📊 經驗監測系統 {status} (F10)")
         if not self.show_exp_panel:
             # Full logic reset on toggle off
@@ -1545,7 +1547,7 @@ class ArtaleOverlay(QWidget):
                 self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
             self.needs_calibration = True # Skip next frame's gain calculation
             
-        logging.info(f"[ExpTracker] Recording {status}")
+        logger.info(f"[ExpTracker] Recording {status}")
         self.show_notification(f"📊 經驗追蹤 {status} (F11)")
         self.update()
 
@@ -1605,7 +1607,7 @@ class ArtaleOverlay(QWidget):
                         self.last_window_state = current_state
                     
                     if current_state != self.last_window_state:
-                        logging.info(f"[ExpTracker] Window state changed to {current_state}. Restarting session...")
+                        logger.info(f"[ExpTracker] Window state changed to {current_state}. Restarting session...")
                         self.last_window_state = current_state
                         self._exp_tracker_active = False # Signal main loop to restart
                         control.stop() 
@@ -1671,7 +1673,7 @@ class ArtaleOverlay(QWidget):
                             lv_padded = cv2.copyMakeBorder(lv_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
                             lv_ocr_text = pytesseract.image_to_string(lv_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
                         except Exception as e:
-                            logging.debug(f"[ExpTracker] LV OCR failed: {e}")
+                            logger.debug(f"[ExpTracker] LV OCR failed: {e}")
                     
                     self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
                 
@@ -1712,9 +1714,9 @@ class ArtaleOverlay(QWidget):
                                             
                                             if coin_info_text:
                                                 # Standard log (High performance)
-                                                logging.debug(f"[ExpTracker] Coin Match: {max_val:.2f} | OCR: {coin_info_text}")
+                                                logger.debug(f"[ExpTracker] Coin Match: {max_val:.2f} | OCR: {coin_info_text}")
                                         except Exception as e:
-                                            logging.debug(f"[Debug] OCR Failed: {e}")
+                                            logger.debug(f"[Debug] OCR Failed: {e}")
                                 self.last_coin_ocr = coin_info_text
                             else:
                                 self.last_coin_pos = None
@@ -1749,7 +1751,7 @@ class ArtaleOverlay(QWidget):
                 if text:
                     self.parse_and_update_exp(text, thresh, crop)
                 last_processed = now
-                self.update() # Ensure red box moves smoothly with window
+                if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
         while self._is_running:
             import win32gui
@@ -1809,10 +1811,10 @@ class ArtaleOverlay(QWidget):
                     
                     @capture.event
                     def on_closed():
-                        logging.info("[ExpTracker] Session closed.")
+                        logger.info("[ExpTracker] Session closed.")
                         self._exp_tracker_active = False
                     
-                    logging.info(f"[ExpTracker] Starting session for HWND {target_hwnd}")
+                    logger.info(f"[ExpTracker] Starting session for HWND {target_hwnd}")
                     
                     self._exp_tracker_active = True
                     capture.start_free_threaded()
@@ -1833,7 +1835,7 @@ class ArtaleOverlay(QWidget):
                         # Common API error when window is transitionary/hidden, retry silently
                         pass
                     else:
-                        logging.error(f"[ExpTracker] Failed to start capture for HWND {target_hwnd}: {e}")
+                        logger.error(f"[ExpTracker] Failed to start capture for HWND {target_hwnd}: {e}")
             
             # Adaptive retry delay
             time.sleep(2.0)
@@ -1896,16 +1898,16 @@ class ArtaleOverlay(QWidget):
             
             val = int(val_str)
             if self.show_debug:
-                logging.debug(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
+                logger.debug(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
             
             data["text"] = f"{val:,} [{pct_val:.2f}%]"
             data["value"] = val
             data["percent"] = pct_val
             
-            self.exp_update_request.emit(data)
+            if not sip.isdeleted(self): self.exp_update_request.emit(data)
         except Exception as e:
             if self.show_debug: 
-                logging.warning(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
+                logger.warning(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
 
 
     def on_exp_update(self, data):
@@ -1913,12 +1915,12 @@ class ArtaleOverlay(QWidget):
         if not hasattr(self, 'exp_session_start_time'): self.exp_session_start_time = None
         if not hasattr(self, 'exp_initial_val') or self.exp_initial_val is None: 
             self.exp_initial_val = data["value"]
-            logging.info(f"[ExpTracker] Initial baseline: {self.exp_initial_val:,}")
+            logger.info(f"[ExpTracker] Initial baseline: {self.exp_initial_val:,}")
 
         # Trigger session start on first actual EXP gain
         if self.exp_session_start_time is None and data["value"] > self.exp_initial_val:
             self.exp_session_start_time = data["timestamp"]
-            logging.info(f"[ExpTracker] Session triggered! First gain detected.")
+            logger.info(f"[ExpTracker] Session triggered! First gain detected.")
 
         now = data["timestamp"]
         current_exp = data["value"]
@@ -1930,7 +1932,7 @@ class ArtaleOverlay(QWidget):
             # If current EXP and PCT dropped significantly, it's a level up
             if current_exp < self.last_exp_val and current_pct < (self.last_exp_pct - 10):
                 is_lv_up = True
-                logging.info(f"[ExpTracker] Level Up detected! ({self.last_exp_pct:.2f}% -> {current_pct:.2f}%)")
+                logger.info(f"[ExpTracker] Level Up detected! ({self.last_exp_pct:.2f}% -> {current_pct:.2f}%)")
         
         # Reset baseline if a massive drop is detected (OCR error)
         # Unless it's a confirmed Level Up
@@ -1942,7 +1944,7 @@ class ArtaleOverlay(QWidget):
                 is_err_drop = True
             
         if is_err_drop:
-            logging.warning(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
+            logger.warning(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
             return 
         
         if is_lv_up:
@@ -2287,7 +2289,7 @@ class ArtaleOverlay(QWidget):
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setPixmap(pixmap)
             
-            logging.info(f"[ExpTracker] Report exported to {save_path} and copied to clipboard")
+            logger.info(f"[ExpTracker] Report exported to {save_path} and copied to clipboard")
             self.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
             # Try to open the file
             import subprocess
