@@ -1786,7 +1786,13 @@ class ArtaleOverlay(QWidget):
                     # OCR for Level using unified helper
                     lv_ocr_text, lv_conf = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=3, whitelist="0123456789")
                     
-                    if not sip.isdeleted(self): self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
+                    # Update gate: Only emit if level info is solid (>= 90%)
+                    if lv_conf >= 90:
+                        if not sip.isdeleted(self): 
+                            self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
+                    else:
+                        if self.show_debug and lv_ocr_text:
+                            logger.debug(f"[ExpTracker] Skipping LV update due to low confidence: {lv_conf:.1f}%")
                 
                 # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
@@ -1855,14 +1861,13 @@ class ArtaleOverlay(QWidget):
                 text, exp_conf = self._perform_enhanced_ocr(thresh, "exp", upscale=2, whitelist="0123456789.[]%")
                 
                 if text:
-                    # Update gate: Only process if confidence is solid (>= 85%)
-                    if exp_conf >= 85:
+                    # Coupled Update Gate: Both EXP (>=85%) AND LV (>=90%) must be confident
+                    if exp_conf >= 85 and lv_conf >= 90:
                         self.parse_and_update_exp(text, thresh, crop, exp_conf)
                     else:
-                        # Log it for dev to see why it skipped (silent if not in debug)
                         if self.show_debug:
-                            # Already logged by helper, but we could add more context here if needed
-                            pass
+                            reason = "EXP low" if exp_conf < 85 else "LV low"
+                            logger.debug(f"[ExpTracker] Skipping EXP update due to {reason} (EXP:{exp_conf:.1f}%, LV:{lv_conf:.1f}%)")
                 last_processed = now
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
