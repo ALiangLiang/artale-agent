@@ -1267,6 +1267,7 @@ class ArtaleOverlay(QWidget):
         self.current_lv = None 
         self.last_confirmed_lv = None # To detect level up
         self.exp_rate_history = [] # Rolling 10m rates for the graph
+        self.exp_tracker_event = threading.Event()
         self._tesseract_error_shown = False
         self.last_crop_info = None
         self.last_lv_crop_info = None
@@ -1292,11 +1293,11 @@ class ArtaleOverlay(QWidget):
         self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
         self.world_timers = {} # Keep empty or remove if not used
         
-        # Initialize ExpTracker
-        if WindowsCapture:
+        # Initialize ExpTracker (Only start if panel is requested on startup)
+        if WindowsCapture and self.show_exp_panel:
             self.exp_tracker_thread = threading.Thread(target=self.run_exp_tracker, daemon=True)
             self.exp_tracker_thread.start()
-        else:
+        elif not WindowsCapture:
             logger.warning("[Warning] windows-capture is not installed. EXP tracking disabled.")
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
@@ -1556,7 +1557,15 @@ class ArtaleOverlay(QWidget):
         status = "已啟用" if self.show_exp_panel else "已關閉"
         logger.info(f"[Overlay] EXP Panel toggled: {status}")
         self.show_notification(f"📊 經驗監測系統 {status} (F10)")
-        if not self.show_exp_panel:
+
+        if self.show_exp_panel:
+            # Wake up the thread immediately
+            self.exp_tracker_event.set()
+            # Start/Restart tracker thread if needed
+            if not hasattr(self, 'exp_tracker_thread') or not self.exp_tracker_thread.is_alive():
+                self.exp_tracker_thread = threading.Thread(target=self.run_exp_tracker, daemon=True)
+                self.exp_tracker_thread.start()
+        else:
             # Full logic reset on toggle off
             self.current_exp_data = {
                 "text": "---", "value": 0, "percent": 0.0, 
@@ -1564,7 +1573,7 @@ class ArtaleOverlay(QWidget):
                 "is_estimated": True, "tracking_duration": 0, "time_to_level": -1
             }
             self.exp_history = []
-            self.exp_rate_history = [] # Reset the graph data
+            self.exp_rate_history = [] 
             self.exp_initial_val = None
             self.exp_session_start_time = None
             self.cumulative_gain = 0
@@ -1574,6 +1583,8 @@ class ArtaleOverlay(QWidget):
             self.pause_start_time = 0
             self.exp_paused = False
             self.needs_calibration = False
+            # Note: run_exp_tracker will eventually exit because on_frame_arrived_callback 
+            # will see self.show_exp_panel is False if we set it as a hard exit condition.
         self.update()
 
     def on_toggle_pause(self):
@@ -1832,7 +1843,12 @@ class ArtaleOverlay(QWidget):
             try:
                 # Process if panel is ON OR if we are in Debug Mode
                 if not self._is_running: return
-                if not self.show_exp_panel and not self.show_debug: return
+                if not getattr(self, "show_exp_panel", False):
+                    # Hard stop when panel is hidden, even if debug is on (for performance)
+                    logger.info("[ExpTracker] Stopping session (Panel Closed)")
+                    self._exp_tracker_active = False # Manual break for the inner loop
+                    control.stop()
+                    return
                 
                 now = time.time()
                 if now - last_processed < 1.0: return
@@ -2010,6 +2026,14 @@ class ArtaleOverlay(QWidget):
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
         while self._is_running:
+            # 0. Global Efficiency Gate: Idle thread if panel is hidden
+            if not getattr(self, "show_exp_panel", False):
+                self._exp_tracker_active = False
+                # Efficiently wait for the "Wake up" signal or check again in 1s
+                self.exp_tracker_event.wait(timeout=1.0) 
+                self.exp_tracker_event.clear()
+                continue 
+            
             target_hwnd = None
             
             # 1. Primary: Find Artale by precise window title
@@ -2072,8 +2096,8 @@ class ArtaleOverlay(QWidget):
                     self._exp_tracker_active = True
                     capture.start_free_threaded()
                     
-                    # Stay in this inner loop as long as session is healthy
-                    while self._exp_tracker_active and self._is_running:
+                    # Stay in this inner loop as long as session is healthy and panel is open
+                    while self._exp_tracker_active and self._is_running and getattr(self, "show_exp_panel", False):
                         time.sleep(1.0)
                         # Check if window still exists and is visible
                         if not win32gui.IsWindow(target_hwnd) or not win32gui.IsWindowVisible(target_hwnd):
