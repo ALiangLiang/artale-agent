@@ -1,4 +1,5 @@
 import json
+import logging
 import urllib.request
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
@@ -40,7 +41,7 @@ class RJPQSyncClient(QObject):
 
     def connect_to_room(self, code, pwd):
         if self.ws is None:
-            print("[RJPQ Sync] Error: QWebSocket is not installed. Run 'pip install PyQt6-WebSockets'")
+            logging.error("[RJPQ Sync] Error: QWebSocket is not installed. Run 'pip install PyQt6-WebSockets'")
             return
         self.room_code = code
         self.room_pwd = pwd
@@ -67,7 +68,7 @@ class RJPQSyncClient(QObject):
         
         # Trigger auto-reconnect if enabled
         if self.reconnect_enabled:
-            print("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 3s...")
+            logging.info("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 3s...")
             self.reconnect_timer.start(3000)
             
     def perform_reconnect(self):
@@ -92,10 +93,10 @@ class RJPQSyncClient(QObject):
                 # Silently ignore other unknown types to avoid terminal spam/errors
                 pass
         except Exception as e:
-            print(f"[RJPQ Sync] Message error: {e}")
+            logging.error(f"[RJPQ Sync] Message error: {e}")
 
     def on_error(self, error):
-        print(f"[RJPQ Sync] Connection error")
+        logging.error(f"[RJPQ Sync] Connection error")
         self.status_changed.emit(False)
 
     def create_room(self, pwd):
@@ -134,7 +135,7 @@ class RJPQTabContent(QWidget):
         self.client.room_created.connect(self.on_room_created)
 
     def on_error_message(self, error):
-        print(f"[RJPQ Sync Error] {error}")
+        logging.error(f"[RJPQ Sync Error] {error}")
         # Only show critical popups for real failures, not protocol warnings
         if "失敗" in error or "連線" in error:
             QMessageBox.critical(self, "錯誤", f"YZY 伺服器錯誤：\n{error}")
@@ -356,7 +357,7 @@ class RJPQTabContent(QWidget):
             
             # Start 3s grace timer
             if not self.disconnect_timer.isActive():
-                print("[RJPQ Sync] Grace period started (3s)...")
+                logging.info("[RJPQ Sync] Grace period started (3s)...")
                 self.disconnect_timer.start(3000)
                 # Keep status dot red but don't hide widgets yet
         
@@ -365,7 +366,7 @@ class RJPQTabContent(QWidget):
     def hide_ui_on_disconnect(self):
         # Only hide if we are still actually disconnected
         if not self.client.is_connected:
-            print("[RJPQ Sync] Grace period expired. Hiding UI.")
+            logging.info("[RJPQ Sync] Grace period expired. Hiding UI.")
             self.char_widget.setVisible(False)
             self.grid_widget.setVisible(False)
             for btn in self.char_btns: btn.setChecked(False)

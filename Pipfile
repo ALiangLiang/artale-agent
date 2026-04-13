@@ -12,6 +12,7 @@ pynput = "*"
 pytesseract = "*"
 windows-capture = {version = "*", markers = "sys_platform == 'win32'"}
 pywin32 = {version = "*", markers = "platform_system == 'Windows'"}
+sentry-sdk = "*"
 
 [dev-packages]
 pyinstaller = "*"
