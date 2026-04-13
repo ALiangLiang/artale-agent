@@ -1424,7 +1424,13 @@ class ArtaleOverlay(QWidget):
                 rect = win32gui.GetClientRect(hwnd)
                 client_h = rect[3]
                 bl_point = win32gui.ClientToScreen(hwnd, (0, client_h))
-                local_bl = self.mapFromGlobal(QPoint(bl_point[0], bl_point[1]))
+                
+                # DPI Scaling Correction:
+                # win32gui returns physical pixels. Qt uses logical pixels.
+                dpr = self.screen().devicePixelRatio()
+                logical_gl_pt = QPoint(int(bl_point[0] / dpr), int(bl_point[1] / dpr))
+                
+                local_bl = self.mapFromGlobal(logical_gl_pt)
                 self.bx, self.by = local_bl.x(), local_bl.y()
             except: pass
             
@@ -2035,31 +2041,36 @@ class ArtaleOverlay(QWidget):
                     hwnd = win32gui.FindWindow(None, name)
                     if hwnd:
                         cx, cy, cw, ch = self.last_coin_pos
-                        # Convert client coords to global screen coords
+                        # Convert client coords to global screen coords (Physical)
                         screen_pt = win32gui.ClientToScreen(hwnd, (cx, cy))
-                        # Geometry offset (Virtual Desktop)
+                        
+                        # High DPI Correct:
+                        dpr = self.screen().devicePixelRatio()
+                        # Map physical global to logical global, then subtract virtual desktop top-left
                         v_rect = QApplication.primaryScreen().virtualGeometry()
-                        px = screen_pt[0] - v_rect.x()
-                        py = screen_pt[1] - v_rect.y()
+                        px = (screen_pt[0] / dpr) - v_rect.x()
+                        py = (screen_pt[1] / dpr) - v_rect.y()
+                        lw, lh = cw / dpr, ch / dpr
                         
                         painter.setPen(QPen(QColor(255, 255, 0, 200), 2))
-                        painter.drawRect(px, py, cw, ch)
+                        painter.drawRect(int(px), int(py), int(lw), int(lh))
                         painter.setPen(QColor(255, 255, 0))
-                        painter.drawText(px, py - 5, "🪙 Coin")
+                        painter.drawText(int(px), int(py - 5), "🪙 Coin")
                         
                         # Draw Secondary Box (Cyan for distinction)
                         if hasattr(self, 'last_coin_info_pos') and self.last_coin_info_pos:
                             ix, iy, iw, ih = self.last_coin_info_pos
                             # Convert to global (same as above)
                             info_pt = win32gui.ClientToScreen(hwnd, (ix, iy))
-                            ipx = info_pt[0] - v_rect.x()
-                            ipy = info_pt[1] - v_rect.y()
+                            ipx = (info_pt[0] / dpr) - v_rect.x()
+                            ipy = (info_pt[1] / dpr) - v_rect.y()
+                            liw, lih = iw / dpr, ih / dpr
                             
                             painter.setPen(QPen(QColor(0, 255, 255, 180), 2)) # Cyan box
-                            painter.drawRect(ipx, ipy, iw, ih)
+                            painter.drawRect(int(ipx), int(ipy), int(liw), int(lih))
                             if hasattr(self, 'last_coin_ocr') and self.last_coin_ocr:
                                 painter.setPen(QColor(0, 255, 255))
-                                painter.drawText(ipx, ipy - 5, f"Value: {self.last_coin_ocr}")
+                                painter.drawText(int(ipx), int(ipy - 5), f"Value: {self.last_coin_ocr}")
                         break
             except: pass
 
@@ -2107,20 +2118,25 @@ class ArtaleOverlay(QWidget):
                     crect = win32gui.GetClientRect(target_hwnd)
                     client_w, client_h = crect[2], crect[3]
                     
-                    # 2. Get Global Screen coord of Client BOTTOM-LEFT
+                    # 2. Get Global Screen coord of Client BOTTOM-LEFT (Physical)
                     bl_point = win32gui.ClientToScreen(target_hwnd, (0, client_h))
                     
-                    # 3. Map to Overlay Local coordinates (Full Screen Virtual geometry)
-                    local_bl = self.mapFromGlobal(QPoint(bl_point[0], bl_point[1]))
+                    # 3. DPI Scaled Map to Overlay Local coordinates
+                    dpr = self.screen().devicePixelRatio()
+                    logical_gl_pt = QPoint(int(bl_point[0]/dpr), int(bl_point[1]/dpr))
+                    local_bl = self.mapFromGlobal(logical_gl_pt)
                     bx, by = local_bl.x(), local_bl.y()
+                    
+                    # Logical Dimensions
+                    lbw, lbh = client_w / dpr, client_h / dpr
                     
                     # Sync using Min Ratio logic
                     visual_scale = min(client_w / self.BASE_W, client_h / self.BASE_H)
                     
-                    # A. EXP Zone
-                    tx = bx + int(self.X_OFF_FROM_LEFT * visual_scale)
-                    ty = by - int(self.Y_OFF_FROM_BOTTOM * visual_scale)
-                    tw, th = int(self.BASE_CW * visual_scale), int(self.BASE_CH * visual_scale)
+                    # A. EXP Zone (Calculated in Logical Units)
+                    tx = bx + int(self.X_OFF_FROM_LEFT * visual_scale / dpr)
+                    ty = by - int(self.Y_OFF_FROM_BOTTOM * visual_scale / dpr)
+                    tw, th = int(self.BASE_CW * visual_scale / dpr), int(self.BASE_CH * visual_scale / dpr)
                     
                     painter.setPen(QPen(QColor(255, 0, 0, 200), 2, Qt.PenStyle.DashLine))
                     painter.setBrush(QColor(255, 0, 0, 40))
@@ -2129,9 +2145,9 @@ class ArtaleOverlay(QWidget):
                     painter.drawText(int(tx), int(ty - 5), "EXP Zone")
 
                     # B. LV Zone
-                    lvx = bx + int(self.LV_X_OFF_FROM_LEFT * visual_scale)
-                    lvy = by - int(self.LV_Y_OFF_FROM_BOTTOM * visual_scale)
-                    lcw, lch = int(self.LV_BASE_CW * visual_scale), int(self.LV_BASE_CH * visual_scale)
+                    lvx = bx + int(self.LV_X_OFF_FROM_LEFT * visual_scale / dpr)
+                    lvy = by - int(self.LV_Y_OFF_FROM_BOTTOM * visual_scale / dpr)
+                    lcw, lch = int(self.LV_BASE_CW * visual_scale / dpr), int(self.LV_BASE_CH * visual_scale / dpr)
                     
                     painter.setPen(QPen(QColor(255, 165, 0, 200), 2, Qt.PenStyle.DashLine))
                     painter.setBrush(QColor(255, 165, 0, 40))

@@ -239,7 +239,24 @@ def check_network_drive():
         pass
 
 def run_app():
+    # --- Enable High DPI Awareness (Windows) ---
+    try:
+        # Qt 6.5+ usually handles this automatically.
+        # Calling this explicitly might fail with "Access Denied" if Qt already did it.
+        # We wrap in Try to ignore the failure and proceed with Qt's default.
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+    # IMPORTANT: setHighDpiScaleFactorRoundingPolicy MUST be called BEFORE QApplication
+    from PyQt6.QtCore import Qt
+    try:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    except:
+        pass
+
     app = QApplication(sys.argv)
+    
     from PyQt6.QtGui import QFont
     font = QFont()
     font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
