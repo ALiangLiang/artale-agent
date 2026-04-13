@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import json
 import os
 import threading
@@ -390,8 +390,9 @@ class SettingsWindow(QWidget):
 
     def update_debug_img(self, data):
         if not data: return
-        thresh = data.get("thresh")
+        thresh = data.get("thresh") # This will now be the processed_img
         if thresh is not None:
+            # We don't need to invert anymore because processed_img is already Black-on-White
             h, w = thresh.shape
             bytes_per_line = w
             q_img = QImage(thresh.data, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
@@ -406,7 +407,7 @@ class SettingsWindow(QWidget):
 
     def update_lv_debug_img(self, data):
         if not data: return
-        thresh = data.get("thresh")
+        thresh = data.get("thresh") # This will now be the lv_processed
         if thresh is not None:
             h, w = thresh.shape
             q_img = QImage(thresh.data, w, h, w, QImage.Format.Format_Grayscale8)
@@ -1611,7 +1612,6 @@ class ArtaleOverlay(QWidget):
     def set_rjpq_color(self, color):
         self.selected_color = color
         self.update()
-
     def set_rjpq_overlay_visible(self, visible):
         self.show_rjpq_panel = visible
         self.update()
@@ -1621,36 +1621,166 @@ class ArtaleOverlay(QWidget):
         self._is_running = False
         super().closeEvent(event)
 
-    def _perform_enhanced_ocr(self, thresh_img, key, upscale=2, whitelist="0123456789", psm=7):
+    def _perform_enhanced_ocr(self, thresh_img, key, upscale=4, whitelist="0123456789[].% ", psm=7):
         """
-        Unified OCR processor with High-Res scaling and Visual Stability Index.
-        @param thresh_img: Binarized image
-        @param key: Suffix for stability storage ('lv' or 'exp')
-        @param upscale: Scaling factor (e.g. 3 for small text)
+        Two-Pass Split Mode:
+        Physically separates the numeric value from the percentage via geometric anchor detection.
         """
         ocr_text = ""
-        final_conf = 0
         native_conf = 0
-        
-        # 1. 3x/2x Upscaling for Neural Engine
-        scaled = cv2.resize(thresh_img, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-        padded = cv2.copyMakeBorder(scaled, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
-        
-        # 2. Native Tesseract Data
-        if pytesseract and pytesseract.pytesseract.tesseract_cmd:
-            try:
-                config = f'--psm {psm} --oem 3 -c tessedit_char_whitelist={whitelist}'
-                data = pytesseract.image_to_data(padded, config=config, output_type=pytesseract.Output.DICT)
-                res_list = [t for t in data['text'] if t.strip()]
-                conf_list = [int(c) for c in data['conf'] if c != '-1']
-                
-                if res_list:
-                    ocr_text = "".join(res_list)
-                    native_conf = sum(conf_list) / len(conf_list) if conf_list else 0
-            except: pass
-            
-        # 3. Visual Stability Calculation
         stable_img_attr = f"_stable_img_{key}"
+        
+        # 1. Padding and Segmentation
+        thresh_img = cv2.copyMakeBorder(thresh_img, 10, 10, 50, 50, cv2.BORDER_CONSTANT, value=0)
+        contours, _ = cv2.findContours(thresh_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        raw_boxes = []
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            # Keep tiny symbols like dots (h>=2), 
+            # we rely on the bracket_idx logic (h>=14) to ignore commas later.
+            if h >= 2: raw_boxes.append([x, y, w, h])
+        raw_boxes.sort(key=lambda b: b[0])
+        
+        merged_boxes = []
+        if raw_boxes:
+            curr = raw_boxes[0]
+            for i in range(1, len(raw_boxes)):
+                nxt = raw_boxes[i]
+                if nxt[0] <= (curr[0] + curr[2] + 2): 
+                    x1 = min(curr[0], nxt[0]); y1 = min(curr[1], nxt[1])
+                    x2 = max(curr[0] + curr[2], nxt[0] + nxt[2])
+                    y2 = max(curr[1] + curr[3], nxt[1] + nxt[3])
+                    curr = [x1, y1, x2 - x1, y2 - y1]
+                else:
+                    merged_boxes.append(curr); curr = nxt
+            merged_boxes.append(curr)
+            
+        if not merged_boxes:
+            return "", 0, cv2.bitwise_not(thresh_img)
+            
+        # 2. Logic Split: Identify Brackets by Height (Brackets are the tallest in the line)
+        bracket_idx = -1
+        bracket_end_idx = -1
+        
+        if key == "exp" and len(merged_boxes) > 4:
+            heights = [b[3] for b in merged_boxes]
+            max_h = max(heights)
+            min_h = min(heights)
+            
+            # Significant height gap indicates brackets exist (usually 16px vs 14px)
+            if max_h >= min_h + 2:
+                # First tallest is [, last tallest is ]
+                for i, b in enumerate(merged_boxes):
+                    if b[3] >= max_h - 1:
+                        if bracket_idx == -1: bracket_idx = i
+                        bracket_end_idx = i
+        
+        # 3. Two-Pass Reconstruction
+        target_h = 60; char_spacing = 30
+        
+        def build_pass_canvas(boxes):
+            if not boxes: return None
+            # Find max height in this pass to calculate uniform scale
+            max_h_pass = max([b[3] for b in boxes])
+            scale = target_h / max_h_pass if max_h_pass > 0 else 1.0
+            
+            total_w = sum([int(b[2] * scale) for b in boxes]) + (len(boxes) + 1) * char_spacing
+            canvas = np.ones((target_h + 40, total_w), dtype=np.uint8) * 255
+            curr_x = char_spacing
+            
+            # Baseline alignment: put all characters on the same floor
+            baseline_y = target_h + 20
+            
+            for b in boxes:
+                char = thresh_img[b[1]:b[1]+b[3], b[0]:b[0]+b[2]]
+                char_inv = cv2.bitwise_not(char)
+                nw, nh = int(b[2] * scale), int(b[3] * scale)
+                if nw > 0 and nh > 0:
+                    resized = cv2.resize(char_inv, (nw, nh), interpolation=cv2.INTER_CUBIC)
+                    y_off = baseline_y - nh
+                    canvas[y_off:y_off+nh, curr_x:curr_x+nw] = resized
+                    curr_x += nw + char_spacing
+            return canvas
+
+        parts = []
+        if bracket_idx != -1:
+            # Value part (Purely digits)
+            parts.append({'boxes': merged_boxes[:bracket_idx], 'wl': '0123456789'})
+            # Percentage part (Numeric and symbols, brackets handled manually)
+            parts.append({'boxes': merged_boxes[bracket_idx:], 'wl': '0123456789.%'})
+        else:
+            # Fallback (e.g. for Level)
+            parts.append({'boxes': merged_boxes, 'wl': '0123456789'})
+
+        # 4. OCR Passes & Debug Stitching
+        final_texts = []
+        conf_sums = []
+        canvases = []
+        
+        # Helper to manually add brackets if we found them
+        found_brackets = (bracket_idx != -1)
+
+        for i, p in enumerate(parts):
+            # If we split into parts, and this is the second part (Percentage)
+            # We skip the identified brackets
+            boxes_to_use = p['boxes']
+            if found_brackets and i == 1:
+                # Part B starts at bracket_idx. Let's slice relative to merged_boxes
+                # Percentage content is between bracket_idx and bracket_end_idx
+                start_in_part_b = 1 # Skip the '[' at 0
+                end_in_part_b = len(boxes_to_use)
+                if bracket_end_idx != -1 and bracket_end_idx > bracket_idx:
+                    # If we found a trailing ], skip it
+                    end_in_part_b = len(boxes_to_use) - 1
+                
+                boxes_to_use = boxes_to_use[start_in_part_b:end_in_part_b]
+
+            cvs = build_pass_canvas(boxes_to_use)
+            if cvs is not None:
+                canvases.append(cvs)
+                # Specific whitelist: No brackets in Tesseract input to avoid confusion
+                wl = p['wl'].replace('[', '').replace(']', '')
+                config = f'--psm 7 --oem 3 -c tessedit_char_whitelist={wl}'
+                try:
+                    data = pytesseract.image_to_data(cvs, config=config, output_type=pytesseract.Output.DICT)
+                    txts = [t for t in data['text'] if t.strip()]
+                    confs = [int(c) for c in data['conf'] if int(c) != -1]
+                    
+                    if i == 1 and found_brackets:
+                        # Percentage part
+                        res = "".join(txts)
+                        final_texts.append(f"[{res}]")
+                    else:
+                        final_texts.append("".join(txts))
+                        
+                    if confs: conf_sums.extend(confs)
+                except Exception as e:
+                    logger.debug(f"[OCR] Pass Error: {e}")
+        
+        # Stitch canvases for Control Center debug
+        if len(canvases) > 1:
+            max_w = max(c.shape[1] for c in canvases)
+            combined = np.ones(((target_h + 40) * len(canvases) + 10, max_w), dtype=np.uint8) * 255
+            curr_y = 0
+            for c in canvases:
+                h_c, w_c = c.shape
+                combined[curr_y:curr_y+h_c, :w_c] = c
+                curr_y += h_c + 5 # 5px gap
+            processed_img = combined
+        elif canvases:
+            processed_img = canvases[0]
+        else:
+            processed_img = cv2.bitwise_not(thresh_img)
+
+        ocr_text = "".join(final_texts)
+        native_conf = sum(conf_sums) / len(conf_sums) if conf_sums else 0
+        if native_conf <= 0 and any(c.isdigit() for c in ocr_text):
+            native_conf = 30.0
+            
+        print(f"[OCR-DEBUG-SPLIT] '{ocr_text}' | Conf: {native_conf:.1f}%")
+        
+        # Apply Stability
         curr_score_attr = f"_current_score_{key}"
         
         if not hasattr(self, stable_img_attr):
@@ -1675,22 +1805,12 @@ class ArtaleOverlay(QWidget):
         
         setattr(self, stable_img_attr, thresh_img.copy())
         
-        # 4. Hybrid Mix (Improved: Trust native more if it's very high)
-        if native_conf > 90:
-            # If OCR is very sure, weigh stability less (80/20)
-            mix_conf = (native_conf * 0.8) + (stability * 0.2)
-        elif native_conf > 0:
-            mix_conf = (native_conf * 0.7) + (stability * 0.3)
-        else:
-            mix_conf = stability
-       
-        # 5. Temporal Smoothing (EMA)
-        alpha = 0.5
-        new_score = (prev_score * (1 - alpha)) + (mix_conf * alpha)
+        # 4. Pure Neural Reporting (USER REQUEST: Raw Tesseract Scores)
+        new_score = native_conf
         setattr(self, curr_score_attr, new_score)
         
-        # 6. Logging Low Confidence (USER REQUEST)
-        if new_score < 85 and self.show_debug:
+        # 6. Logging Low Confidence (Updated to 90%)
+        if new_score < 90 and self.show_debug:
             logger.warning(f"[OCR] Low Confidence ({key}): {new_score:.1f}% | Text: {ocr_text}")
             # Save frame to tmp for visual debugging
             try:
@@ -1702,7 +1822,7 @@ class ArtaleOverlay(QWidget):
             except Exception as e:
                 logger.debug(f"[OCR] Failed to save debug image: {e}")
         
-        return ocr_text, new_score
+        return ocr_text, new_score, processed_img
 
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
@@ -1793,15 +1913,15 @@ class ArtaleOverlay(QWidget):
                     lv_gray = cv2.cvtColor(lv_crop, cv2.COLOR_BGR2GRAY)
                     r_lv = 60 / lv_gray.shape[0] if lv_gray.shape[0] > 0 else 3
                     lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_CUBIC)
-                    # Use higher threshold for LV (Yellow/White text on map background)
-                    _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY_INV)
+                    # Use THRESH_BINARY (White text) to match the new OCR helper logic
+                    _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY)
                     
-                    # OCR for Level using unified helper
-                    lv_ocr_text, lv_conf = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=3, whitelist="0123456789")
+                    # OCR for Level using unified helper (Upscale 4 for precision)
+                    lv_ocr_text, lv_conf, lv_processed = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=4, whitelist="0123456789")
                     
                     # ALWAYS emit UI update so user can see what OCR sees
                     if not sip.isdeleted(self): 
-                        self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
+                        self.lv_update_request.emit({"thresh": lv_processed, "level": lv_ocr_text, "conf": lv_conf})
                         
                     # DATA gate: Only process level logic if solid (>= 90%)
                     if lv_conf < 90:
@@ -1846,6 +1966,7 @@ class ArtaleOverlay(QWidget):
                                             if coin_info_text:
                                                 # Standard log (High performance)
                                                 logger.debug(f"[ExpTracker] Coin Match: {max_val:.2f} | OCR: {coin_info_text}")
+                                                self.last_coin_ocr = coin_info_text
                                         except Exception as e:
                                             logger.debug(f"[Debug] OCR Failed: {e}")
                                 self.last_coin_ocr = coin_info_text
@@ -1868,29 +1989,24 @@ class ArtaleOverlay(QWidget):
                 target_ocr_h = 60
                 r = target_ocr_h / gray.shape[0] if gray.shape[0] > 0 else 3
                 gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
-                # EXP OCR Processing (Increased threshold to 150 for cleaner characters)
-                _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
+                # EXP OCR Processing (180 threshold as per EXACT Artale Efficiency logic)
+                _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
                 
-                # EXP OCR using unified helper
-                text, exp_conf = self._perform_enhanced_ocr(thresh, "exp", upscale=2, whitelist="0123456789.[]%")
+                # EXP OCR using unified helper (Upscale 4x, Digit-only conf)
+                text, exp_conf, exp_processed = self._perform_enhanced_ocr(thresh, "exp", upscale=4, whitelist="0123456789.%")
                 
                 if text:
-                    # Visual Signal: ALWAYS emit for real-time monitoring
+                    # Visual Signal: Send the processed_img as requested
                     if not sip.isdeleted(self):
                         self.exp_visual_request.emit({
-                            "thresh": thresh, 
+                            "thresh": exp_processed, 
                             "crop": crop, 
                             "text": text, 
                             "conf": exp_conf
                         })
                         
-                    # Coupled Data Gate: Only RECORD if both are solid
-                    if exp_conf >= 85 and lv_conf >= 90:
-                        self.parse_and_update_exp(text, thresh, crop, exp_conf)
-                    else:
-                        if self.show_debug:
-                            reason = "EXP low" if exp_conf < 85 else "LV low"
-                            logger.debug(f"[ExpTracker] EXP recording suppressed due to {reason} (EXP:{exp_conf:.1f}%, LV:{lv_conf:.1f}%)")
+                    # DATA processing: We trust the raw OCR result
+                    self.parse_and_update_exp(text, thresh, crop, exp_conf)
                 last_processed = now
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
@@ -2074,42 +2190,44 @@ class ArtaleOverlay(QWidget):
                 is_lv_up = True
                 logger.info(f"[ExpTracker] Level Up detected! ({self.last_exp_pct:.2f}% -> {current_pct:.2f}%)")
         
-        # Reset baseline if a massive drop is detected (OCR error)
-        # Unless it's a confirmed Level Up
-        is_err_drop = False
-        if not is_lv_up:
-            if hasattr(self, 'last_exp_val') and (self.last_exp_val - current_exp) > 200000:
-                is_err_drop = True
-            elif self.exp_initial_val is not None and current_exp < self.exp_initial_val - 200000:
-                is_err_drop = True
-            
-        if is_err_drop:
-            logger.warning(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
-            return 
+        # 0.5 Outlier / Spike Detection (USER REQUEST)
+        # If current value < last value, we might be seeing the resolution of a previous OCR spike.
+        if not is_lv_up and hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
+            if current_exp < self.last_exp_val:
+                # If current_exp is still >= the one before the last one, the last one was a spike!
+                if len(self.exp_history) >= 2:
+                    second_last_val = self.exp_history[-2][1]
+                    if current_exp >= second_last_val:
+                        fake_gain = self.last_exp_val - second_last_val
+                        logger.info(f"[ExpTracker] Correcting history: Removed spike (+{fake_gain:,}). New base: {current_exp:,}")
+                        self.exp_history.pop() # Remove spike from history
+                        self.cumulative_gain = max(0, self.cumulative_gain - fake_gain)
+                        # Corrected: Treat the one before spike as the new comparative base
+                        self.last_exp_val = second_last_val 
+                    else:
+                        # Massive drop that isn't a level up and doesn't match history -> Malformed
+                        logger.warning(f"[ExpTracker] Malformed drop ignored: {self.last_exp_val:,} -> {current_exp:,}")
+                        return
+                else:
+                    return # Not enough history to validate
         
         if is_lv_up:
-            # On level up, we don't reset everything, but we treat the new value as the new baseline
-            # to keep cumulative gain growing correctly
-            self.needs_calibration = True # Force next frame to be new comparison baseline
-            self.exp_history = [] # Clear history to reset rates
+            # On level up, we treat the new value as the new baseline
+            self.needs_calibration = True 
+            self.exp_history = [] 
         
         # 1. Update baseline history
-        self.exp_history.append((now, current_exp, data.get("percent", 0)))
-        # Keep only 1 hour of history
+        self.exp_history.append((now, current_exp, current_pct))
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         
         # Accumulate gains ONLY when active
-        last_v = getattr(self, 'last_exp_val', None)
-        last_p = getattr(self, 'last_exp_pct', None)
-        
-        if not self.needs_calibration and last_v is not None:
-            v_diff = current_exp - last_v
-            p_diff = current_pct - last_p
+        if not self.needs_calibration and hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
+            v_diff = current_exp - self.last_exp_val
             if v_diff > 0: 
                 self.cumulative_gain += v_diff
-                self.cumulative_pct += p_diff
+                self.cumulative_pct += (current_pct - self.last_exp_pct)
         
-        # Calibration done or first frame seen
+        # Update last state
         self.needs_calibration = False
         self.last_exp_val = current_exp
         self.last_exp_pct = current_pct
