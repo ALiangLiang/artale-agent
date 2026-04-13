@@ -1,9 +1,10 @@
 import json
 import logging
+logger = logging.getLogger(__name__)
 import urllib.request
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 try:
     from PyQt6.QtWebSockets import QWebSocket
@@ -188,7 +189,6 @@ class RJPQTabContent(QWidget):
         ctrl_layout = QHBoxLayout(self.overlay_ctrl)
         ctrl_layout.setContentsMargins(10, 0, 10, 5)
         
-        from PyQt6.QtWidgets import QCheckBox
         self.overlay_cb = QCheckBox("在遊戲畫面顯示路徑面板")
         self.overlay_cb.setStyleSheet("color: #00ffff; font-size: 11px; font-weight: bold;")
         self.overlay_cb.toggled.connect(self.client.overlay_toggle_request.emit)

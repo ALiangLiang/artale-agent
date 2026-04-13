@@ -3,22 +3,30 @@ import json
 import os
 import threading
 import time
+import re
+import logging
+import webbrowser
+import subprocess
+import urllib.request
+import datetime
+import psutil
 try:
     import win32gui
+    import win32api
+    import win32con
+    import win32process
     import winsound
 except ImportError:
-    win32gui = None
-    winsound = None
+    win32gui = win32api = win32con = win32process = winsound = None
 
+import cv2
+import numpy as np
+import pytesseract
+from PyQt6 import sip
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QScrollArea, QFrame,
                              QGridLayout, QDialog, QTabWidget, QComboBox, QSlider, QCheckBox,
                              QSystemTrayIcon, QMenu, QGroupBox)
-try:
-    from windows_capture import WindowsCapture, Frame
-except ImportError:
-    WindowsCapture = None
-
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QRectF, QUrl, QObject, QStandardPaths
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage, QLinearGradient
 try:
@@ -26,15 +34,17 @@ try:
 except ImportError:
     QWebSocket = None
 from PyQt6.QtNetwork import QAbstractSocket
-import cv2
-import re
-import logging
+
+try:
+    from windows_capture import WindowsCapture, Frame
+except ImportError:
+    WindowsCapture = None
+
+# Local imports
+from rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
+
+# Initialize logger
 logger = logging.getLogger(__name__)
-from PyQt6 import sip
-import pytesseract
-import os
-from rjpq_tool import RJPQSyncClient, QWebSocket, RJPQTabContent, draw_rjpq_panel
-import urllib.request
 
 def get_version():
     try:
@@ -378,10 +388,9 @@ class SettingsWindow(QWidget):
         self.request_show.connect(self.safe_show)
 
     def update_debug_img(self, data):
-        if not self.debug_mode_cb.isChecked(): return
-        if "thresh" in data:
-            import numpy as np
-            thresh = data["thresh"]
+        if not data: return
+        thresh = data.get("thresh")
+        if thresh is not None:
             h, w = thresh.shape
             bytes_per_line = w
             q_img = QImage(thresh.data, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
@@ -389,30 +398,29 @@ class SettingsWindow(QWidget):
             self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
     def update_lv_debug_img(self, data):
-        if not self.debug_mode_cb.isChecked(): return
-        if "thresh" in data:
-            thresh = data["thresh"]
+        if not data: return
+        thresh = data.get("thresh")
+        if thresh is not None:
             h, w = thresh.shape
             q_img = QImage(thresh.data, w, h, w, QImage.Format.Format_Grayscale8)
             pixmap = QPixmap.fromImage(q_img)
             self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
-        if "level" in data and data["level"]:
-            lv_text = data["level"]
-            if self.overlay: 
-                self.overlay.current_lv = lv_text
-                try:
-                    lv_val = int(lv_text)
-                    # Check for Level Up
-                    if self.overlay.last_confirmed_lv is not None and lv_val > self.overlay.last_confirmed_lv:
-                        logger.info(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
-                        self.overlay.exp_initial_val = None # Force recalibration
-                        self.overlay.cumulative_gain = 0
-                        self.overlay.exp_history = []
-                    
-                    self.overlay.last_confirmed_lv = lv_val
-                except:
-                    pass
+        lv_text = data.get("level")
+        if lv_text and self.overlay: 
+            self.overlay.current_lv = lv_text
+            try:
+                lv_val = int(lv_text)
+                # Check for Level Up
+                if self.overlay.last_confirmed_lv is not None and lv_val > self.overlay.last_confirmed_lv:
+                    logger.info(f"[ExpTracker] Level UP detected! {self.overlay.last_confirmed_lv} -> {lv_val}. Resetting baseline.")
+                    self.overlay.exp_initial_val = None # Force recalibration
+                    self.overlay.cumulative_gain = 0
+                    self.overlay.exp_history = []
+                
+                self.overlay.last_confirmed_lv = lv_val
+            except:
+                pass
 
     def show_update_banner(self, tag, url):
         if hasattr(self, 'update_banner'):
@@ -1420,7 +1428,6 @@ class ArtaleOverlay(QWidget):
         if not win32gui: return
         hwnd = 0
         try:
-            import win32process
             my_pid = os.getpid()
             def callback(h, extra):
                 nonlocal hwnd
@@ -1593,7 +1600,6 @@ class ArtaleOverlay(QWidget):
                 h, w = img.shape[:2]
                 
                 # IMPORTANT: Find the window to get client rect
-                import win32gui, win32con
                 target_hwnd = None
                 for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
                     hwnd = win32gui.FindWindow(None, name)
@@ -1675,7 +1681,7 @@ class ArtaleOverlay(QWidget):
                         except Exception as e:
                             logger.debug(f"[ExpTracker] LV OCR failed: {e}")
                     
-                    self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
+                    if not sip.isdeleted(self): self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text})
                 
                 # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
@@ -1754,11 +1760,9 @@ class ArtaleOverlay(QWidget):
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
         while self._is_running:
-            import win32gui
             target_hwnd = None
             
             # 1. Primary: Find Artale by precise window title
-            import win32process
             my_pid = os.getpid()
             found_hwnds = []
             def enum_handler(hwnd, lparam):
@@ -1778,7 +1782,6 @@ class ArtaleOverlay(QWidget):
             # 2. Secondary: Fallback to process search (msw.exe)
             if not target_hwnd:
                 try:
-                    import psutil, win32process
                     for proc in psutil.process_iter(['pid', 'name']):
                         if proc.info['name'] and proc.info['name'].lower() == 'msw.exe':
                             def callback(hwnd, extra):
@@ -2060,7 +2063,6 @@ class ArtaleOverlay(QWidget):
         # 0. Draw Debug Coin Location
         if self.show_debug and hasattr(self, 'last_coin_pos') and self.last_coin_pos:
             try:
-                import win32gui
                 for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
                     hwnd = win32gui.FindWindow(None, name)
                     if hwnd:
@@ -2292,7 +2294,6 @@ class ArtaleOverlay(QWidget):
             logger.info(f"[ExpTracker] Report exported to {save_path} and copied to clipboard")
             self.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
             # Try to open the file
-            import subprocess
             try: subprocess.Popen(f'explorer /select,"{save_path}"')
             except: pass
         else:

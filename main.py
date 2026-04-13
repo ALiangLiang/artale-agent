@@ -1,14 +1,24 @@
-﻿import sys
+import sys
 import logging
-logger = logging.getLogger(__name__)
 import ctypes
 import ctypes.wintypes
+import time
+import os
 import win32process
 import psutil
+import win32file
+import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import Qt
+from pynput import keyboard, mouse
+
+# Local imports
 import overlay
 from overlay import ArtaleOverlay, SettingsWindow, ConfigManager
-from PyQt6.QtWidgets import QApplication
-from pynput import keyboard, mouse
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # --- Game Focus Tracker using SetWinEventHook ---
 EVENT_SYSTEM_FOREGROUND = 0x0003
@@ -55,8 +65,6 @@ class GameFocusTracker:
         except Exception as e:
             logger.error(f"[Focus] Process tracking error: {e}")
             self.is_game_active = False
-
-import time
 
 def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # --- Mouse Listener for Right Click Cancellation ---
@@ -228,10 +236,8 @@ def check_network_drive():
         app_path = os.path.abspath(sys.argv[0])
         drive = os.path.splitdrive(app_path)[0]
         if drive:
-            import win32file
             drive_type = win32file.GetDriveType(drive + "\\")
             if drive_type == win32file.DRIVE_REMOTE:
-                from PyQt6.QtWidgets import QMessageBox
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Icon.Warning)
                 msg.setWindowTitle("環境建議 - Artale 瑞士刀")
@@ -241,10 +247,6 @@ def check_network_drive():
                 msg.exec()
     except Exception as e:
         logger.debug(f"[Main] Network drive check skipped or failed: {e}")
-
-import sentry_sdk
-from sentry_sdk.integrations.logging import LoggingIntegration
-import logging
 
 def run_app():
     # Configure standard logging to show in terminal
@@ -273,7 +275,6 @@ def run_app():
 
     # --- Enable High DPI Awareness ---
     # Qt 6 defaults to PerMonitorAwareV2, so manual ctypes calls are redundant and cause "Access Denied" errors.
-    from PyQt6.QtCore import Qt
     try:
         QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     except Exception as e:
@@ -288,7 +289,7 @@ def run_app():
     app.setQuitOnLastWindowClosed(False)
     
     # Check for Samba/Network drive issues
-    check_network_drive()
+    # check_network_drive()
     
     main_overlay = ArtaleOverlay()
     settings_window = SettingsWindow(main_overlay)
