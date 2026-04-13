@@ -137,9 +137,9 @@ class RJPQTabContent(QWidget):
 
     def on_error_message(self, error):
         logging.error(f"[RJPQ Sync Error] {error}")
-        # Only show critical popups for real failures, not protocol warnings
-        if "失敗" in error or "連線" in error:
-            QMessageBox.critical(self, "錯誤", f"YZY 伺服器錯誤：\n{error}")
+        # Show critical popups for real failures (including password errors)
+        if any(kw in error for kw in ["失敗", "連線", "密碼錯誤", "密码错误"]):
+            QMessageBox.critical(self, "YZY 伺服器錯誤", f"同步失敗：\n{error}")
         self.update_status(False)
 
     def init_ui(self):

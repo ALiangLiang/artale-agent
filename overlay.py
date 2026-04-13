@@ -694,6 +694,7 @@ class SettingsWindow(QWidget):
         self.rjpq_tab = RJPQTabContent(self.rjpq_client)
         self.rjpq_tab.color_selected.connect(self.overlay.set_rjpq_color)
         self.rjpq_client.sync_received.connect(self.overlay.update_rjpq_data)
+        self.rjpq_client.error_received.connect(lambda msg: self.overlay.show_notification(f"❌ YZY: {msg}"))
         self.rjpq_client.overlay_toggle_request.connect(self.overlay.set_rjpq_overlay_visible)
         self.overlay.rjpq_cell_clicked.connect(self.rjpq_tab.platform_clicked)
         
