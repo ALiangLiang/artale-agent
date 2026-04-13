@@ -139,6 +139,11 @@ class RJPQTabContent(QWidget):
         logging.error(f"[RJPQ Sync Error] {error}")
         # Show critical popups for real failures (including password errors)
         if any(kw in error for kw in ["失敗", "連線", "密碼錯誤", "密码错误"]):
+            # If it's a password error, disable auto-reconnect to stop the loop
+            if "密碼" in error or "密码" in error:
+                self.client.reconnect_enabled = False
+                if hasattr(self, 'disconnect_timer'):
+                    self.disconnect_timer.stop()
             QMessageBox.critical(self, "YZY 伺服器錯誤", f"同步失敗：\n{error}")
         self.update_status(False)
 
@@ -336,6 +341,11 @@ class RJPQTabContent(QWidget):
             self.disconnect_timer.setSingleShot(True)
             self.disconnect_timer.timeout.connect(self.hide_ui_on_disconnect)
             
+        self.create_btn.setVisible(not connected)
+        if not connected:
+            self.create_btn.setText("創建")
+            self.create_btn.setEnabled(True)
+            
         color = "#51cf66" if connected else "#ff6b6b"
         self.status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
         
@@ -355,13 +365,15 @@ class RJPQTabContent(QWidget):
             self.conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
             self.conn_btn.setEnabled(True)
             
-            # Start 3s grace timer
+            # If manual disconnect (reconnect disabled), hide UI immediately
+            if not self.client.reconnect_enabled:
+                self.hide_ui_on_disconnect()
+                return
+
+            # For unintended disconnects, start 3s grace timer
             if not self.disconnect_timer.isActive():
-                logging.info("[RJPQ Sync] Grace period started (3s)...")
+                logging.info("[RJPQ Sync] Unintended disconnect. Grace period started (3s)...")
                 self.disconnect_timer.start(3000)
-                # Keep status dot red but don't hide widgets yet
-        
-        self.create_btn.setVisible(not connected)
 
     def hide_ui_on_disconnect(self):
         # Only hide if we are still actually disconnected
