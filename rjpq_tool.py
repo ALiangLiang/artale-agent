@@ -67,8 +67,8 @@ class RJPQSyncClient(QObject):
         
         # Trigger auto-reconnect if enabled
         if self.reconnect_enabled:
-            print("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 5s...")
-            self.reconnect_timer.start(5000)
+            print("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 3s...")
+            self.reconnect_timer.start(3000)
             
     def perform_reconnect(self):
         if self.reconnect_enabled and not self.is_connected:
@@ -330,24 +330,44 @@ class RJPQTabContent(QWidget):
             self.conn_btn.setEnabled(False)
 
     def update_status(self, connected):
+        if not hasattr(self, 'disconnect_timer'):
+            self.disconnect_timer = QTimer(self)
+            self.disconnect_timer.setSingleShot(True)
+            self.disconnect_timer.timeout.connect(self.hide_ui_on_disconnect)
+            
         color = "#51cf66" if connected else "#ff6b6b"
         self.status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
         
         if connected:
+            self.disconnect_timer.stop()
             self.conn_btn.setText("中斷")
             self.conn_btn.setStyleSheet("QPushButton { background: #c62828; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
             self.conn_btn.setEnabled(True)
+            
+            self.char_widget.setVisible(True)
+            if self.selected_color != -1:
+                self.grid_widget.setVisible(True)
+                # Auto-reselect character if we had one
+                QTimer.singleShot(500, lambda: self.select_char(self.selected_color))
         else:
             self.conn_btn.setText("連線")
             self.conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
             self.conn_btn.setEnabled(True)
+            
+            # Start 3s grace timer
+            if not self.disconnect_timer.isActive():
+                print("[RJPQ Sync] Grace period started (3s)...")
+                self.disconnect_timer.start(3000)
+                # Keep status dot red but don't hide widgets yet
         
-        # Dynamic Visibility
-        self.char_widget.setVisible(connected)
-        self.create_btn.setVisible(not connected) # Hide when connected
-        if not connected:
+        self.create_btn.setVisible(not connected)
+
+    def hide_ui_on_disconnect(self):
+        # Only hide if we are still actually disconnected
+        if not self.client.is_connected:
+            print("[RJPQ Sync] Grace period expired. Hiding UI.")
+            self.char_widget.setVisible(False)
             self.grid_widget.setVisible(False)
-            self.selected_color = -1
             for btn in self.char_btns: btn.setChecked(False)
 
     def select_char(self, idx):

@@ -1897,20 +1897,32 @@ class ArtaleOverlay(QWidget):
         current_exp = data["value"]
         current_pct = data.get("percent", 0.0)
         
-        # Initialize last_exp_pct if needed
-        if not hasattr(self, 'last_exp_pct'): self.last_exp_pct = current_pct
+        # 0. Level Up Detection
+        is_lv_up = False
+        if hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
+            # If current EXP and PCT dropped significantly, it's a level up
+            if current_exp < self.last_exp_val and current_pct < (self.last_exp_pct - 10):
+                is_lv_up = True
+                print(f"[ExpTracker] Level Up detected! ({self.last_exp_pct:.2f}% -> {current_pct:.2f}%)")
         
         # Reset baseline if a massive drop is detected (OCR error)
-        # 200k is a safer threshold for Artale
-        is_drop = False
-        if hasattr(self, 'last_exp_val') and (self.last_exp_val - current_exp) > 200000:
-            is_drop = True
-        elif current_exp < self.exp_initial_val - 200000:
-            is_drop = True
+        # Unless it's a confirmed Level Up
+        is_err_drop = False
+        if not is_lv_up:
+            if hasattr(self, 'last_exp_val') and (self.last_exp_val - current_exp) > 200000:
+                is_err_drop = True
+            elif self.exp_initial_val is not None and current_exp < self.exp_initial_val - 200000:
+                is_err_drop = True
             
-        if is_drop:
+        if is_err_drop:
             print(f"[ExpTracker] Massive drop detected ({getattr(self, 'last_exp_val', 'N/A')} -> {current_exp}), ignoring malformed frame.")
-            return # Skip this update. NOTE: success_time is NOT updated here.
+            return 
+        
+        if is_lv_up:
+            # On level up, we don't reset everything, but we treat the new value as the new baseline
+            # to keep cumulative gain growing correctly
+            self.needs_calibration = True # Force next frame to be new comparison baseline
+            self.exp_history = [] # Clear history to reset rates
         
         # 1. Update baseline history
         self.exp_history.append((now, current_exp, data.get("percent", 0)))
