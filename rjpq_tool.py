@@ -2,6 +2,7 @@ import json
 import logging
 logger = logging.getLogger(__name__)
 import urllib.request
+import urllib.parse
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
@@ -102,7 +103,6 @@ class RJPQSyncClient(QObject):
 
     def create_room(self, pwd):
         try:
-            import urllib.parse
             quoted_pwd = urllib.parse.quote(pwd)
             url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
             with urllib.request.urlopen(url) as response:

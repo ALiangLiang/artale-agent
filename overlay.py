@@ -2328,7 +2328,6 @@ class ArtaleOverlay(QWidget):
     def show_notification(self, text):
         # Internal Overlay Animation
         try:
-            import sip
             if sip.isdeleted(self): return
             self.msg_text = text; self.msg_opacity = 255
             if hasattr(self, 'fade_timer'):
