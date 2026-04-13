@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import json
 import os
 import threading
@@ -588,11 +588,10 @@ class SettingsWindow(QWidget):
         self.exp_active_cb.toggled.connect(self.on_exp_toggle_changed)
         exp_tab_layout.addWidget(self.exp_active_cb)
         
-        self.money_active_cb = QCheckBox("開啟金錢記錄追蹤 (連動經驗面板)")
-        self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;")
-        if self.overlay:
-            self.money_active_cb.setChecked(getattr(self.overlay, 'show_money_log', True))
-        self.money_active_cb.toggled.connect(self.on_money_toggle_changed)
+        self.money_active_cb = QCheckBox("開啟金錢記錄追蹤 (未開放)")
+        self.money_active_cb.setStyleSheet("color: #666; margin-top: 5px;")
+        self.money_active_cb.setChecked(False)
+        self.money_active_cb.setEnabled(False)
         exp_tab_layout.addWidget(self.money_active_cb)
         
         reset_exp_btn = QPushButton("🔄 重新開始紀錄 (歸零重算)")
@@ -1240,7 +1239,7 @@ class ArtaleOverlay(QWidget):
         # Load configs early
         config = ConfigManager.load_config()
         self.show_exp_panel = config.get("show_exp", False)
-        self.show_money_log = config.get("show_money_log", True)  # Use persistent config
+        self.show_money_log = False  # Disabled in v0.2.8
         self.exp_paused = False # New state
         self.total_pause_time = 0 # Cumulative pause duration
         self.pause_start_time = 0
