@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import json
 import os
 import threading
@@ -396,6 +396,12 @@ class SettingsWindow(QWidget):
             q_img = QImage(thresh.data, w, h, bytes_per_line, QImage.Format.Format_Grayscale8)
             pixmap = QPixmap.fromImage(q_img)
             self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
+        # Display simulated confidence for EXP
+        exp_conf = data.get("conf", 0)
+        self.debug_exp_conf_lbl.setText(f"Conf: {exp_conf:.0f}%")
+        exp_conf_color = "#51cf66" if exp_conf >= 100 else ("#ffd700" if exp_conf >= 50 else "#ff6b6b")
+        self.debug_exp_conf_lbl.setStyleSheet(f"color: {exp_conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
 
     def update_lv_debug_img(self, data):
         if not data: return
@@ -639,12 +645,21 @@ class SettingsWindow(QWidget):
         self.debug_info_lbl.setVisible(self.debug_mode_cb.isChecked())
         exp_tab_layout.addWidget(self.debug_info_lbl)
         
+        debug_row = QHBoxLayout()
         self.debug_img_lbl = QLabel()
-        self.debug_img_lbl.setFixedSize(300, 30)
+        self.debug_img_lbl.setFixedSize(250, 30)
         self.debug_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
         self.debug_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.debug_img_lbl.setVisible(self.debug_mode_cb.isChecked())
-        exp_tab_layout.addWidget(self.debug_img_lbl)
+        
+        self.debug_exp_conf_lbl = QLabel("Conf: --%")
+        self.debug_exp_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-weight: bold; font-size: 12px; margin-left: 10px;")
+        self.debug_exp_conf_lbl.setVisible(self.debug_mode_cb.isChecked())
+        
+        debug_row.addWidget(self.debug_img_lbl)
+        debug_row.addWidget(self.debug_exp_conf_lbl)
+        debug_row.addStretch()
+        exp_tab_layout.addLayout(debug_row)
 
         # LV OCR Monitor
         self.debug_lv_info_lbl = QLabel("🔍 LV 監控 (白底黑字則為正常)")
@@ -1125,6 +1140,7 @@ class SettingsWindow(QWidget):
         v = checked
         self.debug_info_lbl.setVisible(v)
         self.debug_img_lbl.setVisible(v)
+        self.debug_exp_conf_lbl.setVisible(v)
         self.debug_lv_info_lbl.setVisible(v)
         self.debug_lv_img_lbl.setVisible(v)
         self.debug_lv_conf_lbl.setVisible(v)
@@ -1603,6 +1619,78 @@ class ArtaleOverlay(QWidget):
         self._is_running = False
         super().closeEvent(event)
 
+    def _perform_enhanced_ocr(self, thresh_img, key, upscale=2, whitelist="0123456789", psm=7):
+        """
+        Unified OCR processor with High-Res scaling and Visual Stability Index.
+        @param thresh_img: Binarized image
+        @param key: Suffix for stability storage ('lv' or 'exp')
+        @param upscale: Scaling factor (e.g. 3 for small text)
+        """
+        ocr_text = ""
+        final_conf = 0
+        native_conf = 0
+        
+        # 1. 3x/2x Upscaling for Neural Engine
+        scaled = cv2.resize(thresh_img, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+        padded = cv2.copyMakeBorder(scaled, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+        
+        # 2. Native Tesseract Data
+        if pytesseract and pytesseract.pytesseract.tesseract_cmd:
+            try:
+                config = f'--psm {psm} --oem 3 -c tessedit_char_whitelist={whitelist}'
+                data = pytesseract.image_to_data(padded, config=config, output_type=pytesseract.Output.DICT)
+                res_list = [t for t in data['text'] if t.strip()]
+                conf_list = [int(c) for c in data['conf'] if c != '-1']
+                
+                if res_list:
+                    ocr_text = "".join(res_list)
+                    native_conf = sum(conf_list) / len(conf_list) if conf_list else 0
+            except: pass
+            
+        # 3. Visual Stability Calculation
+        stable_img_attr = f"_stable_img_{key}"
+        curr_score_attr = f"_current_score_{key}"
+        
+        if not hasattr(self, stable_img_attr):
+            setattr(self, stable_img_attr, None)
+            setattr(self, curr_score_attr, 0)
+            
+        prev_img = getattr(self, stable_img_attr)
+        prev_score = getattr(self, curr_score_attr)
+        
+        stability = 0
+        if prev_img is not None and prev_img.shape == thresh_img.shape:
+            diff = cv2.absdiff(thresh_img, prev_img)
+            diff_pct = (np.count_nonzero(diff) / diff.size) * 100
+            # EXP key is usually longer, more prone to pixel change
+            sens = 10 if key == "exp" else 5
+            stability = max(0, 100 - (diff_pct * sens))
+        
+        setattr(self, stable_img_attr, thresh_img.copy())
+        
+        # 4. Hybrid Mix (70% Neural, 30% Physical Stability)
+        mix_conf = (native_conf * 0.7) + (stability * 0.3) if native_conf > 0 else stability
+        
+        # 5. Temporal Smoothing (EMA)
+        alpha = 0.5
+        new_score = (prev_score * (1 - alpha)) + (mix_conf * alpha)
+        setattr(self, curr_score_attr, new_score)
+        
+        # 6. Logging Low Confidence (USER REQUEST)
+        if new_score < 85 and self.show_debug:
+            logger.warning(f"[OCR] Low Confidence ({key}): {new_score:.1f}% | Text: {ocr_text}")
+            # Save frame to tmp for visual debugging
+            try:
+                if not os.path.exists("tmp"): os.makedirs("tmp")
+                # Sanitize text for filename (remove symbols like [], %, etc.)
+                clean_text = "".join(c for c in ocr_text if c.isalnum() or c in "._-")
+                fname = f"tmp/{key}_{new_score:.1f}_{clean_text}.png"
+                cv2.imwrite(fname, thresh_img)
+            except Exception as e:
+                logger.debug(f"[OCR] Failed to save debug image: {e}")
+        
+        return ocr_text, new_score
+
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
         last_processed = 0
@@ -1695,34 +1783,8 @@ class ArtaleOverlay(QWidget):
                     # Use higher threshold for LV (Yellow/White text on map background)
                     _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY_INV)
                     
-                    # OCR for Level with Consensus
-                    lv_ocr_text = ""
-                    lv_conf = 0
-                    if pytesseract and pytesseract.pytesseract.tesseract_cmd:
-                        try:
-                            lv_padded = cv2.copyMakeBorder(lv_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                            # Use simple image_to_string as it is robust for digits
-                            ocr_res = pytesseract.image_to_string(lv_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
-                            
-                            if ocr_res:
-                                lv_ocr_text = ocr_res
-                                # Initialize consensus counter if not exists
-                                if not hasattr(self, '_lv_consensus'):
-                                    self._lv_consensus = {"last_text": "", "count": 0}
-                                
-                                # Compare with previous frames for consensus
-                                if ocr_res == self._lv_consensus["last_text"]:
-                                    self._lv_consensus["count"] += 1
-                                else:
-                                    self._lv_consensus["last_text"] = ocr_res
-                                    self._lv_consensus["count"] = 1
-                                
-                                # Simulated confidence: 1 frame = 33%, 2 = 66%, 3+ = 100%
-                                lv_conf = min(100, self._lv_consensus["count"] * 34)
-                            else:
-                                lv_conf = 0
-                        except Exception as e:
-                            logger.debug(f"[ExpTracker] LV OCR failed: {e}")
+                    # OCR for Level using unified helper
+                    lv_ocr_text, lv_conf = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=3, whitelist="0123456789")
                     
                     if not sip.isdeleted(self): self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
                 
@@ -1786,19 +1848,21 @@ class ArtaleOverlay(QWidget):
                 target_ocr_h = 60
                 r = target_ocr_h / gray.shape[0] if gray.shape[0] > 0 else 3
                 gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
-                # EXP OCR Processing (Use 130 threshold for better transparency handling)
-                _, thresh = cv2.threshold(gray, 130, 255, cv2.THRESH_BINARY_INV)
+                # EXP OCR Processing (Increased threshold to 150 for cleaner characters)
+                _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
                 
-                text = ""
-                if pytesseract and pytesseract.pytesseract.tesseract_cmd:
-                    try:
-                        padded = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                        tess_config = '--psm 7 -c tessedit_char_whitelist=0123456789.[]%'
-                        text = pytesseract.image_to_string(padded, config=tess_config).strip()
-                    except: pass
+                # EXP OCR using unified helper
+                text, exp_conf = self._perform_enhanced_ocr(thresh, "exp", upscale=2, whitelist="0123456789.[]%")
                 
                 if text:
-                    self.parse_and_update_exp(text, thresh, crop)
+                    # Update gate: Only process if confidence is solid (>= 85%)
+                    if exp_conf >= 85:
+                        self.parse_and_update_exp(text, thresh, crop, exp_conf)
+                    else:
+                        # Log it for dev to see why it skipped (silent if not in debug)
+                        if self.show_debug:
+                            # Already logged by helper, but we could add more context here if needed
+                            pass
                 last_processed = now
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
@@ -1886,10 +1950,10 @@ class ArtaleOverlay(QWidget):
             # Adaptive retry delay
             time.sleep(2.0)
 
-    def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None):
+    def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None, conf=0):
         try:
             # Prepare data
-            data = {"text": "---", "value": 0, "percent": 0.0, "timestamp": time.time(), "thresh": debug_img}
+            data = {"text": "---", "value": 0, "percent": 0.0, "timestamp": time.time(), "thresh": debug_img, "conf": conf}
             
             # (Keeping bytes for cross-process compatibility if needed, but UI wants 'thresh')
             if debug_img is not None:
@@ -1950,7 +2014,9 @@ class ArtaleOverlay(QWidget):
             data["value"] = val
             data["percent"] = pct_val
             
-            if not sip.isdeleted(self): self.exp_update_request.emit(data)
+            # Confidence Check for Update (Still using 85% but it's now visual stability)
+            if data["conf"] >= 85 or self.exp_initial_val is None:
+                if not sip.isdeleted(self): self.exp_update_request.emit(data)
         except Exception as e:
             if self.show_debug: 
                 logger.warning(f"[ExpTracker] Parse Error: {e} | Raw: {raw_text}")
