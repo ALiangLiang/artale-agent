@@ -20,6 +20,29 @@ from overlay import ArtaleOverlay, SettingsWindow, ConfigManager
 # Initialize logger
 logger = logging.getLogger(__name__)
 
+def check_dynamic_console():
+    """Enable console window if --debug or --console argument is present"""
+    if "--debug" in sys.argv or "--console" in sys.argv:
+        try:
+            # Attach to parent console or allocate a new one
+            if not ctypes.windll.kernel32.AttachConsole(-1):
+                ctypes.windll.kernel32.AllocConsole()
+            
+            # Re-map standard I/O to the new console
+            sys.stdout = open("CONOUT$", "w", encoding='utf-8')
+            sys.stderr = open("CONOUT$", "w", encoding='utf-8')
+            
+            # Ensure the console charset handles special characters
+            os.system('chcp 65001 > nul')
+            
+            print("\n" + "="*50)
+            print("🚀 Artale 瑞士刀 - Debug Console Enabled")
+            print("="*50 + "\n")
+        except Exception as e:
+            logger.error(f"[Main] Failed to allocate console: {e}")
+
+check_dynamic_console()
+
 # --- Game Focus Tracker using SetWinEventHook ---
 EVENT_SYSTEM_FOREGROUND = 0x0003
 WINEVENT_OUTOFCONTEXT = 0x0000
@@ -56,6 +79,10 @@ class GameFocusTracker:
             if hwnd is None:
                 hwnd = user32.GetForegroundWindow()
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            # Ensure PID is a positive unsigned integer (handles large PIDs correctly)
+            pid = pid & 0xFFFFFFFF
+            if pid <= 0: return
+            
             proc = psutil.Process(pid)
             was_active = self.is_game_active
             self.is_game_active = (proc.name().lower() == self.TARGET_PROCESS)
