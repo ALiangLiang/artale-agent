@@ -1073,7 +1073,6 @@ class SettingsWindow(QWidget):
     def on_money_toggle_changed(self, checked):
         if self.overlay:
             self.overlay.show_money_log = checked
-            self.overlay.save_current_offset() # Helper to save all
             status = "已啟用" if checked else "已關閉"
             print(f"[Overlay] Money Log toggled: {status}")
 
