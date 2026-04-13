@@ -376,7 +376,8 @@ class SettingsWindow(QWidget):
         
         # Connect to EXP updates for live preview
         if self.overlay:
-            self.overlay.exp_update_request.connect(self.update_debug_img)
+            # Use visual request for UI images
+            self.overlay.exp_visual_request.connect(self.update_debug_img)
             self.overlay.lv_update_request.connect(self.update_lv_debug_img)
             self.overlay.update_found.connect(self.show_update_banner)
             
@@ -1213,8 +1214,9 @@ class ArtaleOverlay(QWidget):
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
-    exp_update_request = pyqtSignal(dict)
-    lv_update_request = pyqtSignal(dict) # New for Level Monitoring
+    exp_update_request = pyqtSignal(dict)    # For Stats data
+    exp_visual_request = pyqtSignal(dict)    # For Debug Images
+    lv_update_request = pyqtSignal(dict)
     toggle_exp_request = pyqtSignal()
     toggle_pause_request = pyqtSignal()
     toggle_rjpq_request = pyqtSignal()
@@ -1658,19 +1660,30 @@ class ArtaleOverlay(QWidget):
         prev_img = getattr(self, stable_img_attr)
         prev_score = getattr(self, curr_score_attr)
         
-        stability = 0
-        if prev_img is not None and prev_img.shape == thresh_img.shape:
-            diff = cv2.absdiff(thresh_img, prev_img)
-            diff_pct = (np.count_nonzero(diff) / diff.size) * 100
-            # EXP key is usually longer, more prone to pixel change
-            sens = 10 if key == "exp" else 5
-            stability = max(0, 100 - (diff_pct * sens))
+        stability = 100 
+        if prev_img is not None:
+            if prev_img.shape == thresh_img.shape:
+                # Anti-flicker: Use small blur to ignore single-pixel scaling noise from resizing
+                b1 = cv2.GaussianBlur(thresh_img, (3, 3), 0)
+                b2 = cv2.GaussianBlur(prev_img, (3, 3), 0)
+                diff = cv2.absdiff(b1, b2)
+                diff_pct = (np.count_nonzero(diff) / diff.size) * 100
+                sens = 10 if key == "exp" else 5
+                stability = max(0, 100 - (diff_pct * sens))
+            else:
+                stability = 100
         
         setattr(self, stable_img_attr, thresh_img.copy())
         
-        # 4. Hybrid Mix (70% Neural, 30% Physical Stability)
-        mix_conf = (native_conf * 0.7) + (stability * 0.3) if native_conf > 0 else stability
-        
+        # 4. Hybrid Mix (Improved: Trust native more if it's very high)
+        if native_conf > 90:
+            # If OCR is very sure, weigh stability less (80/20)
+            mix_conf = (native_conf * 0.8) + (stability * 0.2)
+        elif native_conf > 0:
+            mix_conf = (native_conf * 0.7) + (stability * 0.3)
+        else:
+            mix_conf = stability
+       
         # 5. Temporal Smoothing (EMA)
         alpha = 0.5
         new_score = (prev_score * (1 - alpha)) + (mix_conf * alpha)
@@ -1786,13 +1799,14 @@ class ArtaleOverlay(QWidget):
                     # OCR for Level using unified helper
                     lv_ocr_text, lv_conf = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=3, whitelist="0123456789")
                     
-                    # Update gate: Only emit if level info is solid (>= 90%)
-                    if lv_conf >= 90:
-                        if not sip.isdeleted(self): 
-                            self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
-                    else:
+                    # ALWAYS emit UI update so user can see what OCR sees
+                    if not sip.isdeleted(self): 
+                        self.lv_update_request.emit({"thresh": lv_thresh, "level": lv_ocr_text, "conf": lv_conf})
+                        
+                    # DATA gate: Only process level logic if solid (>= 90%)
+                    if lv_conf < 90:
                         if self.show_debug and lv_ocr_text:
-                            logger.debug(f"[ExpTracker] Skipping LV update due to low confidence: {lv_conf:.1f}%")
+                            logger.debug(f"[ExpTracker] LV change ignored (low confidence): {lv_conf:.1f}%")
                 
                 # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
@@ -1861,13 +1875,22 @@ class ArtaleOverlay(QWidget):
                 text, exp_conf = self._perform_enhanced_ocr(thresh, "exp", upscale=2, whitelist="0123456789.[]%")
                 
                 if text:
-                    # Coupled Update Gate: Both EXP (>=85%) AND LV (>=90%) must be confident
+                    # Visual Signal: ALWAYS emit for real-time monitoring
+                    if not sip.isdeleted(self):
+                        self.exp_visual_request.emit({
+                            "thresh": thresh, 
+                            "crop": crop, 
+                            "text": text, 
+                            "conf": exp_conf
+                        })
+                        
+                    # Coupled Data Gate: Only RECORD if both are solid
                     if exp_conf >= 85 and lv_conf >= 90:
                         self.parse_and_update_exp(text, thresh, crop, exp_conf)
                     else:
                         if self.show_debug:
                             reason = "EXP low" if exp_conf < 85 else "LV low"
-                            logger.debug(f"[ExpTracker] Skipping EXP update due to {reason} (EXP:{exp_conf:.1f}%, LV:{lv_conf:.1f}%)")
+                            logger.debug(f"[ExpTracker] EXP recording suppressed due to {reason} (EXP:{exp_conf:.1f}%, LV:{lv_conf:.1f}%)")
                 last_processed = now
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
             except: pass
