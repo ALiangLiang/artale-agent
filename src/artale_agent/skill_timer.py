@@ -8,11 +8,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel,
                              QPushButton, QScrollArea, QGridLayout, 
                              QDialog, QTabWidget)
 
-try:
-    import winsound
-except ImportError:
-    winsound = None
-
+from .platform import AudioPlayerImpl
 from .utils import resource_path
 
 logger = logging.getLogger(__name__)
@@ -220,9 +216,12 @@ class TimerManager(QObject):
         self.updated.emit()
 
     def play_sound(self, times=1):
-        if not winsound: return
+        player = AudioPlayerImpl()
         def worker():
             for _ in range(times):
-                try: winsound.Beep(800, 150); time.sleep(0.12)
-                except Exception as e: logger.debug(f"[Sound] Beep failed: {e}")
+                try:
+                    player.beep(800, 150)
+                    time.sleep(0.12)
+                except Exception as e:
+                    logger.debug(f"[Sound] Beep failed: {e}")
         threading.Thread(target=worker, daemon=True).start()
