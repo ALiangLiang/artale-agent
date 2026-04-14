@@ -55,7 +55,8 @@ class RJPQSyncClient(QObject):
             
             # --- Network Hardening ---
             # 1. Disable proxy to avoid interference from system settings/VPNs
-            self.ws.setProxy(QNetworkProxy.NoProxy)
+            from PyQt6.QtNetwork import QNetworkProxy
+            self.ws.setProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
             
             # 2. Advanced SSL configuration
             ssl_conf = QSslConfiguration.defaultConfiguration()
