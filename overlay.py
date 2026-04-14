@@ -405,6 +405,14 @@ class SettingsWindow(QWidget):
         exp_conf_color = "#51cf66" if exp_conf >= 100 else ("#ffd700" if exp_conf >= 50 else "#ff6b6b")
         self.debug_exp_conf_lbl.setStyleSheet(f"color: {exp_conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
 
+        # Handle Coin Image if present
+        coin_thresh = data.get("coin")
+        if coin_thresh is not None:
+            ch, cw = coin_thresh.shape
+            q_coin = QImage(coin_thresh.data, cw, ch, cw, QImage.Format.Format_Grayscale8)
+            pixmap = QPixmap.fromImage(q_coin)
+            self.debug_coin_img_lbl.setPixmap(pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
     def update_lv_debug_img(self, data):
         if not data: return
         thresh = data.get("thresh") # This will now be the lv_processed
@@ -588,10 +596,12 @@ class SettingsWindow(QWidget):
         self.exp_active_cb.toggled.connect(self.on_exp_toggle_changed)
         exp_tab_layout.addWidget(self.exp_active_cb)
         
-        self.money_active_cb = QCheckBox("開啟金錢記錄追蹤 (未開放)")
-        self.money_active_cb.setStyleSheet("color: #666; margin-top: 5px;")
-        self.money_active_cb.setChecked(False)
-        self.money_active_cb.setEnabled(False)
+        self.money_active_cb = QCheckBox("開啟楓幣記錄")
+        self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;")
+        if self.overlay:
+            self.money_active_cb.setChecked(getattr(self.overlay, 'show_money_log', True))
+        self.money_active_cb.setEnabled(True)
+        self.money_active_cb.toggled.connect(self.on_money_toggle_changed)
         exp_tab_layout.addWidget(self.money_active_cb)
         
         reset_exp_btn = QPushButton("🔄 重新開始紀錄 (歸零重算)")
@@ -684,10 +694,23 @@ class SettingsWindow(QWidget):
         lv_row.addStretch()
         exp_tab_layout.addLayout(lv_row)
 
+        # Money OCR Monitor (New)
+        self.debug_coin_info_lbl = QLabel("🔍 楓幣監控 (白底黑字則為正常)")
+        self.debug_coin_info_lbl.setStyleSheet("color: #666; font-size: 10px; margin-top: 10px;")
+        self.debug_coin_info_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_coin_info_lbl)
+
+        self.debug_coin_img_lbl = QLabel()
+        self.debug_coin_img_lbl.setFixedSize(140, 24)
+        self.debug_coin_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
+        self.debug_coin_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.debug_coin_img_lbl.setVisible(self.debug_mode_cb.isChecked())
+        exp_tab_layout.addWidget(self.debug_coin_img_lbl)
+
 
 
         exp_tab_layout.addStretch()
-        self.tabs.addTab(exp_tab, "📊 經驗值")
+        self.tabs.addTab(exp_tab, "📊 經驗值/楓幣")
 
         # --- Tab 3: RJPQ YzY ---
         self.rjpq_client = RJPQSyncClient()
@@ -1146,6 +1169,8 @@ class SettingsWindow(QWidget):
         self.debug_lv_info_lbl.setVisible(v)
         self.debug_lv_img_lbl.setVisible(v)
         self.debug_lv_conf_lbl.setVisible(v)
+        self.debug_coin_info_lbl.setVisible(v)
+        self.debug_coin_img_lbl.setVisible(v)
         if self.overlay: 
             self.overlay.show_debug = v
             self.overlay.show_notification(f"除錯模式: {'開啟' if checked else '關閉'}")
@@ -1216,7 +1241,7 @@ class ArtaleOverlay(QWidget):
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)    # For Stats data
-    exp_visual_request = pyqtSignal(dict)    # For Debug Images
+    exp_visual_request = pyqtSignal(dict)    # For Debug Images: exp, lv, coin
     lv_update_request = pyqtSignal(dict)
     toggle_exp_request = pyqtSignal()
     toggle_pause_request = pyqtSignal()
@@ -1225,6 +1250,7 @@ class ArtaleOverlay(QWidget):
     rjpq_cell_clicked = pyqtSignal(int)
     export_report_request = pyqtSignal()
     update_found = pyqtSignal(str, str)
+    money_update_request = pyqtSignal(int)
     
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
@@ -1240,7 +1266,7 @@ class ArtaleOverlay(QWidget):
         # Load configs early
         config = ConfigManager.load_config()
         self.show_exp_panel = config.get("show_exp", False)
-        self.show_money_log = False  # Disabled in v0.2.8
+        self.show_money_log = config.get("show_money_log", True)
         self.exp_paused = False # New state
         self.total_pause_time = 0 # Cumulative pause duration
         self.pause_start_time = 0
@@ -1258,8 +1284,11 @@ class ArtaleOverlay(QWidget):
         self.selected_color = -1
         self.cumulative_gain = 0
         self.cumulative_pct = 0.0
-        self.max_10m_exp = 0 # Track max 10m gain
+        self.max_10m_exp = 0 
         self.last_exp_pct = 0.0
+        self.money_history = [] 
+        self.detected_coins = [] # Deduplication: (timestamp, x, y, val)
+        self.cumulative_money = 0
         self.rjpq_data = [4] * 40
         self.rjpq_x_offset = -400
         self.rjpq_y_offset = 0
@@ -1283,6 +1312,7 @@ class ArtaleOverlay(QWidget):
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         self.export_report_request.connect(self.export_exp_report)
         self.update_found.connect(self.on_update_found)
+        self.money_update_request.connect(self.on_money_update)
         
         # We'll use this signal for tray to talk to settings_window
         self.request_show_settings_signal = pyqtSignal()
@@ -1827,11 +1857,12 @@ class ArtaleOverlay(QWidget):
     def run_exp_tracker(self):
         """Background thread to capture and recognize EXP with adaptive scaling"""
         last_processed = 0
+        target_hwnd = None
         
-        def on_frame_arrived_callback(frame: Frame, control):
-            nonlocal last_processed
+        def on_frame_arrived_callback(frame, control):
+            nonlocal last_processed, target_hwnd
             try:
-                # Process if panel is ON OR if we are in Debug Mode
+                # Process if panel is ON
                 if not self._is_running: return
                 if not getattr(self, "show_exp_panel", False):
                     # Hard stop when panel is hidden, even if debug is on (for performance)
@@ -1843,191 +1874,131 @@ class ArtaleOverlay(QWidget):
                 now = time.time()
                 if now - last_processed < 1.0: return
                 
-                img_bgra = getattr(frame, "frame_buffer", None)
-                if img_bgra is None: return
-                img = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
+                # Window Search (Dynamic lookup)
+                if not target_hwnd or not win32gui.IsWindow(target_hwnd):
+                    candidate = None
+                    for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
+                        h_cand = win32gui.FindWindow(None, name)
+                        if h_cand: candidate = h_cand; break
+                    if not candidate: return
+                    target_hwnd = candidate
+                
+                # Handle handle errors or minimized state silently
+                try:
+                    placement = win32gui.GetWindowPlacement(target_hwnd)
+                    if placement[1] == win32con.SW_SHOWMINIMIZED: return
+                except Exception:
+                    target_hwnd = None; return
+
+                img_orig = frame.frame_buffer
+                img = cv2.cvtColor(img_orig, cv2.COLOR_BGRA2BGR)
                 h, w = img.shape[:2]
                 
-                # IMPORTANT: Find the window to get client rect
-                target_hwnd = None
-                for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
-                    hwnd = win32gui.FindWindow(None, name)
-                    if hwnd: target_hwnd = hwnd; break
-                
-                if target_hwnd:
-                    # Monitor Placement change (Maximize/Restore)
-                    placement = win32gui.GetWindowPlacement(target_hwnd)
-                    current_state = placement[1]
-                    if not hasattr(self, 'last_window_state'):
-                        self.last_window_state = current_state
-                    
-                    if current_state != self.last_window_state:
-                        logger.info(f"[ExpTracker] Window state changed to {current_state}. Restarting session...")
-                        self.last_window_state = current_state
-                        self._exp_tracker_active = False # Signal main loop to restart
-                        control.stop() 
-                        return
-                    
-                    crect = win32gui.GetClientRect(target_hwnd)
-                    # Use client dimensions for scaling and anchoring
-                    cw_ref, ch_ref = crect[2], crect[3]
-                else:
-                    cw_ref, ch_ref = w, h # Fallback
-                
-                # Calculate dynamic scale based on the smaller reference side
+                crect = win32gui.GetClientRect(target_hwnd)
+                cw_ref, ch_ref = crect[2], crect[3]
                 scale = min(cw_ref / self.BASE_W, ch_ref / self.BASE_H)
                 
-                # Check window state for border logic
+                # Handle maximized vs windowed border logic
                 placement = win32gui.GetWindowPlacement(target_hwnd)
                 if placement[1] == win32con.SW_SHOWMAXIMIZED:
-                    # Maximized: Top is title bar, sides are 0
-                    off_x = 0
-                    off_y = h - ch_ref
+                    off_x = 0; off_y = h - ch_ref
                 else:
-                    # Windowed: Borders are typically symmetrical on left/right/bottom
-                    # Capture width (w) = Client width (cw_ref) + 2 * border_width
                     border_w = max(0, (w - cw_ref) // 2)
-                    off_x = border_w
-                    # Capture height (h) = Client height (ch_ref) + title_bar + bot_border
-                    # Title bar = h - ch_ref - border_w (assuming bot_border == border_w)
-                    off_y = max(0, h - ch_ref - border_w)
+                    off_x = border_w; off_y = max(0, h - ch_ref - border_w)
                 
-                cx = off_x + int(self.X_OFF_FROM_LEFT * scale)
-                cy = off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale))
-                
-                cw = int(self.BASE_CW * scale)
-                ch = int(self.BASE_CH * scale)
-                
-                # Exact crop
-                crop = img[max(0, cy):min(h, cy+ch), max(0, cx):min(w, cx+cw)]
-                if crop.size == 0: return
-                
-                # Update debug info for sync visualization
-                self.last_crop_info = (cx, cy, cw, ch, w, h)
-                
-                # LV Crop calculation
+                # 1. LV Recognition
                 lv_cx = off_x + int(self.LV_X_OFF_FROM_LEFT * scale)
                 lv_cy = off_y + (ch_ref - int(self.LV_Y_OFF_FROM_BOTTOM * scale))
-                lv_cw = int(self.LV_BASE_CW * scale)
-                lv_ch = int(self.LV_BASE_CH * scale)
-                self.last_lv_crop_info = (lv_cx, lv_cy, lv_cw, lv_ch, w, h)
-                
-                # LV Binarization for debug
+                lv_cw = int(self.LV_BASE_CW * scale); lv_ch = int(self.LV_BASE_CH * scale)
                 lv_crop = img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
                 if lv_crop.size > 0:
                     lv_gray = cv2.cvtColor(lv_crop, cv2.COLOR_BGR2GRAY)
                     r_lv = 60 / lv_gray.shape[0] if lv_gray.shape[0] > 0 else 3
                     lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_CUBIC)
-                    # Use higher threshold (210) to filter background noise for Level
                     _, lv_thresh = cv2.threshold(lv_gray, 210, 255, cv2.THRESH_BINARY)
-                    
-                    # OCR for Level using unified helper (Upscale 4 for precision)
-                    lv_ocr_text, lv_conf, lv_processed = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=4, whitelist="0123456789")
-                    
-                    # ALWAYS emit UI update so user can see what OCR sees
+                    lv_text, lv_conf, lv_processed = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=4, whitelist="0123456789")
                     if not sip.isdeleted(self): 
-                        self.lv_update_request.emit({"thresh": lv_processed, "level": lv_ocr_text, "conf": lv_conf})
-                        
-                    # DATA gate: Validate level range (1-200) and confidence (>= 80%)
-                    is_valid_lv = False
-                    try:
-                        lv_val = int(lv_ocr_text)
-                        if 1 <= lv_val <= 200:
-                            is_valid_lv = True
-                    except: pass
+                        self.lv_update_request.emit({"thresh": lv_processed, "level": lv_text, "conf": lv_conf})
 
-                    if not is_valid_lv or lv_conf < 80:
-                        if self.show_debug and lv_ocr_text:
-                            logger.debug(f"[ExpTracker] LV ignored (invalid range or low conf): {lv_ocr_text} ({lv_conf:.1f}%)")
-                        # If invalid, don't update internal state but still show on UI
-                    else:
-                        # Valid level found
-                        pass # Rest of the logic continues below (if any)
-                
-                # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
+                # 2. Coin Recognition (With ROI to avoid static UI icons)
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
                     try:
+                        # Search only in central area (Avoid status bars and inventory corners)
+                        roi_y1, roi_y2 = int(h * 0.1), int(h * 0.85)
+                        roi_x1, roi_x2 = int(w * 0.1), int(w * 0.9)
+                        img_roi = img[roi_y1:roi_y2, roi_x1:roi_x2]
+                        
                         tpl_h, tpl_w = self.coin_tpl.shape[:2]
-                        scaled_tpl_w = int(tpl_w * scale); scaled_tpl_h = int(tpl_h * scale)
-                        if scaled_tpl_w > 5 and scaled_tpl_h > 5:
-                            tpl_resized = cv2.resize(self.coin_tpl, (scaled_tpl_w, scaled_tpl_h))
-                            res = cv2.matchTemplate(img, tpl_resized, cv2.TM_CCOEFF_NORMED)
+                        st_w = int(tpl_w * scale); st_h = int(tpl_h * scale)
+                        if st_w > 5 and st_h > 5:
+                            tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
+                            res = cv2.matchTemplate(img_roi, tpl_resized, cv2.TM_CCOEFF_NORMED)
                             _, max_val, _, max_loc = cv2.minMaxLoc(res)
-                            
                             if max_val > 0.8:
-                                # Primary coin box
-                                self.last_coin_pos = (max_loc[0] - off_x, max_loc[1] - off_y, scaled_tpl_w, scaled_tpl_h)
+                                # Adjust coords back to full image
+                                real_x, real_y = max_loc[0] + roi_x1, max_loc[1] + roi_y1
                                 
-                                # Secondary Info Area (Right 30px, 280x31)
+                                self.last_coin_pos = (real_x - off_x, real_y - off_y, st_w, st_h)
                                 info_w = int(280 * scale); info_h = int(31 * scale)
-                                info_ix = max_loc[0] + scaled_tpl_w + int(30 * scale)
-                                # Move down 1px total as requested
-                                info_iy = max_loc[1] + (scaled_tpl_h // 2) - (info_h // 2) + int(1 * scale)
+                                info_ix = real_x + st_w + int(30 * scale)
+                                info_iy = real_y + (st_h // 2) - (info_h // 2) + int(1 * scale)
                                 self.last_coin_info_pos = (info_ix - off_x, info_iy - off_y, info_w, info_h)
                                 
-                                # --- OCR for Coin Info Area ---
-                                coin_info_text = ""
-                                info_crop = img[max(0, info_iy):min(h, info_iy+info_h), max(0, info_ix):min(w, info_ix+info_w)]
-                                if info_crop.size > 0:
-                                    ic_gray = cv2.cvtColor(info_crop, cv2.COLOR_BGR2GRAY)
+                                ic_crop = img[max(0, info_iy):min(h, info_iy+info_h), max(0, info_ix):min(w, info_ix+info_w)]
+                                if ic_crop.size > 0:
+                                    ic_gray = cv2.cvtColor(ic_crop, cv2.COLOR_BGR2GRAY)
                                     ic_r = 60 / ic_gray.shape[0] if ic_gray.shape[0] > 0 else 3
                                     ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_CUBIC)
-                                    _, ic_thresh = cv2.threshold(ic_gray, 130, 255, cv2.THRESH_BINARY_INV)
+                                    _, ic_thresh = cv2.threshold(ic_gray, 130, 255, cv2.THRESH_BINARY)
+                                    if self.show_debug and not sip.isdeleted(self):
+                                        self.exp_visual_request.emit({"coin": ic_thresh.copy()})
                                     if pytesseract and pytesseract.pytesseract.tesseract_cmd:
                                         try:
-                                            # Efficient single-call OCR
-                                            ic_padded = cv2.copyMakeBorder(ic_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                                            coin_info_text = pytesseract.image_to_string(ic_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789,').strip()
-                                            
-                                            if coin_info_text:
-                                                # Standard log (High performance)
-                                                logger.debug(f"[ExpTracker] Coin Match: {max_val:.2f} | OCR: {coin_info_text}")
-                                                self.last_coin_ocr = coin_info_text
-                                        except Exception as e:
-                                            logger.debug(f"[Debug] OCR Failed: {e}")
-                                self.last_coin_ocr = coin_info_text
+                                            ic_padded = cv2.copyMakeBorder(ic_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
+                                            c_text = pytesseract.image_to_string(ic_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789,').strip()
+                                            if c_text:
+                                                self.last_coin_ocr = c_text
+                                                val_str = c_text.replace(',', '')
+                                                if val_str.isdigit():
+                                                    m_val = int(val_str)
+                                                    if not sip.isdeleted(self): 
+                                                        self.money_update_request.emit(m_val)
+                                        except: pass
                             else:
-                                self.last_coin_pos = None
-                                self.last_coin_info_pos = None
-                                self.last_coin_ocr = ""
-                    except: 
-                        self.last_coin_pos = None
-                        self.last_coin_info_pos = None
-                        self.last_coin_ocr = ""
-                
+                                self.last_coin_pos = None; self.last_coin_info_pos = None; self.last_coin_ocr = ""
+                    except: pass
+
+                # 3. EXP OCR
+                cx = off_x + int(self.X_OFF_FROM_LEFT * scale)
+                cy = off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale))
+                cw = int(self.BASE_CW * scale); ch = int(self.BASE_CH * scale)
+
                 if self.exp_paused:
                     last_processed = now
                     self.update()
                     return
 
-                # OCR Processing
-                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-                target_ocr_h = 60
-                r = target_ocr_h / gray.shape[0] if gray.shape[0] > 0 else 3
-                gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
-                # EXP OCR Processing (180 threshold as per EXACT Artale Efficiency logic)
-                _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+                crop = img[max(0, cy):min(h, cy+ch), max(0, cx):min(w, cx+cw)]
+                if crop.size > 0:
+                    self.last_crop_info = (cx, cy, cw, ch, w, h)
+                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    r_e = 60 / gray.shape[0] if gray.shape[0] > 0 else 3
+                    gray = cv2.resize(gray, None, fx=r_e, fy=r_e, interpolation=cv2.INTER_CUBIC)
+                    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+                    
+                    text, e_conf, e_processed = self._perform_enhanced_ocr(thresh, "exp", upscale=4, whitelist="0123456789.%")
+                    if text:
+                        if not sip.isdeleted(self):
+                            self.exp_visual_request.emit({"thresh": e_processed, "conf": e_conf})
+                        self.parse_and_update_exp(text, thresh, crop, e_conf)
                 
-                # EXP OCR using unified helper (Upscale 4x, Digit-only conf)
-                text, exp_conf, exp_processed = self._perform_enhanced_ocr(thresh, "exp", upscale=4, whitelist="0123456789.%")
-                
-                if text:
-                    # Visual Signal: Send the processed_img as requested
-                    if not sip.isdeleted(self):
-                        self.exp_visual_request.emit({
-                            "thresh": exp_processed, 
-                            "crop": crop, 
-                            "text": text, 
-                            "conf": exp_conf
-                        })
-                        
-                    # DATA processing: We trust the raw OCR result
-                    self.parse_and_update_exp(text, thresh, crop, exp_conf)
                 last_processed = now
-                if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
+                if not sip.isdeleted(self): self.update()
             except Exception as e:
                 import traceback
-                logger.error(f"[ExpTracker] Callback Critical Error: {e}\n{traceback.format_exc()}")
+                if not any(code in str(e) for code in ["1400", "(2,", "(1400,"]):
+                    logger.error(f"[ExpTracker] Callback Critical Error: {e}\n{traceback.format_exc()}")
+
         while self._is_running:
             # 0. Global Efficiency Gate: Idle thread if panel is hidden
             if not getattr(self, "show_exp_panel", False):
@@ -2053,7 +2024,10 @@ class ArtaleOverlay(QWidget):
                     if "MapleStory Worlds-Artale" in title:
                         found_hwnds.append(hwnd)
             
-            win32gui.EnumWindows(enum_handler, None)
+            try:
+                win32gui.EnumWindows(enum_handler, None)
+            except: pass
+            
             target_hwnd = found_hwnds[0] if found_hwnds else None
             
             # 2. Secondary: Fallback to process search (msw.exe)
@@ -2090,7 +2064,6 @@ class ArtaleOverlay(QWidget):
                         capture = WindowsCapture(draw_border=False, **cap_config)
                     except Exception as e:
                         if "Toggling the capture border is not supported" in str(e):
-                            logger.info("[ExpTracker] OS doesn't support borderless capture. Falling back.")
                             capture = WindowsCapture(draw_border=True, **cap_config)
                         else:
                             raise e
@@ -2112,23 +2085,11 @@ class ArtaleOverlay(QWidget):
                     # Stay in this inner loop as long as session is healthy and panel is open
                     while self._exp_tracker_active and self._is_running and getattr(self, "show_exp_panel", False):
                         time.sleep(1.0)
-                        # Check if window still exists and is visible
-                        if not win32gui.IsWindow(target_hwnd) or not win32gui.IsWindowVisible(target_hwnd):
-                            break
-                    
-                    # No explicit stop() available on the capture object in this version
-                    self._exp_tracker_active = False
-                    
                 except Exception as e:
-                    err_msg = str(e)
-                    if "0x80070490" in err_msg or any(code in err_msg for code in [" 2,", " 1400,", "(2,", "(1400,"]):
-                        # Common API error when window is transitionary/hidden, retry silently
-                        pass
-                    else:
-                        logger.error(f"[ExpTracker] Failed to start capture for HWND {target_hwnd}: {e}")
-            
-            # Adaptive retry delay
-            time.sleep(2.0)
+                    logger.debug(f"[ExpTracker] Session failed: {e}")
+                    time.sleep(2.0)
+            else:
+                time.sleep(2.0) # Game not found, wait
 
     def parse_and_update_exp(self, raw_text, debug_img=None, raw_img=None, conf=0):
         try:
@@ -2323,6 +2284,53 @@ class ArtaleOverlay(QWidget):
         self.current_exp_data["is_estimated"] = rt < 600
         self.current_exp_data["tracking_duration"] = int(rt)
 
+        self.update()
+
+    def on_money_update(self, total_val):
+        now = time.time()
+        
+        # Initialize baseline on first read
+        if not hasattr(self, 'money_initial_val') or self.money_initial_val is None:
+            self.money_initial_val = total_val
+            self.last_total_money = total_val
+            logger.info(f"[MoneyTracker] Initial money baseline: {total_val:,}")
+            return
+
+        # Calculate Gain (Delta)
+        gain = total_val - self.last_total_money
+        
+        # Filter: Only record positive gains, ignore drops (spending)
+        if gain > 0:
+            # SANITY CHECK: Ignore insane spikes (e.g. OCR error reading 100M+ jump in 1s)
+            if gain < 50_000_000: 
+                self.cumulative_money += gain
+                self.money_history.append((now, gain))
+        elif gain < -100:
+            # User likely spent money. Re-align base to avoid counting the whole wealth after next gain.
+            logger.info(f"[MoneyTracker] Money dropped ({gain:,}), re-aligning baseline.")
+        
+        self.last_total_money = total_val
+        
+        # Standard logic for 10m math
+        self.money_history = [h for h in self.money_history if h[0] >= now - 3600]
+        
+        # Standardized 10m efficiency (Projected)
+        ten_min_ago = now - 600
+        history_ten = [h for h in self.money_history if h[0] >= ten_min_ago]
+        
+        m_gain_10m = 0
+        if history_ten:
+            total_in_window = sum(h[1] for h in history_ten)
+            session_start = getattr(self, "exp_session_start_time", history_ten[0][0])
+            if session_start is None: session_start = history_ten[0][0]
+            start_t = max(ten_min_ago, session_start)
+            time_diff = now - start_t
+            if time_diff > 5:
+                m_gain_10m = int((total_in_window / time_diff) * 600)
+            else:
+                m_gain_10m = total_in_window
+
+        self.current_exp_data["money_10m"] = max(0, m_gain_10m)
         self.update()
 
 
@@ -2679,6 +2687,28 @@ class ArtaleOverlay(QWidget):
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_max)
         
+        # 6. Mesos Efficiency & Total (ONLY IF ENABLED OR EXPORTING)
+        if self.show_money_log or is_export:
+            # 6a. 10m Efficiency
+            y += (32 if is_export else 28)
+            lbl_money_10m = "十分鐘楓幣效率: "
+            painter.setPen(QColor(255, 215, 0)) # Gold color
+            painter.drawText(px + 15, y, lbl_money_10m)
+            money_10m = self.current_exp_data.get("money_10m", 0)
+            val_money_10m = f"+{money_10m:,}"
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_money_10m)
+            
+            # 6b. Total Gained Mesos
+            y += (28 if is_export else 25)
+            lbl_money_total = "累計獲取楓幣: "
+            painter.setPen(QColor(255, 215, 0))
+            font.setPointSize(9); painter.setFont(font)
+            painter.drawText(px + 15, y, lbl_money_total)
+            val_total_money = f"+{self.cumulative_money:,}"
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_total_money)
+        
         last_y = y # For graph positioning
 
         # 5. Trend Graph
@@ -2728,7 +2758,7 @@ class ArtaleOverlay(QWidget):
         # Positional logic
         bx = self.rect().center().x() + self.exp_x_offset
         by = self.rect().center().y() + self.exp_y_offset
-        pw, ph = 330, 200 # Increased height for graph
+        pw, ph = 330, 230 # Increased height for graph and money
         # Right Aligned: bx is the right edge
         panel_rect = QRect(bx - pw, by - 120 - ph // 2, pw, ph)
         px, py = panel_rect.x(), panel_rect.y()
