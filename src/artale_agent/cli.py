@@ -5,6 +5,24 @@ from pathlib import Path
 
 from .utils import _project_root
 
+def clean() -> None:
+    root = Path(_project_root())
+
+    # Clean dist & build
+    for folder in ["dist", "build"]:
+        p = root / folder
+        if p.exists():
+            shutil.rmtree(p)
+
+    # Clean log & spec
+    build_log = root.joinpath("artale_agent.log")
+    if build_log.exists():
+        build_log.unlink()
+    build_spec = root.joinpath("ArtaleAgent.spec")
+    if build_spec.exists():
+        build_spec.unlink()
+
+
 def build_win():
     # 0. Check sys.platform
     if sys.platform != "win32":
@@ -21,10 +39,7 @@ def build_win():
     )
 
     # 2. Clean
-    for folder in ["dist", "build"]:
-        p = root / folder
-        if p.exists():
-            shutil.rmtree(p)
+    clean()
 
     # 3. PyInstaller command
     cmd = [
