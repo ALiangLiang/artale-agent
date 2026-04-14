@@ -34,6 +34,7 @@ class RJPQSyncClient(QObject):
         self.ws.disconnected.connect(self.on_disconnected)
         self.ws.textMessageReceived.connect(self.on_message)
         self.ws.errorOccurred.connect(self.on_error)
+        self.ws.stateChanged.connect(self.on_state_changed)
         self.room_code = ""
         self.room_pwd = ""
         self.is_connected = False
@@ -45,36 +46,23 @@ class RJPQSyncClient(QObject):
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
 
     def connect_to_room(self, code, pwd):
-        def _do_connect():
-            try:
-                logger.info(f"[RJPQ] Initiating WebSocket open to: {code}")
-                self.room_code = code
-                self.room_pwd = pwd
-                self.reconnect_enabled = True 
-                url = "wss://rjpq.juanwang.cc"
-                
-                # Use safer SSL configuration for OpenSSL 3.x compatibility
-                from PyQt6.QtNetwork import QSslConfiguration, QSsl
-                ssl_conf = QSslConfiguration.defaultConfiguration()
-                # If certificates are missing in EXE, we might need to ignore errors
-                ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
-                self.ws.setSslConfiguration(ssl_conf)
-                
-                self.ws.open(QUrl(url))
-                logger.info("[RJPQ] ws.open() called, waiting for state change...")
-            except Exception as e:
-                logger.error(f"[RJPQ] WebSocket opening crash prevented: {e}")
-        
-        # ALWAYS handle ws operation on its owner thread (Main UI Thread)
-        QTimer.singleShot(0, _do_connect)
+        try:
+            logger.info(f"[RJPQ] Connecting to room: {code}")
+            self.room_code = code
+            self.room_pwd = pwd
+            self.reconnect_enabled = True 
+            url = "wss://rjpq.juanwang.cc"
+            self.ws.open(QUrl(url))
+        except Exception as e:
+            logger.error(f"[RJPQ] Connection failure: {e}")
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
         if self.ws:
-            QTimer.singleShot(0, self.ws.close)
+            self.ws.close()
 
     def on_connected(self):
-        logger.info("[RJPQ] WebSocket Connected! Handshaking...")
+        logger.info("[RJPQ] Connected to server!")
         self.is_connected = True
         self.status_changed.emit(True)
         self.reconnect_timer.stop()
@@ -124,29 +112,34 @@ class RJPQSyncClient(QObject):
         self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
 
+    def on_state_changed(self, state):
+        mapping = {
+            QAbstractSocket.SocketState.UnconnectedState: "Unconnected",
+            QAbstractSocket.SocketState.HostLookupState: "HostLookup",
+            QAbstractSocket.SocketState.ConnectingState: "Connecting",
+            QAbstractSocket.SocketState.ConnectedState: "Connected",
+            QAbstractSocket.SocketState.BoundState: "Bound",
+            QAbstractSocket.SocketState.ClosingState: "Closing",
+            QAbstractSocket.SocketState.ListeningState: "Listening"
+        }
+        state_name = mapping.get(state, f"Unknown ({state})")
+        logger.info(f"[RJPQ] WebSocket State: {state_name}")
+
     def create_room(self, pwd):
-        import threading
-        def _bg_create():
-            try:
-                logger.info(f"[RJPQ] Creating room in background...")
-                quoted_pwd = urllib.parse.quote(pwd)
-                url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
-                with urllib.request.urlopen(url, timeout=10) as response:
-                    if response.getcode() == 200:
-                        data = json.loads(response.read().decode())
-                        if "error" in data:
-                            self.error_received.emit(data["error"])
-                        else:
-                            # Use thread-safe emit back to UI thread
-                            self.room_created.emit(data["code"], data.get("password", ""))
+        try:
+            quoted_pwd = urllib.parse.quote(pwd)
+            url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
+            with urllib.request.urlopen(url) as response:
+                if response.getcode() == 200:
+                    data = json.loads(response.read().decode())
+                    if "error" in data:
+                        self.error_received.emit(data["error"])
                     else:
-                        self.error_received.emit("伺服器請求失敗 (HTTP 狀態碼非 200)")
-            except Exception as e:
-                logger.error(f"[RJPQ] Room creation thread error: {e}")
-                self.error_received.emit(f"建立房間失敗: {str(e)}")
-        
-        t = threading.Thread(target=_bg_create, daemon=True)
-        t.start()
+                        self.room_created.emit(data["code"], data.get("password", ""))
+                else:
+                    self.error_received.emit("伺服器請求失敗")
+        except Exception as e:
+            self.error_received.emit(f"建立房間失敗: {str(e)}")
 
     def send_action(self, action):
         if self.ws and self.ws.state() == QAbstractSocket.SocketState.ConnectedState:
