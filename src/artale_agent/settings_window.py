@@ -117,13 +117,19 @@ class SettingsWindow(QWidget):
                     if 0 < level_diff <= 2:
                         logger.info(
                             "[ExpTracker] 確認升級！ %s -> %s",
-                            self.overlay.last_confirmed_lv, lv_val,
+                            self.overlay.last_confirmed_lv,
+                            lv_val,
                         )
                         self.overlay.exp_initial_val = None
                         self.overlay.cumulative_gain = 0
                         self.overlay.exp_history = []
                     elif level_diff != 0:
-                        logger.debug("[ExpTracker] 已過濾掉不合理的等級跳變: %s -> %s", self.overlay.last_confirmed_lv, lv_val)
+                        logger.debug(
+                            "[ExpTracker] 已過濾掉不合理的等級跳變: %s -> %s",
+                            self.overlay.last_confirmed_lv,
+                            lv_val,
+                        )
+
                 self.overlay.last_confirmed_lv = lv_val
             except:
                 pass

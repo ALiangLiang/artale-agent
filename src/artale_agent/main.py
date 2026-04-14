@@ -88,7 +88,9 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
         p_data = current_config["profiles"].get(active, {"triggers": {}})
         triggers = p_data.get("triggers", {})
         is_globally_enabled = True  # 切換配置時重新啟用
-        logger.info("[Config] Switched to %s. Triggers: %s", active, list(triggers.keys()))
+        logger.info(
+            "[Config] Switched to %s. Triggers: %s", active, list(triggers.keys())
+        )
 
     # 將設定視窗的訊號與監聽器更新連結
     settings_window.config_updated.connect(update_local_config)

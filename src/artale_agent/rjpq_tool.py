@@ -6,8 +6,6 @@ import traceback
 import urllib.parse
 import urllib.request
 
-logger = logging.getLogger(__name__)
-
 from PyQt6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QSslConfiguration
@@ -38,6 +36,7 @@ try:
 except Exception:
     pass
 
+logger = logging.getLogger(__name__)
 
 # --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
@@ -283,9 +282,9 @@ class RJPQTabContent(QWidget):
         self.grid_widget = QFrame()
         self.grid_widget.setObjectName("Dashboard")
         self.grid_widget.setStyleSheet("""
-            QFrame#Dashboard { 
+            QFrame#Dashboard {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a1a, stop:1 #121212);
-                border: 1px solid #333; 
+                border: 1px solid #333;
                 border-radius: 12px;
                 padding: 10px;
             }
@@ -327,8 +326,8 @@ class RJPQTabContent(QWidget):
         # 網格小工具中的重置按鈕
         reset_btn = QPushButton("🔄 重置所有人的標記 (全隊歸零)")
         reset_btn.setStyleSheet("""
-            QPushButton { 
-                background: #331111; color: #ff8888; border: 1px solid #552222; 
+            QPushButton {
+                background: #331111; color: #ff8888; border: 1px solid #552222;
                 border-radius: 6px; height: 32px; margin-top: 10px; font-weight: bold;
             }
             QPushButton:hover { background: #442222; }

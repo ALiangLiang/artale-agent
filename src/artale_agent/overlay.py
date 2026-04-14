@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 from .platform import WindowManagerImpl
 from .settings_window import SettingsWindow
 from .skill_timer import TimerManager
+
+# Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
 from .utils import (
     EXP_TABLE,
     REPO_URL,
@@ -45,6 +47,11 @@ from .utils import (
 from .data_types import LVUpdateData, ExpParsedData, ExpVisualData, StatsData
 
 # 初始化日誌記錄器
+logging.getLogger("pytesseract").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
+
+# Initialize logger
 logging.getLogger("pytesseract").setLevel(logging.WARNING)
 logging.getLogger("PIL").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -220,7 +227,9 @@ class ArtaleOverlay(QWidget):
         if os.path.exists("coin.png"):
             self.coin_tpl = cv2.imread("coin.png")
             if self.coin_tpl is not None:
-                logger.info("[ExpTracker] Loaded coin template: %s", self.coin_tpl.shape)
+                logger.info(
+                    "[ExpTracker] Loaded coin template: %s", self.coin_tpl.shape
+                )
 
         self.init_ui()
 
@@ -330,7 +339,10 @@ class ArtaleOverlay(QWidget):
 
         logger.debug(
             "[Debug] Overlay spans: %s, %s to %s, %s",
-            v_rect.x(), v_rect.y(), v_rect.width(), v_rect.height(),
+            v_rect.x(),
+            v_rect.y(),
+            v_rect.width(),
+            v_rect.height(),
         )
         self.show()
 
