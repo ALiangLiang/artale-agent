@@ -322,13 +322,13 @@ class WinFocusTracker(FocusTracker):
 
     def _on_focus_change(
         self,
-        hWinEventHook,
-        event,
+        _h_win_event_hook,
+        _event,
         hwnd,
-        idObject,
-        idChild,
-        dwEventThread,
-        dwmsEventTime,
+        _id_object,
+        _id_child,
+        _dw_event_thread,
+        _dw_ms_event_time,
     ) -> None:
         self._check_foreground(hwnd)
 
