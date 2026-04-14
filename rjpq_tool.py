@@ -45,32 +45,36 @@ class RJPQSyncClient(QObject):
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
 
     def connect_to_room(self, code, pwd):
-        try:
-            logger.info(f"[RJPQ] Connecting to room: {code}")
-            self.room_code = code
-            self.room_pwd = pwd
-            self.reconnect_enabled = True 
-            url = "wss://rjpq.juanwang.cc"
-            
-            # Use safer SSL configuration for OpenSSL 3.x compatibility
-            from PyQt6.QtNetwork import QSslConfiguration, QSsl
-            ssl_conf = QSslConfiguration.defaultConfiguration()
-            # If certificates are missing in EXE, we might need to ignore errors for this specific tool
-            # (RJPQ is non-critical, so we prioritize connectivity over strict PKI)
-            ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
-            self.ws.setSslConfiguration(ssl_conf)
-            
-            self.ws.open(QUrl(url))
-        except Exception as e:
-            logger.error(f"[RJPQ] WebSocket opening crash prevented: {e}")
+        def _do_connect():
+            try:
+                logger.info(f"[RJPQ] Initiating WebSocket open to: {code}")
+                self.room_code = code
+                self.room_pwd = pwd
+                self.reconnect_enabled = True 
+                url = "wss://rjpq.juanwang.cc"
+                
+                # Use safer SSL configuration for OpenSSL 3.x compatibility
+                from PyQt6.QtNetwork import QSslConfiguration, QSsl
+                ssl_conf = QSslConfiguration.defaultConfiguration()
+                # If certificates are missing in EXE, we might need to ignore errors
+                ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
+                self.ws.setSslConfiguration(ssl_conf)
+                
+                self.ws.open(QUrl(url))
+                logger.info("[RJPQ] ws.open() called, waiting for state change...")
+            except Exception as e:
+                logger.error(f"[RJPQ] WebSocket opening crash prevented: {e}")
+        
+        # ALWAYS handle ws operation on its owner thread (Main UI Thread)
+        QTimer.singleShot(0, _do_connect)
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
         if self.ws:
-            self.ws.close()
+            QTimer.singleShot(0, self.ws.close)
 
     def on_connected(self):
-        logger.info("[RJPQ] Connected to server!")
+        logger.info("[RJPQ] WebSocket Connected! Handshaking...")
         self.is_connected = True
         self.status_changed.emit(True)
         self.reconnect_timer.stop()
