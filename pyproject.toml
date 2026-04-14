@@ -1,6 +1,6 @@
 [project]
 name = "artale-agent"
-version = "0.2.16"
+version = "0.3.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,6 +13,8 @@ dependencies = [
     "pytesseract==0.3.13",
     "windows-capture==1.5.0; sys_platform == 'win32'",
     "pywin32==311; sys_platform == 'win32'",
+    "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
     "sentry-sdk==2.57.0",
     "sip",
     "certifi==2026.2.25",
