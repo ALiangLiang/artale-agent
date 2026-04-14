@@ -57,5 +57,12 @@
   "exp_offset": [
     0,
     0
+  ],
+  "show_exp": false,
+  "show_money_log": true,
+  "show_debug": false,
+  "rjpq_offset": [
+    -400,
+    0
   ]
 }
