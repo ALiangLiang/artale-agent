@@ -162,10 +162,12 @@ class ArtaleOverlay(QWidget):
         self.current_lv = None 
         self.last_confirmed_lv = None # To detect level up
         self.exp_rate_history = [] # Rolling 10m rates for the graph
+        self.money_rate_history = [] # Rolling 10m money rates
         self.exp_tracker_event = threading.Event()
         self._tesseract_error_shown = False
         self.last_crop_info = None
         self.last_lv_crop_info = None
+        self.last_graph_sample_time = 0
         
         self.timer_request.connect(self.timer_manager.start_timer)
         self.clear_request.connect(self.timer_manager.clear_all)
@@ -763,10 +765,9 @@ class ArtaleOverlay(QWidget):
                 # 2. Coin Recognition (With ROI to avoid static UI icons)
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
                     try:
-                        # Search only in central area (Avoid status bars and inventory corners)
-                        roi_y1, roi_y2 = int(h * 0.1), int(h * 0.85)
-                        roi_x1, roi_x2 = int(w * 0.1), int(w * 0.9)
-                        img_roi = img[roi_y1:roi_y2, roi_x1:roi_x2]
+                        # Search entire screen for the coin icon (user moves inventory)
+                        img_roi = img
+                        roi_x1, roi_y1 = 0, 0
                         
                         tpl_h, tpl_w = self.coin_tpl.shape[:2]
                         st_w = int(tpl_w * scale); st_h = int(tpl_h * scale)
@@ -774,11 +775,12 @@ class ArtaleOverlay(QWidget):
                             tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
                             res = cv2.matchTemplate(img_roi, tpl_resized, cv2.TM_CCOEFF_NORMED)
                             _, max_val, _, max_loc = cv2.minMaxLoc(res)
-                            if max_val > 0.8:
+                            if max_val > 0.7:
                                 # Adjust coords back to full image
                                 real_x, real_y = max_loc[0] + roi_x1, max_loc[1] + roi_y1
                                 
                                 self.last_coin_pos = (real_x - off_x, real_y - off_y, st_w, st_h)
+                                self.last_coin_match_conf = max_val # Store confidence
                                 info_w = int(280 * scale); info_h = int(31 * scale)
                                 info_ix = real_x + st_w + int(30 * scale)
                                 info_iy = real_y + (st_h // 2) - (info_h // 2) + int(1 * scale)
@@ -921,6 +923,7 @@ class ArtaleOverlay(QWidget):
                         self._exp_tracker_active = False
                     
                     logger.info(f"[ExpTracker] Starting session for HWND {target_hwnd}")
+                    self.last_target_hwnd = target_hwnd # Store for paintEvent
                     
                     self._exp_tracker_active = True
                     capture.start_free_threaded()
@@ -1136,11 +1139,16 @@ class ArtaleOverlay(QWidget):
              self.max_10m_exp = self.ten_min_gain
         
         # Update Rate History for Graph (Sampling every 5 second)
-        if not hasattr(self, 'last_graph_sample_time'): self.last_graph_sample_time = 0
         if now - self.last_graph_sample_time >= 5:
             # Store PER MINUTE gain (10m gain / 10)
             self.exp_rate_history.append(self.ten_min_gain / 10.0)
+            
+            # Use money_10m for the yellow line
+            m_gain_10m = self.current_exp_data.get("money_10m", 0)
+            self.money_rate_history.append(m_gain_10m / 10.0)
+            
             if len(self.exp_rate_history) > 40: self.exp_rate_history.pop(0)
+            if len(self.money_rate_history) > 40: self.money_rate_history.pop(0)
             self.last_graph_sample_time = now
         
         # 3. Level up estimation (New High-Precision Algorithm)
@@ -1244,47 +1252,7 @@ class ArtaleOverlay(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # 0. Draw Debug Coin Location
-        if self.show_debug and hasattr(self, 'last_coin_pos') and self.last_coin_pos:
-            try:
-                for name in ["MapleStory Worlds-Artale (繁體中文版)", "MapleStory Worlds-Artale"]:
-                    hwnd = win32gui.FindWindow(None, name)
-                    if hwnd:
-                        cx, cy, cw, ch = self.last_coin_pos
-                        # Convert client coords to global screen coords (Physical)
-                        screen_pt = win32gui.ClientToScreen(hwnd, (cx, cy))
-                        
-                        # High DPI Correct:
-                        dpr = self.screen().devicePixelRatio()
-                        # Map physical global to logical global, then subtract virtual desktop top-left
-                        v_rect = QApplication.primaryScreen().virtualGeometry()
-                        px = (screen_pt[0] / dpr) - v_rect.x()
-                        py = (screen_pt[1] / dpr) - v_rect.y()
-                        lw, lh = cw / dpr, ch / dpr
-                        
-                        painter.setPen(QPen(QColor(255, 255, 0, 200), 2))
-                        painter.drawRect(int(px), int(py), int(lw), int(lh))
-                        painter.setPen(QColor(255, 255, 0))
-                        painter.drawText(int(px), int(py - 5), "🪙 Coin")
-                        
-                        # Draw Secondary Box (Cyan for distinction)
-                        if hasattr(self, 'last_coin_info_pos') and self.last_coin_info_pos:
-                            ix, iy, iw, ih = self.last_coin_info_pos
-                            # Convert to global (same as above)
-                            info_pt = win32gui.ClientToScreen(hwnd, (ix, iy))
-                            ipx = (info_pt[0] / dpr) - v_rect.x()
-                            ipy = (info_pt[1] / dpr) - v_rect.y()
-                            liw, lih = iw / dpr, ih / dpr
-                            
-                            painter.setPen(QPen(QColor(0, 255, 255, 180), 2)) # Cyan box
-                            painter.drawRect(int(ipx), int(ipy), int(liw), int(lih))
-                            if hasattr(self, 'last_coin_ocr') and self.last_coin_ocr:
-                                painter.setPen(QColor(0, 255, 255))
-                                painter.drawText(int(ipx), int(ipy - 5), f"Value: {self.last_coin_ocr}")
-                        break
-            except: pass
-
-        # 0. Draw EXP Statistics Panel (Top Left)
+        # 1. Draw EXP Statistics Panel (Top Left)
         if self.show_exp_panel:
             self.draw_exp_panel(painter)
             
@@ -1399,7 +1367,7 @@ class ArtaleOverlay(QWidget):
             color = QColor(255, 100, 100, self.msg_opacity) if "F12" in self.msg_text else QColor(255, 215, 0, self.msg_opacity)
             painter.setPen(color); painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
 
-        if not self.timer_manager.active_timers and not self.show_preview: return
+        if not self.timer_manager.active_timers and not self.show_preview and not self.show_debug: return
 
         timers_to_draw = []
         if self.timer_manager.active_timers:
@@ -1443,6 +1411,39 @@ class ArtaleOverlay(QWidget):
             painter.setPen(QPen(QColor(0,0,0,200), 4)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
             painter.setPen(QPen(color, 2)); painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
+
+        # --- FINAL LAYER: Debug Overlays (Drawn last to stay on top) ---
+        if self.show_debug:
+            painter.setPen(QColor(255, 0, 0))
+            painter.drawText(20, 60, f"[DEBUG MODE ACTIVE] HWND: {getattr(self, 'last_target_hwnd', 'None')}")
+
+            if hasattr(self, 'last_coin_pos') and self.last_coin_pos:
+                try:
+                    hwnd = getattr(self, 'last_target_hwnd', None)
+                    if hwnd and win32gui.IsWindow(hwnd):
+                        cx, cy, cw, ch = self.last_coin_pos
+                        pt_raw = win32gui.ClientToScreen(hwnd, (cx, cy))
+                        dpr = self.screen().devicePixelRatio() if self.screen() else 1.0
+                        logical_pt = QPoint(int(pt_raw[0]/dpr), int(pt_raw[1]/dpr))
+                        local_pt = self.mapFromGlobal(logical_pt)
+                        
+                        painter.setPen(QPen(QColor(255, 255, 0, 200), 2))
+                        painter.drawRect(int(local_pt.x()), int(local_pt.y()), int(cw/dpr), int(ch/dpr))
+                        conf_val = getattr(self, 'last_coin_match_conf', 0)
+                        painter.setPen(QColor(255, 255, 0))
+                        painter.drawText(local_pt.x(), local_pt.y() - 5, f"Coin ({int(conf_val*100)}%)")
+                        
+                        if hasattr(self, 'last_coin_info_pos') and self.last_coin_info_pos:
+                            ix, iy, iw, ih = self.last_coin_info_pos
+                            ipt_raw = win32gui.ClientToScreen(hwnd, (ix, iy))
+                            ilogical_pt = QPoint(int(ipt_raw[0]/dpr), int(ipt_raw[1]/dpr))
+                            ilocal_pt = self.mapFromGlobal(ilogical_pt)
+                            painter.setPen(QPen(QColor(0, 255, 255, 180), 2))
+                            painter.drawRect(int(ilocal_pt.x()), int(ilocal_pt.y()), int(iw/dpr), int(ih/dpr))
+                            if hasattr(self, 'last_coin_ocr') and self.last_coin_ocr:
+                                painter.setPen(QColor(0, 255, 255))
+                                painter.drawText(ilocal_pt.x(), ilocal_pt.y() - 5, f"Found: {self.last_coin_ocr}")
+                except: pass
 
 
     def export_exp_report(self):
@@ -1589,9 +1590,8 @@ class ArtaleOverlay(QWidget):
         
         last_y = y # For graph positioning
 
-        # 5. Trend Graph
+        # 5. Trend Graph (Dual Line: Green EXP, Yellow Money)
         if len(self.exp_rate_history) > 1:
-            max_points = 40
             gh = 50 if is_export else 40; gw = pw - 30
             gx = px + 15; gy = last_y + (15 if is_export else 10)
             
@@ -1599,35 +1599,44 @@ class ArtaleOverlay(QWidget):
             painter.setBrush(QColor(255, 255, 255, 5))
             painter.drawRoundedRect(gx, gy, gw, gh, 4, 4)
             
-            max_v = max(self.exp_rate_history)
-            if max_v <= 0: max_v = 1
+            # Helper to draw a specialized trend line
+            def draw_line(history, color, alpha_fill):
+                if not history: return
+                max_v = max(history)
+                if max_v <= 0: max_v = 1
+                
+                path = QPainterPath()
+                max_points = 40
+                step_x = gw / (max_points - 1)
+                
+                for i, v in enumerate(history):
+                    vx = gx + i * step_x
+                    vy = gy + gh - (v / max_v * (gh - 4)) - 2
+                    if i == 0: path.moveTo(vx, vy)
+                    else: path.lineTo(vx, vy)
+                
+                # Area Fill
+                fill_path = QPainterPath(path)
+                fill_path.lineTo(gx + (len(history)-1) * step_x, gy + gh)
+                fill_path.lineTo(gx, gy + gh)
+                fill_path.closeSubpath()
+                
+                grad = QLinearGradient(gx, gy, gx, gy + gh)
+                grad.setColorAt(0, QColor(*color.getRgb()[:3], alpha_fill))
+                grad.setColorAt(1, QColor(*color.getRgb()[:3], 0))
+                painter.fillPath(fill_path, grad)
+                
+                # Stroke
+                painter.setPen(QPen(color, 2))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+            # Draw Money (Yellow) first so it stays slightly behind
+            if self.show_money_log and len(self.money_rate_history) > 1:
+                draw_line(self.money_rate_history, QColor(255, 215, 0), 40)
             
-            path = QPainterPath()
-            step_x = gw / (max_points - 1)
-            
-            for i, v in enumerate(self.exp_rate_history):
-                vx = gx + i * step_x
-                vy = gy + gh - (v / max_v * (gh - 4)) - 2 # Padding inside rect
-                if i == 0: path.moveTo(vx, vy)
-                else: path.lineTo(vx, vy)
-            
-            # --- Draw Fill (Area) ---
-            fill_path = QPainterPath(path)
-            last_idx = len(self.exp_rate_history) - 1
-            fill_path.lineTo(gx + last_idx * step_x, gy + gh)
-            fill_path.lineTo(gx, gy + gh)
-            fill_path.closeSubpath()
-            
-            # Gradient green matching the theme
-            grad = QLinearGradient(gx, gy, gx, gy + gh)
-            grad.setColorAt(0, QColor(100, 255, 100, 80))  # Semi-transparent green
-            grad.setColorAt(1, QColor(100, 255, 100, 0))   # Fades to transparent
-            painter.fillPath(fill_path, grad)
-            
-            # --- Draw Stroke (Line) ---
-            painter.setPen(QPen(QColor(100, 255, 100), 2)) # Solid green line
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
+            # Draw EXP (Green) on top
+            draw_line(self.exp_rate_history, QColor(100, 255, 100), 70)
 
     def draw_exp_panel(self, painter):
         if not self.show_exp_panel:
@@ -1636,9 +1645,13 @@ class ArtaleOverlay(QWidget):
         # Positional logic
         bx = self.rect().center().x() + self.exp_x_offset
         by = self.rect().center().y() + self.exp_y_offset
-        pw, ph = 330, 230 # Increased height for graph and money
+        
+        # Dynamic height based on money log (approx 55px for 2 lines)
+        ph = 250 if self.show_money_log else 195
+        pw = 330
+        
         # Right Aligned: bx is the right edge
-        panel_rect = QRect(bx - pw, by - 120 - ph // 2, pw, ph)
+        panel_rect = QRect(bx - pw, by - 130 - ph // 2, pw, ph)
         px, py = panel_rect.x(), panel_rect.y()
         
         # 1. Background
