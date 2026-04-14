@@ -24,6 +24,7 @@ python -m PyInstaller `
     --hidden-import "win32file" `
     --hidden-import "PyQt6.QtWebSockets" `
     --hidden-import "sip" `
+    --collect-all "PyQt6" `
     --clean `
     --noconsole `
     --noupx `

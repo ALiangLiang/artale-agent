@@ -8,7 +8,19 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 from PyQt6.QtWebSockets import QWebSocket
-from PyQt6.QtNetwork import QAbstractSocket
+from PyQt6.QtNetwork import QAbstractSocket, QSslSocket
+
+# Check SSL Support at module level
+try:
+    ssl_ok = QSslSocket.supportsSsl()
+    import logging
+    temp_logger = logging.getLogger("Artale")
+    temp_logger.info(f"[RJPQ] Qt6 SSL Support: {ssl_ok}")
+    if ssl_ok:
+        temp_logger.info(f"[RJPQ] SSL Library Build: {QSslSocket.sslLibraryBuildVersionString()}")
+        temp_logger.info(f"[RJPQ] SSL Library Runtime: {QSslSocket.sslLibraryVersionString()}")
+except Exception as e:
+    pass
 
 # --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
