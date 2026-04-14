@@ -1484,7 +1484,8 @@ class ArtaleOverlay(QWidget):
             win32gui.EnumWindows(callback, None)
         except Exception as e:
             # Error 2 or 1400 are common during window transitions, log only other errors
-            if not any(err in str(e) for err in [" (2, ", " (1400, "]):
+            err_str = str(e)
+            if not any(code in err_str for code in ["(2,", "(1400,"]):
                 logger.debug(f"[Overlay] Window search failed: {e}")
             self.game_hwnd = None
         
@@ -2120,7 +2121,7 @@ class ArtaleOverlay(QWidget):
                     
                 except Exception as e:
                     err_msg = str(e)
-                    if "0x80070490" in err_msg:
+                    if "0x80070490" in err_msg or any(code in err_msg for code in [" 2,", " 1400,", "(2,", "(1400,"]):
                         # Common API error when window is transitionary/hidden, retry silently
                         pass
                     else:
