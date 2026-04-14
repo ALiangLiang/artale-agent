@@ -10,18 +10,6 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt6.QtWebSockets import QWebSocket
 from PyQt6.QtNetwork import QAbstractSocket, QSslSocket
 
-# Check SSL Support at module level
-try:
-    ssl_ok = QSslSocket.supportsSsl()
-    import logging
-    temp_logger = logging.getLogger("Artale")
-    temp_logger.info(f"[RJPQ] Qt6 SSL Support: {ssl_ok}")
-    if ssl_ok:
-        temp_logger.info(f"[RJPQ] SSL Library Build: {QSslSocket.sslLibraryBuildVersionString()}")
-        temp_logger.info(f"[RJPQ] SSL Library Runtime: {QSslSocket.sslLibraryVersionString()}")
-except Exception as e:
-    pass
-
 # --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
     sync_received = pyqtSignal(list)
@@ -33,6 +21,14 @@ class RJPQSyncClient(QObject):
 
     def __init__(self):
         super().__init__()
+        # Check SSL Support locally so it shows in log
+        try:
+            ssl_ok = QSslSocket.supportsSsl()
+            logger.info(f"[RJPQ] Qt6 SSL Support: {ssl_ok}")
+            if ssl_ok:
+                logger.info(f"[RJPQ] SSL Library: {QSslSocket.sslLibraryVersionString()}")
+        except: pass
+
         self.ws = QWebSocket()
         self.ws.connected.connect(self.on_connected)
         self.ws.disconnected.connect(self.on_disconnected)

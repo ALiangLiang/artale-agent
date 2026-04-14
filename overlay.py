@@ -1483,8 +1483,10 @@ class ArtaleOverlay(QWidget):
                 return True
             win32gui.EnumWindows(callback, None)
         except Exception as e:
-            logger.debug(f"[Overlay] Window search failed: {e}")
-            hwnd = 0
+            # Error 2 or 1400 are common during window transitions, log only other errors
+            if not any(err in str(e) for err in [" (2, ", " (1400, "]):
+                logger.debug(f"[Overlay] Window search failed: {e}")
+            self.game_hwnd = None
         
         if hwnd:
             try:

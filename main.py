@@ -300,7 +300,7 @@ def run_app():
     logger.info(f"--- Artale Agent Initializing (Log: {log_file}) ---")
 
     # --- Initialize Sentry (Only in bundled/production mode) ---
-    if getattr(sys, 'frozen', True):
+    if getattr(sys, 'frozen', False):
         sentry_sdk.init(
             dsn="https://b120418a69ec5d8ccd74a0bb4d2acacf@o4511210222452736.ingest.us.sentry.io/4511210254565376",
             integrations=[
