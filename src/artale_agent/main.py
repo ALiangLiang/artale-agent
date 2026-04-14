@@ -78,7 +78,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # 連按偵測狀態 (用於 F1-F9 配置切換)
     last_key = None
     last_time = 0
-    DOUBLE_PRESS_DELAY = 0.35  # 秒
+    double_press_delay = 0.35  # 秒
     is_globally_enabled = True
 
     def update_local_config():
@@ -187,7 +187,7 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             if k_name and k_name.startswith("f") and len(k_name) <= 3:
                 f_num = k_name[1:]
                 if f_num.isdigit() and 1 <= int(f_num) <= 8:
-                    if last_key == k_name and (now - last_time) < DOUBLE_PRESS_DELAY:
+                    if last_key == k_name and (now - last_time) < double_press_delay:
                         # 成功！切換配置
                         p_key = f"F{f_num}"
                         config = ConfigManager.load_config()

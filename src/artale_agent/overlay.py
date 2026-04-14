@@ -689,7 +689,6 @@ class ArtaleOverlay(QWidget):
         for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
             x_pos = block_start_x + idx * spacing + (spacing // 2)
             block_center = QPoint(x_pos, block_center_y)
-            icon_size = 40
             icon_rect = QRect(block_center.x() - 20, block_center.y() - 45, 40, 40)
             text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
             
@@ -901,7 +900,6 @@ class ArtaleOverlay(QWidget):
         font.setPointSize(12 if is_export else 11)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
-        fm = painter.fontMetrics()
 
         lbl_ttl = "升級預計還需: "
         painter.drawText(px + 15, y, lbl_ttl)
