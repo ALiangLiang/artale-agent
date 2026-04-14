@@ -48,7 +48,6 @@ from settings_window import SettingsWindow
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager
 from utils import VERSION, REPO_URL, resource_path, ConfigManager
 
 # Tesseract Portable Setup (LOCAL ONLY)
@@ -87,16 +86,6 @@ def get_tess_cmd():
 
 if pytesseract:
     pytesseract.pytesseract.tesseract_cmd = get_tess_cmd()
-
-# Using resource_path from utils.py (imported above)
-
-# ConfigManager moved to utils.py
-
-# PositionHandle and IconSelectorDialog moved to skill_timer.py
-
-# SettingsWindow moved to settings_window.py
-
-# SettingsWindow moved to settings_window.py
 
 class ArtaleOverlay(QWidget):
     # 1080p Calibration Reference (Bottom-Left Anchored)
@@ -1617,7 +1606,7 @@ class ArtaleOverlay(QWidget):
         self._draw_exp_content(painter, px, py, pw, ph, is_export=False)
 
         # 1.5 Title & Level
-        # (Content moved to _draw_exp_content)
+        pass
         
 
 
