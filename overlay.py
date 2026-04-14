@@ -289,13 +289,28 @@ class ArtaleOverlay(QWidget):
         def _check():
             try:
                 import urllib.request, json, webbrowser
-                url = f"https://api.github.com/repos/{REPO_URL}/releases/latest"
+                url = f"https://api.github.com/repos/{REPO_URL}/releases"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
-                    data = json.loads(response.read().decode())
-                    latest_tag = data.get("tag_name", VERSION)
+                    releases = json.loads(response.read().decode())
+                    if not isinstance(releases, list): return
+                    
+                    # Search for the latest non-alpha/beta release
+                    latest_release = None
+                    for r in releases:
+                        tag = r.get("tag_name", "")
+                        # Skip if it is a pre-release OR has alpha/beta in tag name
+                        is_pre = r.get("prerelease", False)
+                        if is_pre or "-alpha" in tag.lower() or "-beta" in tag.lower():
+                            continue
+                        latest_release = r
+                        break
+                    
+                    if not latest_release: return
+                    latest_tag = latest_release.get("tag_name", VERSION)
+                    
                     if latest_tag != VERSION:
-                        html_url = data.get("html_url", f"https://github.com/{REPO_URL}/releases")
+                        html_url = latest_release.get("html_url", f"https://github.com/{REPO_URL}/releases")
                         self.update_found.emit(latest_tag, html_url)
                         msg = f"✨ 發現新版本: {latest_tag}！請下載更新"
                         self.notification_request.emit(msg)

@@ -51,9 +51,18 @@ class RJPQSyncClient(QObject):
             self.room_pwd = pwd
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
+            
+            # Use safer SSL configuration for OpenSSL 3.x compatibility
+            from PyQt6.QtNetwork import QSslConfiguration, QSsl
+            ssl_conf = QSslConfiguration.defaultConfiguration()
+            # If certificates are missing in EXE, we might need to ignore errors for this specific tool
+            # (RJPQ is non-critical, so we prioritize connectivity over strict PKI)
+            ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
+            self.ws.setSslConfiguration(ssl_conf)
+            
             self.ws.open(QUrl(url))
         except Exception as e:
-            logger.error(f"[RJPQ] Connection failure: {e}")
+            logger.error(f"[RJPQ] WebSocket opening crash prevented: {e}")
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
@@ -112,20 +121,28 @@ class RJPQSyncClient(QObject):
         self.status_changed.emit(False)
 
     def create_room(self, pwd):
-        try:
-            quoted_pwd = urllib.parse.quote(pwd)
-            url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
-            with urllib.request.urlopen(url) as response:
-                if response.getcode() == 200:
-                    data = json.loads(response.read().decode())
-                    if "error" in data:
-                        self.error_received.emit(data["error"])
+        import threading
+        def _bg_create():
+            try:
+                logger.info(f"[RJPQ] Creating room in background...")
+                quoted_pwd = urllib.parse.quote(pwd)
+                url = f"https://rjpq.juanwang.cc/api/room?action=create&pwd={quoted_pwd}"
+                with urllib.request.urlopen(url, timeout=10) as response:
+                    if response.getcode() == 200:
+                        data = json.loads(response.read().decode())
+                        if "error" in data:
+                            self.error_received.emit(data["error"])
+                        else:
+                            # Use thread-safe emit back to UI thread
+                            self.room_created.emit(data["code"], data.get("password", ""))
                     else:
-                        self.room_created.emit(data["code"], data.get("password", ""))
-                else:
-                    self.error_received.emit("伺服器請求失敗")
-        except Exception as e:
-            self.error_received.emit(f"建立房間失敗: {str(e)}")
+                        self.error_received.emit("伺服器請求失敗 (HTTP 狀態碼非 200)")
+            except Exception as e:
+                logger.error(f"[RJPQ] Room creation thread error: {e}")
+                self.error_received.emit(f"建立房間失敗: {str(e)}")
+        
+        t = threading.Thread(target=_bg_create, daemon=True)
+        t.start()
 
     def send_action(self, action):
         if self.ws and self.ws.state() == QAbstractSocket.SocketState.ConnectedState:

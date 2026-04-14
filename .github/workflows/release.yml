@@ -19,6 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.get_data.outputs.VERSION }}
       new_tag: ${{ steps.check_tag.outputs.exists == 'false' }}
+      is_prerelease: ${{ steps.get_data.outputs.PRERELEASE }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,6 +33,12 @@ jobs:
           VERSION=$(head -n 1 VERSION | tr -d '\r' | xargs)
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           
+          # Detect if it's prerelease (contains -alpha or -beta)
+          if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-beta"* ]]; then
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
           # Extract message from 2nd line onwards
           MESSAGE=$(tail -n +2 VERSION | tr -d '\r')
           if [ -z "$MESSAGE" ]; then 
@@ -100,6 +107,6 @@ jobs:
           tag_name: ${{ needs.tag.outputs.version || github.ref_name }}
           name: Release ${{ needs.tag.outputs.version || github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ needs.tag.outputs.is_prerelease == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
