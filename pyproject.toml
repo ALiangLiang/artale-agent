@@ -36,6 +36,45 @@ dev = [
 dev = "artale_agent.main:run_app"
 clean = "artale_agent.cli:clean"
 build-win = "artale_agent.cli:build_win"
+build-mac = "artale_agent.cli:build_mac"
 
 [tool.uv]
 package = true
+
+
+lint = [
+    "ruff>=0.14.3",
+]
+
+[tool.ruff]
+indent-width = 4
+include = ["pyproject.toml", "src/**/*.py"]
+exclude = [
+    ".venv",
+]
+target-version = "py312"
+src=["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "N", "I", "UP", "YTT", "PT", "FAST", "LOG", "G"]
+ignore = ["E203"]
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# Exclude __init__.py
+exclude = ["__init__.py"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 250

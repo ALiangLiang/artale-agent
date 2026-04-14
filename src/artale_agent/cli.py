@@ -69,3 +69,45 @@ def build_win():
     result = subprocess.run(cmd, cwd=root)
 
     exit(result.returncode)
+
+
+def build_mac():
+    if sys.platform != "darwin":
+        print("Not macOS environment.")
+        exit(1)
+
+    root = Path(_project_root())
+
+    # 1. Kill process (macOS)
+    subprocess.run(
+        ["pkill", "-f", "ArtaleAgent"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # 2. Clean
+    clean()
+
+    # 3. PyInstaller command
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--onefile",
+        "--name", "ArtaleAgent",
+        "--add-data", "assets/buff_pngs:buff_pngs",
+        "--add-data", "assets/app_icon.png:.",
+        "--add-data", "assets/coin.png:.",
+        "--add-data", "VERSION:.",
+        "--paths", "src",
+        "--hidden-import", "psutil",
+        "--hidden-import", "pynput.keyboard._darwin",
+        "--hidden-import", "PyQt6.QtWebSockets",
+        "--hidden-import", "sip",
+        "--collect-all", "PyQt6",
+        "--clean",
+        "--noconsole",
+        "--noupx",
+        "src/artale_agent/main.py",
+    ]
+
+    result = subprocess.run(cmd, cwd=root)
+    exit(result.returncode)
