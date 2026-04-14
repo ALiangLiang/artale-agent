@@ -4,6 +4,7 @@ import os
 import subprocess
 import threading
 from collections.abc import Callable
+from typing import override
 
 import cv2
 import numpy as np
@@ -67,6 +68,7 @@ def _bounds_to_xywh(bounds: dict) -> tuple[int, int, int, int]:
 class MacWindowManager(WindowManager):
     """macOS implementation of WindowManager using CGWindowList APIs."""
 
+    @override
     def find_game_window(
         self, title_pattern: str, process_name: str
     ) -> WindowInfo | None:
@@ -103,6 +105,7 @@ class MacWindowManager(WindowManager):
 
         return None
 
+    @override
     def get_client_rect(self, window_id: int) -> tuple[int, int, int, int]:
         win = _find_window_dict(window_id)
         if win is None:
@@ -110,6 +113,7 @@ class MacWindowManager(WindowManager):
         bounds = win.get("kCGWindowBounds", {})
         return _bounds_to_xywh(bounds)
 
+    @override
     def is_minimized(self, window_id: int) -> bool:
         win = _find_window_dict(window_id)
         if win is None:
@@ -119,19 +123,23 @@ class MacWindowManager(WindowManager):
         h = int(bounds.get("Height", 0))
         return w == 0 or h == 0
 
+    @override
     def is_maximized(self, window_id: int) -> bool:
         # macOS does not have the same maximize concept as Windows.
         return False
 
+    @override
     def is_valid(self, window_id: int) -> bool:
         return _find_window_dict(window_id) is not None
 
+    @override
     def get_window_title(self, window_id: int) -> str:
         win = _find_window_dict(window_id)
         if win is None:
             return ""
         return win.get("kCGWindowName") or ""
 
+    @override
     def client_to_screen(self, window_id: int, x: int, y: int) -> tuple[int, int]:
         # kCGWindowBounds is already in global screen coordinates on macOS.
         win = _find_window_dict(window_id)
@@ -158,6 +166,7 @@ class MacScreenCapture(ScreenCapture):
         self._thread: threading.Thread | None = None
         self._active = False
 
+    @override
     def start(
         self, window_info: WindowInfo, on_frame: Callable[[np.ndarray], None]
     ) -> None:
@@ -181,12 +190,14 @@ class MacScreenCapture(ScreenCapture):
         self._thread = threading.Thread(target=_capture_loop, daemon=True)
         self._thread.start()
 
+    @override
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             self._thread = None
 
+    @override
     def is_active(self) -> bool:
         return self._active
 
@@ -247,6 +258,7 @@ class MacFocusTracker(FocusTracker):
         self._target: str = ""
         self._observer: object | None = None
 
+    @override
     def start(self, target_process_name: str) -> None:
         self._target = target_process_name
 
@@ -270,6 +282,7 @@ class MacFocusTracker(FocusTracker):
         )
         self._observer = notification_center
 
+    @override
     def stop(self) -> None:
         if self._observer is not None:
             try:
@@ -278,6 +291,7 @@ class MacFocusTracker(FocusTracker):
                 pass
             self._observer = None
 
+    @override
     @property
     def is_game_active(self) -> bool:
         return self._game_active
@@ -310,6 +324,7 @@ class MacAudioPlayer(AudioPlayer):
 
     _SOUND_FILE = "/System/Library/Sounds/Tink.aiff"
 
+    @override
     def beep(self, frequency: int, duration_ms: int) -> None:
         # frequency and duration_ms are ignored; afplay plays the fixed sound.
         try:

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+from typing import override
 import sys
 import threading
 import time
@@ -464,6 +465,8 @@ class ArtaleOverlay(QWidget):
         self.show_rjpq_panel = visible
         self.update()
 
+    # --- EXP Tracker Logic ---
+    @override
     def closeEvent(self, event):
         self._is_running = False
         super().closeEvent(event)
@@ -504,6 +507,7 @@ class ArtaleOverlay(QWidget):
         else:
             self.fade_timer.stop()
 
+    @override
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

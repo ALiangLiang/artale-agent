@@ -5,6 +5,7 @@ import ctypes.wintypes
 import logging
 import os
 from collections.abc import Callable
+from typing import override
 
 import numpy as np
 import psutil
@@ -52,6 +53,7 @@ WinEventProcType = ctypes.WINFUNCTYPE(
 class WinWindowManager(WindowManager):
     """Windows implementation of WindowManager using win32gui."""
 
+    @override
     def find_game_window(
         self, title_pattern: str, process_name: str
     ) -> WindowInfo | None:
@@ -134,6 +136,7 @@ class WinWindowManager(WindowManager):
             logger.debug("[WinWindowManager] Failed to build WindowInfo: %s", e)
             return None
 
+    @override
     def get_client_rect(self, window_id: int) -> tuple[int, int, int, int]:
         """Return (x, y, width, height) of client area in screen coordinates."""
         if not win32gui:
@@ -150,6 +153,7 @@ class WinWindowManager(WindowManager):
             logger.debug("[WinWindowManager] get_client_rect failed: %s", e)
             return (0, 0, 0, 0)
 
+    @override
     def is_minimized(self, window_id: int) -> bool:
         """Check if the window is minimized."""
         if not win32gui:
@@ -160,6 +164,7 @@ class WinWindowManager(WindowManager):
         except Exception:
             return False
 
+    @override
     def is_maximized(self, window_id: int) -> bool:
         """Check if the window is maximized."""
         if not win32gui:
@@ -170,6 +175,7 @@ class WinWindowManager(WindowManager):
         except Exception:
             return False
 
+    @override
     def is_valid(self, window_id: int) -> bool:
         """Check if the window handle is still valid."""
         if not win32gui:
@@ -179,6 +185,7 @@ class WinWindowManager(WindowManager):
         except Exception:
             return False
 
+    @override
     def get_window_title(self, window_id: int) -> str:
         """Get the window title string."""
         if not win32gui:
@@ -188,6 +195,7 @@ class WinWindowManager(WindowManager):
         except Exception:
             return ""
 
+    @override
     def client_to_screen(self, window_id: int, x: int, y: int) -> tuple[int, int]:
         """Convert client-area coordinates to screen coordinates."""
         if not win32gui:
@@ -205,6 +213,7 @@ class WinScreenCapture(ScreenCapture):
     def __init__(self):
         self._active = False
 
+    @override
     def start(
         self, window_info: WindowInfo, on_frame: Callable[[np.ndarray], None]
     ) -> None:
@@ -255,10 +264,12 @@ class WinScreenCapture(ScreenCapture):
             logger.error("[WinScreenCapture] start_free_threaded failed: %s", e)
             self._active = False
 
+    @override
     def stop(self) -> None:
         """Stop the capture session."""
         self._active = False
 
+    @override
     def is_active(self) -> bool:
         """Whether the capture session is currently running."""
         return self._active
@@ -275,6 +286,7 @@ class WinFocusTracker(FocusTracker):
         self._callback = None
         self._hook = None
 
+    @override
     def start(self, target_process_name: str) -> None:
         """Start tracking focus for the given process name."""
         self._target_process = target_process_name.lower()
@@ -295,12 +307,14 @@ class WinFocusTracker(FocusTracker):
         # Check initial foreground state
         self._check_foreground()
 
+    @override
     def stop(self) -> None:
         """Stop tracking (hook is cleaned up on process exit)."""
         # No explicit unhook needed; the OS cleans up on process exit.
         # If needed in future, call user32.UnhookWinEvent(self._hook) here.
         pass
 
+    @override
     @property
     def is_game_active(self) -> bool:
         """Whether the game is currently the foreground window."""
@@ -361,6 +375,7 @@ class WinFocusTracker(FocusTracker):
 class WinAudioPlayer(AudioPlayer):
     """Windows audio player using winsound.Beep."""
 
+    @override
     def beep(self, frequency: int, duration_ms: int) -> None:
         """Play a beep tone at the given frequency for duration_ms milliseconds."""
         if not winsound:

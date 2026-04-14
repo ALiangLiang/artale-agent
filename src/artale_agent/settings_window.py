@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+from typing import override
 
 import numpy as np
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
@@ -131,6 +132,7 @@ class SettingsWindow(QWidget):
             )
             self.update_banner.setVisible(True)
 
+    @override
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_items()
@@ -429,6 +431,7 @@ class SettingsWindow(QWidget):
             "background: #552222; color: #ff5555; border: 1px solid #ff0000;"
         )
 
+    @override
     def keyPressEvent(self, event):
         key_code = event.key()
         is_escape = key_code == Qt.Key.Key_Escape

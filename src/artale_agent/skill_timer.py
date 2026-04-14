@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+from typing import override
 
 from PyQt6.QtCore import QObject, QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
@@ -179,6 +180,7 @@ class PositionHandle(QWidget):
         self._dragging = False
         self._drag_start = QPoint()
 
+    @override
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
@@ -187,12 +189,14 @@ class PositionHandle(QWidget):
             )
             event.accept()
 
+    @override
     def mouseMoveEvent(self, event):
         if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_start)
             self.emit_offset()
             event.accept()
 
+    @override
     def mouseReleaseEvent(self, event):
         self._dragging = False
         self.emit_offset()
