@@ -7,10 +7,7 @@ from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
-try:
-    from PyQt6.QtWebSockets import QWebSocket
-except ImportError:
-    QWebSocket = None
+from PyQt6.QtWebSockets import QWebSocket
 from PyQt6.QtNetwork import QAbstractSocket
 
 # --- RJPQ Sync Client ---
@@ -24,13 +21,11 @@ class RJPQSyncClient(QObject):
 
     def __init__(self):
         super().__init__()
-        self.ws = None
-        if QWebSocket is not None:
-            self.ws = QWebSocket()
-            self.ws.connected.connect(self.on_connected)
-            self.ws.disconnected.connect(self.on_disconnected)
-            self.ws.textMessageReceived.connect(self.on_message)
-            self.ws.errorOccurred.connect(self.on_error)
+        self.ws = QWebSocket()
+        self.ws.connected.connect(self.on_connected)
+        self.ws.disconnected.connect(self.on_disconnected)
+        self.ws.textMessageReceived.connect(self.on_message)
+        self.ws.errorOccurred.connect(self.on_error)
         self.room_code = ""
         self.room_pwd = ""
         self.is_connected = False
