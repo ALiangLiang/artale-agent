@@ -34,7 +34,7 @@ logging.getLogger('PIL').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
-from .utils import VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
+from .utils import VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE, _project_root
 
 # Tesseract Portable Setup (LOCAL ONLY)
 def get_tess_cmd():
@@ -55,12 +55,7 @@ def get_tess_cmd():
             return executable_path
 
     # 2. Check for local folder (for portable/dev use)
-    if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    else:
-        # In dev mode, __file__ is src/overlay.py; go up one level to project root
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local_tess = os.path.join(base_dir, "vendor", "Tesseract-OCR", "tesseract.exe")
+    local_tess = os.path.join(_project_root(), "vendor", "Tesseract-OCR", "tesseract.exe")
     if os.path.exists(local_tess):
         tess_dir = os.path.dirname(local_tess)
         if tess_dir not in os.environ["PATH"]:
