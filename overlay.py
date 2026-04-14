@@ -42,6 +42,7 @@ except ImportError:
 
 # Local imports
 from rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
+from skill_timer import IconSelectorDialog, PositionHandle, TimerManager, resource_path
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -221,139 +222,7 @@ class ConfigManager:
         with open(CONFIG_FILE, "w", encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-class IconSelectorDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("選擇技能圖示")
-        self.setFixedSize(600, 500)
-        self.selected_icon = None
-        
-        layout = QVBoxLayout(self)
-        self.setStyleSheet("""
-            QDialog { background-color: #121212; color: #e0e0e0; }
-            QTabWidget::pane { border: 1px solid #333; }
-            QTabBar::tab { background: #222; color: #888; padding: 8px 15px; }
-            QTabBar::tab:selected { background: #333; color: #ffd700; }
-            QScrollArea { border: none; background: transparent; }
-        """)
-        
-        self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
-        
-        priority = ["Warrior", "Magician", "Bowman", "Thief", "Pirate", "Common", "buff_items", "Others"]
-        
-        base_path = resource_path("buff_pngs")
-        if os.path.exists(base_path):
-            all_dirs = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d)) and d != "Gray"]
-            
-            # Sort categories by priority, then alphabetically for unknown ones
-            categories = []
-            for p in priority:
-                if p in all_dirs:
-                    categories.append(p)
-                    all_dirs.remove(p)
-            categories.extend(sorted(all_dirs))
-            
-            cat_map = {
-                "Warrior": "劍士", "Magician": "法師", "Bowman": "弓箭手",
-                "Thief": "盜賊", "Pirate": "海盜", "Common": "共通",
-                "buff_items": "消耗品", "Others": "其他"
-            }
-            
-            for cat in categories:
-                scroll = QScrollArea()
-                container = QWidget()
-                grid = QGridLayout(container)
-                grid.setSpacing(5)
-                
-                cat_path = os.path.join(base_path, cat)
-                icons = [f for f in os.listdir(cat_path) if f.endswith(".png")]
-                
-                col = 0
-                row = 0
-                for icon_file in sorted(icons):
-                    icon_path = os.path.join(cat_path, icon_file)
-                    btn = QPushButton()
-                    btn.setFixedSize(50, 50)
-                    pixmap = QPixmap(icon_path).scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    btn.setIcon(QIcon(pixmap))
-                    btn.setIconSize(QSize(40, 40))
-                    btn.setStyleSheet("QPushButton { background: #1e1e1e; border-radius: 4px; } QPushButton:hover { background: #333; border: 1px solid #ffd700; }")
-                    
-                    btn.clicked.connect(lambda checked, p=icon_path: self.select_icon(p))
-                    
-                    grid.addWidget(btn, row, col)
-                    col += 1
-                    if col >= 8:
-                        col = 0
-                        row += 1
-                
-                grid.setRowStretch(row + 1, 1)
-                container.setLayout(grid)
-                scroll.setWidget(container)
-                scroll.setWidgetResizable(True)
-                display_name = cat_map.get(cat, cat)
-                self.tabs.addTab(scroll, display_name)
-        
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(self.reject)
-        layout.addWidget(cancel_btn)
-
-    def select_icon(self, path):
-        abs_path = os.path.abspath(path)
-        base_dir = os.path.abspath(".")
-        
-        try:
-            if abs_path.lower().startswith(base_dir.lower()):
-                rel = os.path.relpath(abs_path, base_dir)
-                self.selected_icon = rel.replace("\\", "/")
-            else:
-                self.selected_icon = abs_path
-        except:
-            self.selected_icon = abs_path
-        self.accept()
-
-class PositionHandle(QWidget):
-    position_changed = pyqtSignal(int, int)
-    
-    def __init__(self, icon_path="buff_pngs/arrow.png"):
-        super().__init__()
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(60, 60)
-        
-        self.lbl = QLabel(self)
-        self.lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        real_p = resource_path(icon_path)
-        if os.path.exists(real_p):
-            self.pixmap = QPixmap(real_p).scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.lbl.setPixmap(self.pixmap)
-        
-        self.lbl.setFixedSize(60, 60)
-        self.lbl.setStyleSheet("background: rgba(255, 255, 255, 50); border: 1px dashed white; border-radius: 5px;")
-        
-        self._dragging = False
-        self._drag_start = QPoint()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._dragging = True
-            self._drag_start = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_start)
-            self.emit_offset()
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self._dragging = False
-        self.emit_offset()
-
-    def emit_offset(self):
-        gp = self.mapToGlobal(self.rect().center())
-        self.position_changed.emit(gp.x(), gp.y())
+# PositionHandle and IconSelectorDialog moved to skill_timer.py
 
 class SettingsWindow(QWidget):
     config_updated = pyqtSignal()
@@ -1255,13 +1124,13 @@ class ArtaleOverlay(QWidget):
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
         self.target_window_title = target_window_title
-        self.active_timers = {} 
+        self.timer_manager = TimerManager(self)
+        self.timer_manager.updated.connect(self.update)
         self.click_zones = {}  
-        self.is_active = False
+        self.is_active = False # For timers compat
         self.show_preview = False
         self.active_profile_name = "F1"
-        self._is_running = True # Start this early!
-        self.show_debug = False # Start this early!
+        self._is_running = True
         
         # Load configs early
         config = ConfigManager.load_config()
@@ -1279,8 +1148,8 @@ class ArtaleOverlay(QWidget):
         self.x_offset = 0; self.y_offset = 0
         self.exp_x_offset = 0; self.exp_y_offset = 0
         self.current_exp_data = {"text": "---", "value": 0, "percent": 0.0, "gained_10m": 0, "percent_10m": 0.0}
-        self.exp_history = [] # List of (timestamp, value, percent)
-        self.exp_initial_val = None # Initialize to avoid AttributeError
+        self.exp_history = [] 
+        self.exp_initial_val = None 
         self.selected_color = -1
         self.cumulative_gain = 0
         self.cumulative_pct = 0.0
@@ -1302,8 +1171,8 @@ class ArtaleOverlay(QWidget):
         self.last_crop_info = None
         self.last_lv_crop_info = None
         
-        self.timer_request.connect(self.start_timer)
-        self.clear_request.connect(self.clear_all_timers)
+        self.timer_request.connect(self.timer_manager.start_timer)
+        self.clear_request.connect(self.timer_manager.clear_all)
         self.notification_request.connect(self.show_notification)
         self.profile_switch_request.connect(self.load_profile_immediately)
         self.exp_update_request.connect(self.on_exp_update)
@@ -1321,8 +1190,7 @@ class ArtaleOverlay(QWidget):
              pass
         
         self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
-        self.countdown_timer = QTimer(self); self.countdown_timer.timeout.connect(self.update_countdown)
-        self.world_timers = {} # Keep empty or remove if not used
+        self.world_timers = {} 
         
         # Initialize ExpTracker (Only start if panel is requested on startup)
         if WindowsCapture and self.show_exp_panel:
@@ -1449,51 +1317,8 @@ class ArtaleOverlay(QWidget):
         logger.debug(f"[Debug] Overlay spans: {v_rect.x()}, {v_rect.y()} to {v_rect.width()}, {v_rect.height()}")
         self.show()
 
-    def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
-        pixmap = None
-        if icon_path:
-            # Check Absolute, Relative, and Resource paths
-            real_path = icon_path
-            if not os.path.exists(real_path):
-                real_path = resource_path(icon_path)
-            
-            if os.path.exists(real_path):
-                pixmap = QPixmap(real_path)
-                if pixmap.isNull():
-                    logger.error(f"[Timer] Failed to load icon (Malformed): {real_path}")
-                    pixmap = None
-            else:
-                logger.warning(f"[Timer] Icon not found in any search path: {icon_path}")
-        
-        self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
-        self.is_active = True
-        if not self.countdown_timer.isActive(): self.countdown_timer.start(1000)
-        self.update()
-
-    def update_countdown(self):
-        to_remove = []
-        for key in list(self.active_timers.keys()):
-            self.active_timers[key]["seconds"] -= 1
-            rem = self.active_timers[key]["seconds"]
-            sound_enabled = self.active_timers[key].get("sound_enabled", True)
-            if rem == 20 and sound_enabled: self.play_sound(1)
-            elif rem == 0: self.play_sound(2)
-            elif -10 < rem < 0: self.play_sound(1)
-            if rem <= -10: to_remove.append(key)
-        for key in to_remove:
-            if key in self.active_timers: del self.active_timers[key]
-
-        if not self.active_timers:
-            self.is_active = False; self.countdown_timer.stop()
-        self.update()
-
     def play_sound(self, times=1):
-        if not winsound: return
-        def worker():
-            for _ in range(times):
-                try: winsound.Beep(800, 150); time.sleep(0.12)
-                except Exception as e: logger.debug(f"[Sound] Beep failed: {e}")
-        threading.Thread(target=worker, daemon=True).start()
+        self.timer_manager.play_sound(times)
 
     def sync_with_game_window(self):
         # We no longer move the Overlay window; it stays full-screen on the virtual desktop.
@@ -1564,10 +1389,8 @@ class ArtaleOverlay(QWidget):
         self.update()
 
     def clear_all_timers(self, show_msg=True):
-        self.active_timers = {}; self.click_zones = {}; self.is_active = False
-        if self.countdown_timer.isActive(): self.countdown_timer.stop()
+        self.timer_manager.clear_all()
         if show_msg: self.show_notification("⚠️ 已強制關閉並重設計時器")
-        self.update()
 
     def check_left_click(self, gx, gy):
         p = QPoint(gx, gy)
@@ -1582,8 +1405,10 @@ class ArtaleOverlay(QWidget):
         p = QPoint(gx, gy)
         for key, rect in list(self.click_zones.items()):
             if rect.contains(p):
-                if key in self.active_timers: del self.active_timers[key]
-                self.update(); return True
+                if key in self.timer_manager.active_timers: 
+                    del self.timer_manager.active_timers[key]
+                    self.timer_manager.updated.emit()
+                return True
         return False
 
     def on_toggle_exp(self):
@@ -2521,11 +2346,11 @@ class ArtaleOverlay(QWidget):
             color = QColor(255, 100, 100, self.msg_opacity) if "F12" in self.msg_text else QColor(255, 215, 0, self.msg_opacity)
             painter.setPen(color); painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, self.msg_text)
 
-        if not self.active_timers and not self.show_preview: return
+        if not self.timer_manager.active_timers and not self.show_preview: return
 
         timers_to_draw = []
-        if self.active_timers:
-            sorted_active = sorted(self.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
+        if self.timer_manager.active_timers:
+            sorted_active = sorted(self.timer_manager.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
             for k, d in sorted_active: timers_to_draw.append((k, d["seconds"], d["pixmap"]))
         
         # Also include world_timers if any are active
@@ -2555,7 +2380,7 @@ class ArtaleOverlay(QWidget):
                 painter.drawPixmap(icon_rect, pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             display_seconds = max(0, seconds); text = str(display_seconds)
             color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
-            if self.show_preview and not self.active_timers: color = QColor(255, 255, 255, 150)
+            if self.show_preview and not self.timer_manager.active_timers: color = QColor(255, 255, 255, 150)
             font = QFont()
             font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
             font.setPointSize(22 if seconds > 3 else 26)
