@@ -5,12 +5,12 @@ import ctypes.wintypes
 import time
 import os
 import win32process
+import platform
 import psutil
 import win32file
 import sentry_sdk
-import threading
 
-# Force import for PyInstaller visibility
+# Force import for PyInstaller visibility and runtime thread-safety (sip.isdeleted)
 try:
     from PyQt6 import QtWebSockets, QtNetwork
     import sip
@@ -298,6 +298,7 @@ def run_app():
     )
     logger = logging.getLogger("Artale")
     logger.info(f"--- Artale Agent Initializing (Log: {log_file}) ---")
+    logger.info(f"[System] OS: {platform.platform()}")
 
     # --- Initialize Sentry (Only in bundled/production mode) ---
     if getattr(sys, 'frozen', False):

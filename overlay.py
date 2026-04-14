@@ -2075,14 +2075,24 @@ class ArtaleOverlay(QWidget):
                 except: pass
 
             if target_hwnd:
+                precise_name = win32gui.GetWindowText(target_hwnd)
                 try:
-                    precise_name = win32gui.GetWindowText(target_hwnd)
-                    capture = WindowsCapture(
-                        window_name=precise_name, 
-                        cursor_capture=False, 
-                        draw_border=False, 
-                        minimum_update_interval=1000
-                    )
+                    # Shared settings
+                    cap_config = {
+                        "window_name": precise_name,
+                        "cursor_capture": False,
+                        "minimum_update_interval": 1000
+                    }
+                    
+                    try:
+                        # Try borderless first (Win10 2004+)
+                        capture = WindowsCapture(draw_border=False, **cap_config)
+                    except Exception as e:
+                        if "Toggling the capture border is not supported" in str(e):
+                            logger.info("[ExpTracker] OS doesn't support borderless capture. Falling back.")
+                            capture = WindowsCapture(draw_border=True, **cap_config)
+                        else:
+                            raise e
                     
                     @capture.event
                     def on_frame_arrived(frame, control):

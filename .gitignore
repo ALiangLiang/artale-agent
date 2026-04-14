@@ -27,3 +27,4 @@ config.json
 Thumbs.db
 
 tmp/
+artale_agent.log
