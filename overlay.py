@@ -46,9 +46,12 @@ from skill_timer import IconSelectorDialog, PositionHandle, TimerManager
 from settings_window import SettingsWindow
 
 # Initialize logger
+logging.getLogger('pytesseract').setLevel(logging.WARNING)
+logging.getLogger('PIL').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-from utils import VERSION, REPO_URL, resource_path, ConfigManager
+# Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
+from utils import VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
 
 # Tesseract Portable Setup (LOCAL ONLY)
 def get_tess_cmd():
@@ -183,10 +186,10 @@ class ArtaleOverlay(QWidget):
         self.settings_window.timer_request.connect(self.timer_manager.start_timer)
         self.settings_window.notification_request.connect(self.show_notification)
         
-        # Explicitly connect tracking updates to settings window
-        self.exp_visual_request.connect(self.settings_window.update_debug_img)
-        self.lv_update_request.connect(self.settings_window.update_lv_debug_img)
-        self.update_found.connect(self.settings_window.show_update_banner)
+        # Explicitly connect tracking updates to settings window (Use QueuedConnection for thread safety)
+        self.exp_visual_request.connect(self.settings_window.update_debug_img, Qt.ConnectionType.QueuedConnection)
+        self.lv_update_request.connect(self.settings_window.update_lv_debug_img, Qt.ConnectionType.QueuedConnection)
+        self.update_found.connect(self.settings_window.show_update_banner, Qt.ConnectionType.QueuedConnection)
         
         # We'll use this signal for tray to talk to settings_window
         self.request_show_settings_signal = pyqtSignal()
@@ -553,36 +556,34 @@ class ArtaleOverlay(QWidget):
                         bracket_end_idx = i
         
         # 3. Two-Pass Reconstruction
-        target_h = 60
-        # Increase spacing for level back to 20 (90% conf reached previously)
-        char_spacing = 20 if bracket_idx == -1 else 30
+        # We now use a fixed 3.0x scale instead of target_h
+        scale = 3.0
+        char_spacing = 30
         
         def build_pass_canvas(boxes):
             if not boxes: return None
-            # Find max height in this pass to calculate uniform scale
-            max_h_pass = max([b[3] for b in boxes])
-            scale = target_h / max_h_pass if max_h_pass > 0 else 1.0
             
-            # Increase horizontal padding: char_spacing + extra 40px on both sides
-            total_w = sum([int(b[2] * scale) for b in boxes]) + (len(boxes) + 1) * char_spacing + 80
-            # Increase vertical padding: target_h + 120px (60px top/bot)
-            canvas = np.ones((target_h + 120, total_w), dtype=np.uint8) * 255
-            curr_x = 40 # Start with 40px left padding
+            # Pre-calculate scaled dimensions to find max height
+            scaled_dims = [(int(b[2] * scale), int(b[3] * scale)) for b in boxes]
+            max_nh = max([d[1] for d in scaled_dims])
             
-            # Baseline alignment: move characters down weight (60px top padding)
-            baseline_y = target_h + 60
+            # Increase horizontal padding: char_spacing + extra 180px (90px sides)
+            total_w = sum([d[0] for d in scaled_dims]) + (len(boxes) + 1) * char_spacing + 180
             
-            for b in boxes:
+            # Dynamic height: max character height + generous 80px (40px top/bot)
+            canvas_h = max_nh + 80 
+            canvas = np.ones((canvas_h, total_w), dtype=np.uint8) * 255
+            curr_x = 90 # Start with 90px left padding
+            
+            # Baseline alignment: Ensure we have at least 40px at bottom
+            baseline_y = max_nh + 40
+            
+            for idx, b in enumerate(boxes):
                 char = thresh_img[b[1]:b[1]+b[3], b[0]:b[0]+b[2]]
                 char_inv = cv2.bitwise_not(char)
-                nw, nh = int(b[2] * scale), int(b[3] * scale)
+                nw, nh = scaled_dims[idx]
                 if nw > 0 and nh > 0:
                     resized = cv2.resize(char_inv, (nw, nh), interpolation=cv2.INTER_CUBIC)
-                    
-                    if key == "lv":
-                        # Apply smoothing ONLY for Level (LV) as requested
-                        resized = cv2.GaussianBlur(resized, (25, 25), 0)
-                        _, resized = cv2.threshold(resized, 180, 255, cv2.THRESH_BINARY)
                     
                     y_off = baseline_y - nh
                     canvas[y_off:y_off+nh, curr_x:curr_x+nw] = resized
@@ -656,8 +657,6 @@ class ArtaleOverlay(QWidget):
         if native_conf <= 0 and any(c.isdigit() for c in ocr_text):
             native_conf = 85.0
             
-        print(f"[OCR-DEBUG-SPLIT] '{ocr_text}' | Conf: {native_conf:.1f}%")
-        
         # Apply Stability
         curr_score_attr = f"_current_score_{key}"
         if not hasattr(self, stable_img_attr):
@@ -725,6 +724,15 @@ class ArtaleOverlay(QWidget):
                 img_orig = frame.frame_buffer
                 img = cv2.cvtColor(img_orig, cv2.COLOR_BGRA2BGR)
                 h, w = img.shape[:2]
+                
+                # RESTART TRIGGER: Resolution change (Maximized/Restored)
+                if not hasattr(self, 'last_cap_w'): self.last_cap_w, self.last_cap_h = w, h
+                if abs(w - self.last_cap_w) > 10 or abs(h - self.last_cap_h) > 10:
+                    logger.info(f"[ExpTracker] Resolution changed ({self.last_cap_w}x{self.last_cap_h} -> {w}x{h}), rebuilding session...")
+                    self.last_cap_w, self.last_cap_h = w, h
+                    self._exp_tracker_active = False # SIGNAL the supervisor loop to break
+                    control.stop() 
+                    return 
                 
                 crect = win32gui.GetClientRect(target_hwnd)
                 cw_ref, ch_ref = crect[2], crect[3]
@@ -818,10 +826,13 @@ class ArtaleOverlay(QWidget):
                     gray = cv2.resize(gray, None, fx=r_e, fy=r_e, interpolation=cv2.INTER_CUBIC)
                     _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
                     
-                    text, e_conf, e_processed = self._perform_enhanced_ocr(thresh, "exp", upscale=4, whitelist="0123456789.%")
+                    text, e_conf, e_processed = self._perform_enhanced_ocr(thresh, "exp", upscale=4, whitelist="0123456789.[]%")
+                    
+                    # Always emit visual update for debug panel, even if text parsing fails
+                    if not sip.isdeleted(self):
+                        self.exp_visual_request.emit({"thresh": e_processed, "conf": e_conf})
+                        
                     if text:
-                        if not sip.isdeleted(self):
-                            self.exp_visual_request.emit({"thresh": e_processed, "conf": e_conf})
                         self.parse_and_update_exp(text, thresh, crop, e_conf)
                 
                 last_processed = now
@@ -980,6 +991,35 @@ class ArtaleOverlay(QWidget):
             if not val_str: return
             
             val = int(val_str)
+            
+            # --- Smart Cross-Validation & Level Inference ---
+            if pct_val > 0:
+                is_valid = False
+                # 1. Try current level first (Fast path)
+                if self.current_lv:
+                    try:
+                        m_lv = re.search(r'\d+', self.current_lv)
+                        if m_lv:
+                            total = EXP_TABLE.get(int(m_lv.group()))
+                            if total and abs(int(val * 10000 / total) / 100.0 - pct_val) <= 0.05:
+                                is_valid = True
+                    except: pass
+                
+                # 2. If invalid or no level, scan table to infer level
+                if not is_valid:
+                    for lvl, total in EXP_TABLE.items():
+                        if abs(int(val * 10000 / total) / 100.0 - pct_val) <= 0.05:
+                            is_valid = True
+                            if not self.current_lv or f"LV.{lvl}" != self.current_lv:
+                                logger.info(f"[ExpTracker] Level detected via EXP ratio: LV.{lvl}")
+                                self.current_lv = f"LV.{lvl}"
+                            break
+                
+                if not is_valid:
+                    if self.show_debug:
+                        logger.debug(f"[ExpTracker] Validation Failed: {val:,} and {pct_val:.2f}% don't match any known LEVEL (Skipped)")
+                    return # Data is garbage, skip update
+            
             if self.show_debug:
                 logger.debug(f"[ExpTracker] Parse OK: {val:,} [{pct_val:.2f}%]")
             
@@ -996,85 +1036,91 @@ class ArtaleOverlay(QWidget):
 
 
     def on_exp_update(self, data):
-        # Initialize session variables if needed
-        if not hasattr(self, 'exp_session_start_time'): self.exp_session_start_time = None
-        if not hasattr(self, 'exp_initial_val') or self.exp_initial_val is None: 
-            self.exp_initial_val = data["value"]
-            logger.info(f"[ExpTracker] Initial baseline: {self.exp_initial_val:,}")
-
-        # Trigger session start on first actual EXP gain
-        if self.exp_session_start_time is None and data["value"] > self.exp_initial_val:
-            self.exp_session_start_time = data["timestamp"]
-            logger.info(f"[ExpTracker] Session triggered! First gain detected.")
-
-        now = data["timestamp"]
-        current_exp = data["value"]
+        """
+        Refined EXP update handler with Level-Up validation.
+        Prevents session reset during OCR glitches (like window resize).
+        """
+        now = data.get("timestamp", time.time())
+        current_exp = data.get("value", 0)
         current_pct = data.get("percent", 0.0)
+        inferred_lv = data.get("level") # e.g. "LV.128"
         
-        # 0. Level Up Detection
-        is_lv_up = False
-        if hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
-            # If current EXP and PCT dropped significantly, it's a level up
-            if current_exp < self.last_exp_val and current_pct < (self.last_exp_pct - 10):
-                is_lv_up = True
-                logger.info(f"[ExpTracker] Level Up detected! ({self.last_exp_pct:.2f}% -> {current_pct:.2f}%)")
+        # Initialize persistent state attributes if missing
+        if not hasattr(self, 'last_exp_val'): self.last_exp_val = None
+        if not hasattr(self, 'exp_initial_val'): self.exp_initial_val = None
+        if not hasattr(self, 'exp_history'): self.exp_history = []
+        if not hasattr(self, 'cumulative_gain'): self.cumulative_gain = 0
+        if not hasattr(self, 'exp_session_start_time'): self.exp_session_start_time = None
         
-        # 0.5 Outlier / Spike Detection (USER REQUEST)
-        # If current value < last value, we might be seeing the resolution of a previous OCR spike.
-        if not is_lv_up and hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
-            if current_exp < self.last_exp_val:
-                # If current_exp is still >= the one before the last one, the last one was a spike!
-                if len(self.exp_history) >= 2:
-                    second_last_val = self.exp_history[-2][1]
-                    if current_exp >= second_last_val:
-                        fake_gain = self.last_exp_val - second_last_val
-                        logger.info(f"[ExpTracker] Correcting history: Removed spike (+{fake_gain:,}). New base: {current_exp:,}")
-                        self.exp_history.pop() # Remove spike from history
-                        self.cumulative_gain = max(0, self.cumulative_gain - fake_gain)
-                        # Corrected: Treat the one before spike as the new comparative base
-                        self.last_exp_val = second_last_val 
-                    else:
-                        # Massive drop that isn't a level up and doesn't match history -> Malformed
-                        logger.warning(f"[ExpTracker] Malformed drop ignored: {self.last_exp_val:,} -> {current_exp:,}")
-                        return
-                else:
-                    return # Not enough history to validate
-        
-        if is_lv_up:
-            # On level up, we treat the new value as the new baseline
-            self.needs_calibration = True 
-            self.exp_history = [] 
-        
-        # 1. Update baseline history
+        # 1. Handle Initial Baseline
+        if self.exp_initial_val is None:
+            self.exp_initial_val = current_exp
+            self.last_exp_val = current_exp
+            self.last_exp_pct = current_pct
+            logger.info(f"[ExpTracker] Initial baseline: {current_exp:,}")
+            return
+
+        # 2. Mathematical Validation for Level Up
+        if current_exp < self.last_exp_val - 1000:
+            # Significant drop! Check if it's a validated level up
+            # (If OCR read "7" instead of millions, it's NOT a level up)
+            is_valid_lv_up = False
+            if inferred_lv and inferred_lv != self.current_lv:
+                # Level actually changed (Inference engine agreed)
+                is_valid_lv_up = True
+            
+            if is_valid_lv_up:
+                logger.info(f"[ExpTracker] Validated Level Up: {self.current_lv} -> {inferred_lv}")
+                self.exp_initial_val = current_exp
+                self.last_exp_val = current_exp
+                self.last_exp_pct = current_pct
+                self.cumulative_gain = 0
+                self.current_lv = inferred_lv
+                self.save_current_lv_to_config(inferred_lv)
+                return
+            else:
+                # Malformed drop (likely window resize/glitch)
+                if self.show_debug:
+                    logger.warning(f"[ExpTracker] Ignored malformed EXP drop: {self.last_exp_val:,} -> {current_exp:,}")
+                return
+
+        # 3. Normal Gain Accumulation
+        v_diff = current_exp - self.last_exp_val
+        if v_diff > 0:
+            # Trigger session on first gain
+            if self.exp_session_start_time is None:
+                self.exp_session_start_time = now
+                logger.info("[ExpTracker] Session triggered! First gain detected.")
+            
+            self.cumulative_gain += v_diff
+            
+        # Update rolling history for hourly rate
         self.exp_history.append((now, current_exp, current_pct))
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         
-        # Accumulate gains ONLY when active
-        if not self.needs_calibration and hasattr(self, 'last_exp_val') and self.last_exp_val is not None:
-            v_diff = current_exp - self.last_exp_val
-            if v_diff > 0: 
-                self.cumulative_gain += v_diff
-                self.cumulative_pct += (current_pct - self.last_exp_pct)
-        
         # Update last state
-        self.needs_calibration = False
         self.last_exp_val = current_exp
         self.last_exp_pct = current_pct
+        if inferred_lv: 
+            self.current_lv = inferred_lv
         
-        # Calculate rates using sliding window
+        # Hourly rate calculation
         ten_min_ago = now - 600
         history_ten = [h for h in self.exp_history if h[0] >= ten_min_ago]
-        
         gain_10m = 0
         gain_pct_10m = 0.0
+        
         if len(history_ten) >= 2:
-            time_diff = history_ten[-1][0] - history_ten[0][0]
-            val_diff = int(history_ten[-1][1]) - int(history_ten[0][1])
+            dt = history_ten[-1][0] - history_ten[0][0]
+            dv = history_ten[-1][1] - history_ten[0][1]
             pct_diff = float(history_ten[-1][2]) - float(history_ten[0][2])
             
-            if time_diff > 5:
-                gain_10m = int((val_diff / time_diff) * 600)
-                gain_pct_10m = (pct_diff / time_diff) * 600
+            if dt > 10:
+                self.last_exp_rate_hour = int((dv / dt) * 3600)
+            
+            if dt > 5:
+                gain_10m = int((dv / dt) * 600)
+                gain_pct_10m = (pct_diff / dt) * 600
         
         self.ten_min_gain = max(0, gain_10m)
         

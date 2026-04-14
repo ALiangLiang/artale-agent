@@ -87,19 +87,34 @@ class GameFocusTracker:
         try:
             if hwnd is None:
                 hwnd = user32.GetForegroundWindow()
+            if not hwnd or hwnd <= 0:
+                self.is_game_active = False
+                return
+                
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            # Ensure PID is a positive unsigned integer (handles large PIDs correctly)
+            # Ensure PID is treated as a 32-bit unsigned integer
             pid = pid & 0xFFFFFFFF
-            if pid <= 0: return
             
-            proc = psutil.Process(pid)
+            # Sanity check: PIDs are almost never > 1,000,000 in reality
+            # Avoid passing extreme trash PIDs to psutil
+            if pid <= 0 or pid > 2**31: 
+                self.is_game_active = False
+                return
+            
+            try:
+                proc = psutil.Process(pid)
+                p_name = proc.name().lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+                self.is_game_active = False
+                return
+                
             was_active = self.is_game_active
-            self.is_game_active = (proc.name().lower() == self.TARGET_PROCESS)
+            self.is_game_active = (p_name == self.TARGET_PROCESS)
             if self.is_game_active != was_active:
                 status = "focused" if self.is_game_active else "lost focus"
                 logger.info(f"[Focus] {self.TARGET_PROCESS} {status}")
-        except Exception as e:
-            logger.error(f"[Focus] Process tracking error: {e}")
+        except Exception:
+            # Silent fallback for focus tracking to avoid console spam
             self.is_game_active = False
 
 def start_keyboard_listener(overlay, settings_window, focus_tracker):
@@ -336,12 +351,7 @@ def run_app():
     # check_network_drive()
     
     main_overlay = ArtaleOverlay()
-    settings_window = SettingsWindow(main_overlay)
-    
-    # Ship Reminder and notifications
-    settings_window.timer_request.connect(main_overlay.timer_request)
-    settings_window.notification_request.connect(main_overlay.notification_request)
-    
+    settings_window = main_overlay.settings_window
     focus_tracker = GameFocusTracker()
     
     # Tray Icon Connection

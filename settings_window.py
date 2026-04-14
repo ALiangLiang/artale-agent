@@ -56,35 +56,40 @@ class SettingsWindow(QWidget):
         # 1. Update EXP Debug Info
         if "thresh" in data:
             thresh = data["thresh"]
-            if thresh is not None:
+            if thresh is not None and thresh.size > 0:
                 h, w = thresh.shape
-                # Ensure we make a copy of the data so QImage doesn't point to invalid memory
-                q_img = QImage(thresh.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+                bytes_data = np.ascontiguousarray(thresh).tobytes()
+                q_img = QImage(bytes_data, w, h, w, QImage.Format.Format_Grayscale8).copy()
                 pixmap = QPixmap.fromImage(q_img)
-                self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                if not pixmap.isNull():
+                    self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             
             exp_conf = data.get("conf", 0)
             self.debug_exp_conf_lbl.setText(f"Conf: {exp_conf:.0f}%")
             exp_conf_color = "#51cf66" if exp_conf >= 100 else ("#ffd700" if exp_conf >= 50 else "#ff6b6b")
             self.debug_exp_conf_lbl.setStyleSheet(f"color: {exp_conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
 
-        # 2. Update Coin Debug Info
+        # ... (Coin update ...)
         if "coin" in data:
             coin_thresh = data["coin"]
-            if coin_thresh is not None:
+            if coin_thresh is not None and coin_thresh.size > 0:
                 ch, cw = coin_thresh.shape
-                q_coin = QImage(coin_thresh.data, cw, ch, cw, QImage.Format.Format_Grayscale8).copy()
+                bytes_data = np.ascontiguousarray(coin_thresh).tobytes()
+                q_coin = QImage(bytes_data, cw, ch, cw, QImage.Format.Format_Grayscale8).copy()
                 pixmap = QPixmap.fromImage(q_coin)
-                self.debug_coin_img_lbl.setPixmap(pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                if not pixmap.isNull():
+                    self.debug_coin_img_lbl.setPixmap(pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
     def update_lv_debug_img(self, data):
         if not data: return
         thresh = data.get("thresh")
-        if thresh is not None:
+        if thresh is not None and thresh.size > 0:
             h, w = thresh.shape
-            q_img = QImage(thresh.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+            bytes_data = np.ascontiguousarray(thresh).tobytes()
+            q_img = QImage(bytes_data, w, h, w, QImage.Format.Format_Grayscale8).copy()
             pixmap = QPixmap.fromImage(q_img)
-            self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            if not pixmap.isNull():
+                self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
         lv_text = data.get("level")
         lv_conf = data.get("conf", 0)
@@ -228,7 +233,6 @@ class SettingsWindow(QWidget):
         exp_pos_btn = QPushButton("📊 調整經驗值面板位置"); exp_pos_btn.setStyleSheet(btn_common_style); exp_pos_btn.clicked.connect(self.toggle_exp_handle); exp_tab_layout.addWidget(exp_pos_btn)
         export_btn = QPushButton("📸 產出成果圖 (截圖分享)"); export_btn.setStyleSheet(btn_common_style); export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None); exp_tab_layout.addWidget(export_btn)
         
-        exp_tab_layout.addStretch()
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)"); self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;"); exp_tab_layout.addWidget(self.debug_mode_cb)
         
         # --- Debug Monitoring Group ---
@@ -271,6 +275,7 @@ class SettingsWindow(QWidget):
         self.debug_layout.addWidget(self.debug_coin_info_lbl); self.debug_layout.addLayout(coin_row)
         
         exp_tab_layout.addWidget(self.debug_group)
+        exp_tab_layout.addStretch()
         
         # Initial state
         if self.overlay: 
