@@ -765,47 +765,80 @@ class ArtaleOverlay(QWidget):
                 # 2. Coin Recognition (With ROI to avoid static UI icons)
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
                     try:
-                        # Search entire screen for the coin icon (user moves inventory)
-                        img_roi = img
-                        roi_x1, roi_y1 = 0, 0
-                        
-                        tpl_h, tpl_w = self.coin_tpl.shape[:2]
-                        st_w = int(tpl_w * scale); st_h = int(tpl_h * scale)
-                        if st_w > 5 and st_h > 5:
-                            tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
-                            res = cv2.matchTemplate(img_roi, tpl_resized, cv2.TM_CCOEFF_NORMED)
-                            _, max_val, _, max_loc = cv2.minMaxLoc(res)
-                            if max_val > 0.7:
-                                # Adjust coords back to full image
-                                real_x, real_y = max_loc[0] + roi_x1, max_loc[1] + roi_y1
+                        # 2. Coin Recognition: Only scan icon if we HAVEN'T locked coordinates or if OCR is failing
+                        needs_rescan = not hasattr(self, 'last_coin_pos') or self.last_coin_pos is None
+                        # Check if last OCR was bad (we'll define self.last_money_ocr_conf)
+                        if getattr(self, 'last_money_ocr_conf', 100) < 60:
+                            needs_rescan = True
+
+                        if needs_rescan:
+                            img_roi = img
+                            roi_x1, roi_y1 = 0, 0
+                            
+                            tpl_h, tpl_w = self.coin_tpl.shape[:2]
+                            st_w = int(tpl_w * scale); st_h = int(tpl_h * scale)
+                            if st_w > 5 and st_h > 5:
+                                tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
+                                res = cv2.matchTemplate(img_roi, tpl_resized, cv2.TM_CCOEFF_NORMED)
+                                _, max_val, _, max_loc = cv2.minMaxLoc(res)
                                 
-                                self.last_coin_pos = (real_x - off_x, real_y - off_y, st_w, st_h)
-                                self.last_coin_match_conf = max_val # Store confidence
-                                info_w = int(280 * scale); info_h = int(31 * scale)
-                                info_ix = real_x + st_w + int(30 * scale)
-                                info_iy = real_y + (st_h // 2) - (info_h // 2) + int(1 * scale)
-                                self.last_coin_info_pos = (info_ix - off_x, info_iy - off_y, info_w, info_h)
+                                if max_val > 0.7:
+                                    real_x, real_y = max_loc[0] + roi_x1, max_loc[1] + roi_y1
+                                    self.last_coin_pos = (real_x - off_x, real_y - off_y, st_w, st_h)
+                                    self.last_coin_match_conf = max_val
+                                    # Reset OCR conf to "Perfect" after finding icon
+                                    self.last_money_ocr_conf = 100 
+
+                        if hasattr(self, 'last_coin_pos') and self.last_coin_pos:
+                            real_x = self.last_coin_pos[0] + off_x
+                            real_y = self.last_coin_pos[1] + off_y
+                            st_w, st_h = self.last_coin_pos[2], self.last_coin_pos[3]
+                            
+                            info_w = int(280 * scale); info_h = int(31 * scale)
+                            info_ix = real_x + st_w + int(30 * scale)
+                            info_iy = real_y + (st_h // 2) - (info_h // 2) + int(1 * scale)
+                            self.last_coin_info_pos = (info_ix - off_x, info_iy - off_y, info_w, info_h)
+                            
+                            ic_crop = img[max(0, info_iy):min(h, info_iy+info_h), max(0, info_ix):min(w, info_ix+info_w)]
+                            if ic_crop.size > 0:
+                                ic_gray = cv2.cvtColor(ic_crop, cv2.COLOR_BGR2GRAY)
+                                ic_r = 60 / ic_gray.shape[0] if ic_gray.shape[0] > 0 else 3
+                                ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_CUBIC)
+                                _, ic_thresh = cv2.threshold(ic_gray, 130, 255, cv2.THRESH_BINARY)
                                 
-                                ic_crop = img[max(0, info_iy):min(h, info_iy+info_h), max(0, info_ix):min(w, info_ix+info_w)]
-                                if ic_crop.size > 0:
-                                    ic_gray = cv2.cvtColor(ic_crop, cv2.COLOR_BGR2GRAY)
-                                    ic_r = 60 / ic_gray.shape[0] if ic_gray.shape[0] > 0 else 3
-                                    ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_CUBIC)
-                                    _, ic_thresh = cv2.threshold(ic_gray, 130, 255, cv2.THRESH_BINARY)
-                                    if self.show_debug and not sip.isdeleted(self):
-                                        self.exp_visual_request.emit({"coin": ic_thresh.copy()})
-                                    if pytesseract and pytesseract.pytesseract.tesseract_cmd:
-                                        try:
-                                            ic_padded = cv2.copyMakeBorder(ic_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
-                                            c_text = pytesseract.image_to_string(ic_padded, config='--psm 7 -c tessedit_char_whitelist=0123456789,').strip()
-                                            if c_text:
-                                                self.last_coin_ocr = c_text
-                                                val_str = c_text.replace(',', '')
-                                                if val_str.isdigit():
-                                                    m_val = int(val_str)
-                                                    if not sip.isdeleted(self): 
-                                                        self.money_update_request.emit(m_val)
-                                        except: pass
+                                # Emit debug image & confidence for UI
+                                if self.show_debug and not sip.isdeleted(self):
+                                    self.exp_visual_request.emit({
+                                        "coin": ic_thresh.copy(),
+                                        "coin_match_conf": self.last_coin_match_conf * 100,
+                                        "money_ocr_conf": self.last_money_ocr_conf
+                                    })
+                                
+                                # Perform OCR and capture confidence
+                                if pytesseract and pytesseract.pytesseract.tesseract_cmd:
+                                    try:
+                                        ic_padded = cv2.copyMakeBorder(ic_thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
+                                        ocr_data = pytesseract.image_to_data(ic_padded, output_type=pytesseract.Output.DICT, config='--psm 7 -c tessedit_char_whitelist=0123456789,')
+                                        idx_list = [i for i, text in enumerate(ocr_data['text']) if text.strip()]
+                                        if idx_list:
+                                            # Average confidence of non-empty words
+                                            self.last_money_ocr_conf = sum([float(ocr_data['conf'][i]) for i in idx_list]) / len(idx_list)
+                                            if self.last_money_ocr_conf < 60:
+                                                logger.warning(f"[MoneyTracker] Low OCR confidence ({self.last_money_ocr_conf:.1f}%), will rescan coin icon.")
+                                            
+                                            c_text = "".join([ocr_data['text'][i] for i in idx_list])
+                                            # Rest of the logic...
+                                            self.last_coin_ocr = c_text
+                                            val_str = c_text.replace(',', '')
+                                            if val_str.isdigit():
+                                                m_val = int(val_str)
+                                                if not sip.isdeleted(self): self.money_update_request.emit(m_val)
+                                        else:
+                                            self.last_money_ocr_conf = 0 # Force rescan
+                                            logger.debug("[MoneyTracker] No text found in meso area, rescanning...")
+                                    except Exception as e: 
+                                        self.last_money_ocr_conf = 0
+                                        logger.debug(f"[MoneyTracker] OCR Error: {e}")
                             else:
                                 self.last_coin_pos = None; self.last_coin_info_pos = None; self.last_coin_ocr = ""
                     except: pass

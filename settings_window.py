@@ -79,6 +79,18 @@ class SettingsWindow(QWidget):
                 pixmap = QPixmap.fromImage(q_coin)
                 if not pixmap.isNull():
                     self.debug_coin_img_lbl.setPixmap(pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            
+            # Coin Match Conf
+            cm_conf = data.get("coin_match_conf", 0)
+            self.debug_coin_conf_lbl.setText(f"Match: {cm_conf:.0f}%")
+            cm_color = "#51cf66" if cm_conf >= 85 else ("#ffd700" if cm_conf >= 70 else "#ff6b6b")
+            self.debug_coin_conf_lbl.setStyleSheet(f"color: {cm_color}; font-family: Consolas; font-weight: bold; font-size: 11px;")
+            
+            # Money OCR Conf
+            m_conf = data.get("money_ocr_conf", 0)
+            self.debug_money_conf_lbl.setText(f"OCR: {m_conf:.0f}%")
+            m_color = "#51cf66" if m_conf >= 80 else ("#ffd700" if m_conf >= 60 else "#ff6b6b")
+            self.debug_money_conf_lbl.setStyleSheet(f"color: {m_color}; font-family: Consolas; font-weight: bold; font-size: 11px;")
 
     def update_lv_debug_img(self, data):
         if not data: return
@@ -214,7 +226,7 @@ class SettingsWindow(QWidget):
         exp_info = QLabel("📊 經驗值/楓幣設定"); exp_info.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; margin-top: 10px;"); exp_tab_layout.addWidget(exp_info)
         
         self.exp_active_cb = QCheckBox("開啟經驗值監測面板 (Hotkey: F10)"); self.exp_active_cb.setStyleSheet("color: #ccc; margin-top: 10px;"); exp_tab_layout.addWidget(self.exp_active_cb)
-        self.money_active_cb = QCheckBox("開啟楓幣記錄"); self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;"); exp_tab_layout.addWidget(self.money_active_cb)
+        self.money_active_cb = QCheckBox("開啟楓幣記錄（實驗中）"); self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;"); exp_tab_layout.addWidget(self.money_active_cb)
         
         if self.overlay:
             self.exp_active_cb.setChecked(self.overlay.show_exp_panel)
@@ -271,7 +283,15 @@ class SettingsWindow(QWidget):
         self.debug_coin_img_lbl = QLabel()
         self.debug_coin_img_lbl.setFixedSize(120, 24)
         self.debug_coin_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
-        coin_row.addWidget(self.debug_coin_img_lbl); coin_row.addStretch()
+        self.debug_coin_conf_lbl = QLabel("Match: --%")
+        self.debug_coin_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
+        self.debug_money_conf_lbl = QLabel("OCR: --%")
+        self.debug_money_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
+
+        coin_row.addWidget(self.debug_coin_img_lbl)
+        coin_row.addWidget(self.debug_coin_conf_lbl)
+        coin_row.addWidget(self.debug_money_conf_lbl)
+        coin_row.addStretch()
         self.debug_layout.addWidget(self.debug_coin_info_lbl); self.debug_layout.addLayout(coin_row)
         
         exp_tab_layout.addWidget(self.debug_group)
