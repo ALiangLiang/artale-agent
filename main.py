@@ -25,6 +25,7 @@ from pynput import keyboard, mouse
 # Local imports
 import overlay
 from overlay import ArtaleOverlay, SettingsWindow, ConfigManager
+from utils import get_version
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -327,7 +328,7 @@ def run_app():
             ],
             traces_sample_rate=1.0,
             enable_logs=True,
-            release=f"artale-agent@{overlay.get_version()}"
+            release=f"artale-agent@{get_version()}"
         )
     else:
         logger.info(f"[Main] Dev mode: Sentry disabled.")
