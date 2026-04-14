@@ -37,14 +37,15 @@ class RJPQSyncClient(QObject):
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
 
     def connect_to_room(self, code, pwd):
-        if self.ws is None:
-            logging.error("[RJPQ Sync] Error: QWebSocket is not installed. Run 'pip install PyQt6-WebSockets'")
-            return
-        self.room_code = code
-        self.room_pwd = pwd
-        self.reconnect_enabled = True # Enable auto-reconnect
-        url = "wss://rjpq.juanwang.cc"
-        self.ws.open(QUrl(url))
+        try:
+            logger.info(f"[RJPQ] Connecting to room: {code}")
+            self.room_code = code
+            self.room_pwd = pwd
+            self.reconnect_enabled = True 
+            url = "wss://rjpq.juanwang.cc"
+            self.ws.open(QUrl(url))
+        except Exception as e:
+            logger.error(f"[RJPQ] Connection failure: {e}")
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
@@ -52,6 +53,7 @@ class RJPQSyncClient(QObject):
             self.ws.close()
 
     def on_connected(self):
+        logger.info("[RJPQ] Connected to server!")
         self.is_connected = True
         self.status_changed.emit(True)
         self.reconnect_timer.stop()
@@ -60,12 +62,13 @@ class RJPQSyncClient(QObject):
             self.ws.sendTextMessage(json.dumps(join_msg))
 
     def on_disconnected(self):
+        logger.info("[RJPQ] Unexpectedly disconnected from server.")
         self.is_connected = False
         self.status_changed.emit(False)
         
         # Trigger auto-reconnect if enabled
         if self.reconnect_enabled:
-            logging.info("[RJPQ Sync] Unexpectedly disconnected. Reconnecting in 3s...")
+            logger.info("[RJPQ] Reconnecting in 3s...")
             self.reconnect_timer.start(3000)
             
     def perform_reconnect(self):
@@ -90,10 +93,14 @@ class RJPQSyncClient(QObject):
                 # Silently ignore other unknown types to avoid terminal spam/errors
                 pass
         except Exception as e:
-            logging.error(f"[RJPQ Sync] Message error: {e}")
+            logger.error(f"[RJPQ] Message runtime error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def on_error(self, error):
-        logging.error(f"[RJPQ Sync] Connection error")
+        err_str = self.ws.errorString()
+        logger.error(f"[RJPQ] WebSocket Internal Error: {err_str} (Code: {error})")
+        self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
 
     def create_room(self, pwd):
@@ -338,44 +345,45 @@ class RJPQTabContent(QWidget):
             self.conn_btn.setEnabled(False)
 
     def update_status(self, connected):
-        if not hasattr(self, 'disconnect_timer'):
-            self.disconnect_timer = QTimer(self)
-            self.disconnect_timer.setSingleShot(True)
-            self.disconnect_timer.timeout.connect(self.hide_ui_on_disconnect)
+        try:
+            if not hasattr(self, 'disconnect_timer'):
+                self.disconnect_timer = QTimer(self)
+                self.disconnect_timer.setSingleShot(True)
+                self.disconnect_timer.timeout.connect(self.hide_ui_on_disconnect)
+                
+            self.create_btn.setVisible(not connected)
+            if not connected:
+                self.create_btn.setText("創建")
+                self.create_btn.setEnabled(True)
+                
+            color = "#51cf66" if connected else "#ff6b6b"
+            self.status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
             
-        self.create_btn.setVisible(not connected)
-        if not connected:
-            self.create_btn.setText("創建")
-            self.create_btn.setEnabled(True)
-            
-        color = "#51cf66" if connected else "#ff6b6b"
-        self.status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
-        
-        if connected:
-            self.disconnect_timer.stop()
-            self.conn_btn.setText("中斷")
-            self.conn_btn.setStyleSheet("QPushButton { background: #c62828; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
-            self.conn_btn.setEnabled(True)
-            
-            self.char_widget.setVisible(True)
-            if self.selected_color != -1:
-                self.grid_widget.setVisible(True)
-                # Auto-reselect character if we had one
-                QTimer.singleShot(500, lambda: self.select_char(self.selected_color))
-        else:
-            self.conn_btn.setText("連線")
-            self.conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
-            self.conn_btn.setEnabled(True)
-            
-            # If manual disconnect (reconnect disabled), hide UI immediately
-            if not self.client.reconnect_enabled:
-                self.hide_ui_on_disconnect()
-                return
+            if connected:
+                self.disconnect_timer.stop()
+                self.conn_btn.setText("中斷")
+                self.conn_btn.setStyleSheet("QPushButton { background: #c62828; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
+                self.conn_btn.setEnabled(True)
+                
+                self.char_widget.setVisible(True)
+                if self.selected_color != -1:
+                    self.grid_widget.setVisible(True)
+                    # Auto-reselect character if we had one
+                    QTimer.singleShot(500, lambda: self.select_char(self.selected_color))
+            else:
+                self.conn_btn.setText("連線")
+                self.conn_btn.setStyleSheet("QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }")
+                self.conn_btn.setEnabled(True)
+                
+                if not self.client.reconnect_enabled:
+                    self.hide_ui_on_disconnect()
+                    return
 
-            # For unintended disconnects, start 3s grace timer
-            if not self.disconnect_timer.isActive():
-                logging.info("[RJPQ Sync] Unintended disconnect. Grace period started (3s)...")
-                self.disconnect_timer.start(3000)
+                if not self.disconnect_timer.isActive():
+                    logger.info("[RJPQ] Unintended disconnect. Grace period started (3s)...")
+                    self.disconnect_timer.start(3000)
+        except Exception as e:
+            logger.error(f"[RJPQ] update_status error: {e}")
 
     def hide_ui_on_disconnect(self):
         # Only hide if we are still actually disconnected
@@ -410,26 +418,34 @@ class RJPQTabContent(QWidget):
             self.client.send_action({"type": "mark", "index": index, "color": self.selected_color})
 
     def update_grid(self, data):
-        self.current_data = data
-        char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
-        target_row = self.find_target_row()
-        
-        for i in range(40):
-            val = data[i]
-            btn = self.platform_btns[i]
-            row_i = i // 4
+        try:
+            if not data or len(data) < 40:
+                logger.warning(f"[RJPQ] Malformed grid data: {data}")
+                return
+                
+            self.current_data = data
+            char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
+            target_row = self.find_target_row()
             
-            is_target = (row_i == target_row)
-            border_style = "2px solid #ffd700" if is_target else "1px solid #333"
-            
-            if val < 4:
-                # Active state: Glow background with white text
-                btn.setStyleSheet(f"QPushButton {{ background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; }}")
-                if self.selected_color != -1 and val != self.selected_color:
-                    btn.setStyleSheet(f"QPushButton {{ background: {char_colors[val]}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; opacity: 0.6; }}")
-            else:
-                # Idle state: Darkened glass
-                btn.setStyleSheet(f"QPushButton {{ background: rgba(255,255,255,0.03); color: #444; border: {border_style}; border-radius: 4px; }}")
+            for i in range(40):
+                val = data[i]
+                btn = self.platform_btns[i]
+                row_i = i // 4
+                
+                is_target = (row_i == target_row)
+                border_style = "2px solid #ffd700" if is_target else "1px solid #333"
+                
+                if val < 4:
+                    # Active state
+                    color = char_colors[val]
+                    # If someone else marked it, make it slightly semi-transparent
+                    opacity = "1.0" if (self.selected_color == -1 or val == self.selected_color) else "0.6"
+                    btn.setStyleSheet(f"QPushButton {{ background: {color}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; opacity: {opacity}; }}")
+                else:
+                    # Idle state
+                    btn.setStyleSheet(f"QPushButton {{ background: rgba(255,255,255,0.03); color: #444; border: {border_style}; border-radius: 4px; }}")
+        except Exception as e:
+            logger.error(f"[RJPQ] update_grid error: {e}")
 
     def on_reset_clicked(self):
         reply = QMessageBox.question(self, "確認重置", "確定要重置所有標記嗎？\n這將清空全隊目前的路徑紀錄。", 

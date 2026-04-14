@@ -26,6 +26,7 @@ python -m PyInstaller `
     --hidden-import "sip" `
     --clean `
     --noconsole `
+    --noupx `
     main.py
 
 if ($LASTEXITCODE -eq 0) {

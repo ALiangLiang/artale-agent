@@ -8,6 +8,15 @@ import win32process
 import psutil
 import win32file
 import sentry_sdk
+import threading
+
+# Force import for PyInstaller visibility
+try:
+    from PyQt6 import QtWebSockets, QtNetwork
+    import sip
+except ImportError:
+    pass
+
 from sentry_sdk.integrations.logging import LoggingIntegration
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
@@ -276,12 +285,19 @@ def check_network_drive():
         logger.debug(f"[Main] Network drive check skipped or failed: {e}")
 
 def run_app():
-    # Configure standard logging to show in terminal
+    # Setup logging
+    log_file = os.path.join(os.getcwd(), "artale_agent.log")
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%H:%M:%S'
+        datefmt='%H:%M:%S',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, encoding='utf-8', mode='w')
+        ]
     )
+    logger = logging.getLogger("Artale")
+    logger.info(f"--- Artale Agent Initializing (Log: {log_file}) ---")
 
     # --- Initialize Sentry (Only in bundled/production mode) ---
     if getattr(sys, 'frozen', True):

@@ -2389,15 +2389,23 @@ class ArtaleOverlay(QWidget):
         if self.show_exp_panel:
             self.draw_exp_panel(painter)
             
-        if self.show_rjpq_panel:
-            # Multi-profile check: Use current session offsets if not reloaded yet
-            pw, ph = 180, 320
-            # Anchor (ax, ay) is Top-Right
-            ax = self.rect().center().x() + self.rjpq_x_offset
-            ay = self.rect().center().y() + self.rjpq_y_offset
-            # draw_rjpq_panel uses Top-Left as start, so start_x = ax - pw
-            draw_rjpq_panel(painter, ax - pw, ay, 
-                          pw, ph, self.base_opacity, self.rjpq_data, self.selected_color)
+        if getattr(self, "show_rjpq_panel", False):
+            try:
+                # Multi-profile check: Use current session offsets if not reloaded yet
+                pw, ph = 180, 320
+                # Anchor (ax, ay) is Top-Right
+                ax = self.rect().center().x() + self.rjpq_x_offset
+                ay = self.rect().center().y() + self.rjpq_y_offset
+                
+                # Fetch data from RJPQ client if available, else use local cache
+                data = getattr(self, "rjpq_data", [4]*40)
+                sel_color = getattr(self, "selected_color", -1)
+                
+                from rjpq_tool import draw_rjpq_panel
+                # draw_rjpq_panel uses Top-Left as start, so start_x = ax - pw
+                draw_rjpq_panel(painter, ax - pw, ay, pw, ph, self.base_opacity, data, sel_color)
+            except Exception as e:
+                logger.debug(f"[Overlay] RJPQ Panel draw failed: {e}")
             
             # --- Update Click Zones ---
             self.rjpq_click_zones = {}
