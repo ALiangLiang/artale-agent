@@ -15,7 +15,7 @@ try:
 except ImportError:
     WindowsCapture = None
 
-logger = logging.getLogger("ArtaleCapture")
+logger = logging.getLogger(__name__)
 
 class ArtaleCapture(QObject):
     """
@@ -83,12 +83,12 @@ class ArtaleCapture(QObject):
                     # 否則影格原點在視窗頂部 (wr[1])，偏移量為相對座標 (標題列高度)
                     self._session_fixed_off_y = client_tl[1] - wr[1]
                 
-                logger.info(f"[Capture] Y-Offset Locked: {self._session_fixed_off_y} (Maximized: {self._session_start_maximized}, Padding: {padding_top})")
+                logger.info("[Capture] Y-Offset Locked: %s (Maximized: %s, Padding: %s)", self._session_fixed_off_y, self._session_start_maximized, padding_top)
 
             # X 軸經測試不需要偏移 (WGC 影格左側即為內容區起點)
             return scale, 0, self._session_fixed_off_y, cw_ref, ch_ref
         except Exception as e:
-            logger.error(f"Error getting window metrics: {e}")
+            logger.error("Error getting window metrics: %s", e)
             return None
 
     def _find_target_window(self):
@@ -144,7 +144,7 @@ class ArtaleCapture(QObject):
                 
                 placement = win32gui.GetWindowPlacement(self.target_hwnd)
                 self._session_start_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
-                logger.info(f"[Capture] Starting Session. Initial Maximized: {self._session_start_maximized}")
+                logger.info("[Capture] Starting Session. Initial Maximized: %s", self._session_start_maximized)
                 
                 cap_config = {
                     "window_name": precise_name,
@@ -179,7 +179,7 @@ class ArtaleCapture(QObject):
                         scale, off_x, off_y, cw, ch = metrics
                         # 只有當偏移量發生明顯變化時才記錄日誌，避免刷屏
                         if not hasattr(self, '_last_log_metrics') or self._last_log_metrics != (off_x, off_y, cw, ch):
-                            logger.info(f"[Capture] Metrics: scale={scale:.2f}, offset=({off_x}, {off_y}), client={cw}x{ch}")
+                            logger.info("[Capture] Metrics: scale=%.2f, offset=(%s, %s), client=%sx%s", scale, off_x, off_y, cw, ch)
                             self._last_log_metrics = (off_x, off_y, cw, ch)
 
                         self.frame_arrived.emit(img, scale, off_x, off_y, cw, ch)
@@ -204,7 +204,7 @@ class ArtaleCapture(QObject):
                 # 或者如果視窗已關閉，Session 會自動結束。
                 pass
             except Exception as e:
-                logger.error(f"[Capture] Session Error: {e}")
+                logger.error("[Capture] Session Error: %s", e)
                 time.sleep(2.0)
 
     def set_active(self, active):

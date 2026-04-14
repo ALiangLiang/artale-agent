@@ -12,10 +12,10 @@ try:
 except ImportError:
     pytesseract = None
 
-logger = logging.getLogger("ArtaleOCR")
+logger = logging.getLogger(__name__)
 
 
-from data_types import LVUpdateData, ExpParsedData, ExpVisualData
+from .data_types import LVUpdateData, ExpParsedData, ExpVisualData
 
 class ArtaleOCR(QObject):
     """
@@ -52,9 +52,9 @@ class ArtaleOCR(QObject):
         if os.path.exists(tpl_path):
             self.coin_tpl = cv2.imread(tpl_path)
             if self.coin_tpl is not None:
-                logger.info(f"[OCR] Coin template loaded from {tpl_path}")
+                logger.info("[OCR] Coin template loaded from %s", tpl_path)
         else:
-            logger.warning(f"[OCR] Coin template NOT found at {tpl_path}")
+            logger.warning("[OCR] Coin template NOT found at %s", tpl_path)
 
     def perform_enhanced_ocr(self, thresh_img, key, upscale=3.0, whitelist=None):
         """
@@ -174,7 +174,7 @@ class ArtaleOCR(QObject):
                         final_texts.append("".join(txts))
                     if confs: conf_sums.extend(confs)
                 except Exception as e:
-                    logger.debug(f"[OCR] Pass Error: {e}")
+                    logger.debug("[OCR] Pass Error: %s", e)
         
         # 為除錯介面拼合畫布影像
         if len(canvases) > 1:
@@ -300,7 +300,7 @@ class ArtaleOCR(QObject):
                 ))
 
         except Exception as e:
-            logger.debug(f"[OCR] Process Frame Error: {e}")
+            logger.debug("[OCR] Process Frame Error: %s", e)
 
     def _do_single_ocr(self, img: np.ndarray, whitelist: str, psm: int = 7) -> Tuple[str, float]:
         """執行單一影像區域的 OCR"""
@@ -367,7 +367,7 @@ class ArtaleOCR(QObject):
                 
             return val_img, pct_img
         except Exception as e:
-            logger.debug(f"[OCR] Masked Split failed: {e}")
+            logger.debug("[OCR] Masked Split failed: %s", e)
         return None, None
 
     def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = 150) -> Optional[np.ndarray]:

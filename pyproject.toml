@@ -31,6 +31,9 @@ dependencies = [
 dev = [
     "pyinstaller",
 ]
+lint = [
+    "ruff>=0.14.3",
+]
 
 [project.scripts]
 dev = "artale_agent.main:run_app"
@@ -40,11 +43,6 @@ build-mac = "artale_agent.cli:build_mac"
 
 [tool.uv]
 package = true
-
-
-lint = [
-    "ruff>=0.14.3",
-]
 
 [tool.ruff]
 indent-width = 4

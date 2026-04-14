@@ -1,18 +1,18 @@
 """Windows platform implementation of the platform abstraction layer."""
 
-import logging
-import os
 import ctypes
 import ctypes.wintypes
-from typing import Optional, Callable
+import logging
+import os
+from collections.abc import Callable
 
 import numpy as np
 import psutil
 
 try:
+    import win32con
     import win32gui
     import win32process
-    import win32con
 except ImportError:
     win32gui = win32process = win32con = None
 
@@ -26,7 +26,7 @@ try:
 except ImportError:
     WindowsCapture = None
 
-from .base import WindowManager, ScreenCapture, FocusTracker, AudioPlayer, WindowInfo
+from .base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +38,23 @@ SW_SHOWMAXIMIZED = 3
 
 # Callback type for SetWinEventHook
 WinEventProcType = ctypes.WINFUNCTYPE(
-    None, ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD,
-    ctypes.wintypes.HWND, ctypes.wintypes.LONG,
-    ctypes.wintypes.LONG, ctypes.wintypes.DWORD,
-    ctypes.wintypes.DWORD
+    None,
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.DWORD,
+    ctypes.wintypes.HWND,
+    ctypes.wintypes.LONG,
+    ctypes.wintypes.LONG,
+    ctypes.wintypes.DWORD,
+    ctypes.wintypes.DWORD,
 )
 
 
 class WinWindowManager(WindowManager):
     """Windows implementation of WindowManager using win32gui."""
 
-    def find_game_window(self, title_pattern: str,
-                         process_name: str) -> Optional[WindowInfo]:
+    def find_game_window(
+        self, title_pattern: str, process_name: str
+    ) -> WindowInfo | None:
         """Find game window by title substring, with psutil process fallback."""
         if not win32gui:
             return None
@@ -76,19 +81,22 @@ class WinWindowManager(WindowManager):
         except Exception as e:
             err_str = str(e)
             if not any(code in err_str for code in ["(2,", "(1400,"]):
-                logger.debug(f"[WinWindowManager] EnumWindows failed: {e}")
+                logger.debug("[WinWindowManager] EnumWindows failed: %s", e)
 
         if not found_hwnds:
             # Fallback: search by process name via psutil
             try:
-                for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] and proc.info['name'].lower() == process_name.lower():
+                for proc in psutil.process_iter(["pid", "name"]):
+                    if (
+                        proc.info["name"]
+                        and proc.info["name"].lower() == process_name.lower()
+                    ):
                         proc_hwnds = []
 
                         def _proc_callback(hwnd, extra):
                             if win32gui.IsWindowVisible(hwnd):
                                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                                if pid == proc.info['pid']:
+                                if pid == proc.info["pid"]:
                                     extra.append(hwnd)
                             return True
 
@@ -96,11 +104,14 @@ class WinWindowManager(WindowManager):
                         if proc_hwnds:
                             # Prefer window with the longest title (usually the game window)
                             found_hwnds.append(
-                                max(proc_hwnds, key=lambda h: len(win32gui.GetWindowText(h)))
+                                max(
+                                    proc_hwnds,
+                                    key=lambda h: len(win32gui.GetWindowText(h)),
+                                )
                             )
                             break
             except Exception as e:
-                logger.debug(f"[WinWindowManager] Process fallback failed: {e}")
+                logger.debug("[WinWindowManager] Process fallback failed: %s", e)
 
         if not found_hwnds:
             return None
@@ -120,7 +131,7 @@ class WinWindowManager(WindowManager):
                 height=height,
             )
         except Exception as e:
-            logger.debug(f"[WinWindowManager] Failed to build WindowInfo: {e}")
+            logger.debug("[WinWindowManager] Failed to build WindowInfo: %s", e)
             return None
 
     def get_client_rect(self, window_id: int) -> tuple[int, int, int, int]:
@@ -136,7 +147,7 @@ class WinWindowManager(WindowManager):
             screen_x, screen_y = win32gui.ClientToScreen(window_id, (0, 0))
             return (screen_x, screen_y, width, height)
         except Exception as e:
-            logger.debug(f"[WinWindowManager] get_client_rect failed: {e}")
+            logger.debug("[WinWindowManager] get_client_rect failed: %s", e)
             return (0, 0, 0, 0)
 
     def is_minimized(self, window_id: int) -> bool:
@@ -177,15 +188,14 @@ class WinWindowManager(WindowManager):
         except Exception:
             return ""
 
-    def client_to_screen(self, window_id: int,
-                         x: int, y: int) -> tuple[int, int]:
+    def client_to_screen(self, window_id: int, x: int, y: int) -> tuple[int, int]:
         """Convert client-area coordinates to screen coordinates."""
         if not win32gui:
             return (x, y)
         try:
             return win32gui.ClientToScreen(window_id, (x, y))
         except Exception as e:
-            logger.debug(f"[WinWindowManager] client_to_screen failed: {e}")
+            logger.debug("[WinWindowManager] client_to_screen failed: %s", e)
             return (x, y)
 
 
@@ -195,11 +205,14 @@ class WinScreenCapture(ScreenCapture):
     def __init__(self):
         self._active = False
 
-    def start(self, window_info: WindowInfo,
-              on_frame: Callable[[np.ndarray], None]) -> None:
+    def start(
+        self, window_info: WindowInfo, on_frame: Callable[[np.ndarray], None]
+    ) -> None:
         """Start capturing frames from the given window."""
         if not WindowsCapture:
-            logger.warning("[WinScreenCapture] windows_capture not installed; capture disabled.")
+            logger.warning(
+                "[WinScreenCapture] windows_capture not installed; capture disabled."
+            )
             return
 
         self._active = True
@@ -216,7 +229,7 @@ class WinScreenCapture(ScreenCapture):
             if "Toggling the capture border is not supported" in str(e):
                 capture = WindowsCapture(draw_border=True, **cap_config)
             else:
-                logger.error(f"[WinScreenCapture] Failed to create capture: {e}")
+                logger.error("[WinScreenCapture] Failed to create capture: %s", e)
                 self._active = False
                 return
 
@@ -229,7 +242,7 @@ class WinScreenCapture(ScreenCapture):
                 bgr = bgr[..., :3]  # Drop alpha channel (BGRA -> BGR)
                 on_frame(bgr)
             except Exception as exc:
-                logger.debug(f"[WinScreenCapture] Frame conversion error: {exc}")
+                logger.debug("[WinScreenCapture] Frame conversion error: %s", exc)
 
         @capture.event
         def on_closed():
@@ -239,7 +252,7 @@ class WinScreenCapture(ScreenCapture):
         try:
             capture.start_free_threaded()
         except Exception as e:
-            logger.error(f"[WinScreenCapture] start_free_threaded failed: {e}")
+            logger.error("[WinScreenCapture] start_free_threaded failed: %s", e)
             self._active = False
 
     def stop(self) -> None:
@@ -258,7 +271,7 @@ class WinFocusTracker(FocusTracker):
 
     def __init__(self):
         self._is_game_active = False
-        self._target_process: Optional[str] = None
+        self._target_process: str | None = None
         self._callback = None
         self._hook = None
 
@@ -270,8 +283,13 @@ class WinFocusTracker(FocusTracker):
 
         self._callback = WinEventProcType(self._on_focus_change)
         self._hook = user32.SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
-            0, self._callback, 0, 0, WINEVENT_OUTOFCONTEXT
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            0,
+            self._callback,
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
         )
 
         # Check initial foreground state
@@ -288,8 +306,16 @@ class WinFocusTracker(FocusTracker):
         """Whether the game is currently the foreground window."""
         return self._is_game_active
 
-    def _on_focus_change(self, hWinEventHook, event, hwnd, idObject,
-                         idChild, dwEventThread, dwmsEventTime) -> None:
+    def _on_focus_change(
+        self,
+        hWinEventHook,
+        event,
+        hwnd,
+        idObject,
+        idChild,
+        dwEventThread,
+        dwmsEventTime,
+    ) -> None:
         self._check_foreground(hwnd)
 
     def _check_foreground(self, hwnd=None) -> None:
@@ -321,11 +347,11 @@ class WinFocusTracker(FocusTracker):
 
             target = self._target_process or self.TARGET_PROCESS_DEFAULT
             was_active = self._is_game_active
-            self._is_game_active = (p_name == target)
+            self._is_game_active = p_name == target
 
             if self._is_game_active != was_active:
                 status = "focused" if self._is_game_active else "lost focus"
-                logger.info(f"[WinFocusTracker] {target} {status}")
+                logger.info("[WinFocusTracker] %s %s", target, status)
 
         except Exception:
             # Silent fallback to avoid console spam
@@ -343,4 +369,4 @@ class WinAudioPlayer(AudioPlayer):
         try:
             winsound.Beep(frequency, duration_ms)
         except Exception as e:
-            logger.debug(f"[WinAudioPlayer] Beep failed: {e}")
+            logger.debug("[WinAudioPlayer] Beep failed: %s", e)

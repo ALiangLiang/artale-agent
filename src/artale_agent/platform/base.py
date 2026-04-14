@@ -1,9 +1,8 @@
 """Platform abstraction layer for cross-platform window management and screen capture."""
 
-import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional, Callable
 
 import numpy as np
 
@@ -11,6 +10,7 @@ import numpy as np
 @dataclass
 class WindowInfo:
     """Platform-agnostic window information."""
+
     window_id: int  # HWND on Windows, CGWindowID on macOS
     title: str
     pid: int
@@ -24,8 +24,9 @@ class ScreenCapture(ABC):
     """Captures frames from a specific game window."""
 
     @abstractmethod
-    def start(self, window_info: WindowInfo,
-              on_frame: Callable[[np.ndarray], None]) -> None:
+    def start(
+        self, window_info: WindowInfo, on_frame: Callable[[np.ndarray], None]
+    ) -> None:
         """Start capturing frames. on_frame receives BGR numpy arrays."""
 
     @abstractmethod
@@ -41,8 +42,9 @@ class WindowManager(ABC):
     """Finds and queries game windows."""
 
     @abstractmethod
-    def find_game_window(self, title_pattern: str,
-                         process_name: str) -> Optional[WindowInfo]:
+    def find_game_window(
+        self, title_pattern: str, process_name: str
+    ) -> WindowInfo | None:
         """Find game window by title substring or process name."""
 
     @abstractmethod
@@ -66,8 +68,7 @@ class WindowManager(ABC):
         """Get the window title string."""
 
     @abstractmethod
-    def client_to_screen(self, window_id: int,
-                         x: int, y: int) -> tuple[int, int]:
+    def client_to_screen(self, window_id: int, x: int, y: int) -> tuple[int, int]:
         """Convert client-area coordinates to screen coordinates."""
 
 

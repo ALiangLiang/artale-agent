@@ -22,7 +22,13 @@ else:
     raise RuntimeError(f"Unsupported platform: {sys.platform}")
 
 __all__ = [
-    "ScreenCapture", "WindowManager", "FocusTracker", "AudioPlayer",
+    "ScreenCapture",
+    "WindowManager",
+    "FocusTracker",
+    "AudioPlayer",
     "WindowInfo",
-    "ScreenCaptureImpl", "WindowManagerImpl", "FocusTrackerImpl", "AudioPlayerImpl",
+    "ScreenCaptureImpl",
+    "WindowManagerImpl",
+    "FocusTrackerImpl",
+    "AudioPlayerImpl",
 ]

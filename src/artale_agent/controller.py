@@ -5,12 +5,12 @@ import subprocess
 import threading
 from PyQt6.QtCore import QObject, Qt, QStandardPaths, QTimer
 from PyQt6.QtGui import QPixmap, QPainter
-from capture_engine import ArtaleCapture
-from ocr_engine import ArtaleOCR
-from exp_tracker import ExpTracker
-from data_types import LVUpdateData
+from .capture_engine import ArtaleCapture
+from .ocr_engine import ArtaleOCR
+from .exp_tracker import ExpTracker
+from .data_types import LVUpdateData
 
-logger = logging.getLogger("ArtaleController")
+logger = logging.getLogger(__name__)
 
 class ArtaleController(QObject):
     """
@@ -111,7 +111,7 @@ class ArtaleController(QObject):
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
-        from utils import ConfigManager
+        from .utils import ConfigManager
         
         # 1. 載入檔案
         config = ConfigManager.load_config()
@@ -129,7 +129,7 @@ class ArtaleController(QObject):
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""
-        from utils import REPO_URL, VERSION
+        from .utils import REPO_URL, VERSION
         
         def _check():
             try:
@@ -163,7 +163,7 @@ class ArtaleController(QObject):
                     else:
                         if not auto: self.overlay.notification_request.emit("✅ 目前已是最新版本")
             except Exception as e:
-                logger.debug(f"[Update] Check failed: {e}")
+                logger.debug("[Update] Check failed: %s", e)
                 if not auto: self.overlay.notification_request.emit(f"❌ 檢查失敗: {e}")
         
         threading.Thread(target=_check, daemon=True).start()

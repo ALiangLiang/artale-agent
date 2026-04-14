@@ -3,7 +3,7 @@
 import os
 import subprocess
 import threading
-from typing import Optional, Callable
+from collections.abc import Callable
 
 import cv2
 import numpy as np
@@ -13,12 +13,12 @@ from .base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowMa
 try:
     import Quartz
     from Quartz import (
+        CGRectNull,
         CGWindowListCopyWindowInfo,
         CGWindowListCreateImage,
-        kCGWindowListOptionOnScreenOnly,
         kCGNullWindowID,
         kCGWindowListOptionIncludingWindow,
-        CGRectNull,
+        kCGWindowListOptionOnScreenOnly,
     )
 except ImportError:
     Quartz = None
@@ -33,6 +33,7 @@ except ImportError:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_window_info_list(option: int, window_id: int = 0) -> list:
     """Return the raw CGWindowInfo list for the given option/window_id."""
     if Quartz is None:
@@ -42,11 +43,9 @@ def _get_window_info_list(option: int, window_id: int = 0) -> list:
     return list(result) if result else []
 
 
-def _find_window_dict(window_id: int) -> Optional[dict]:
+def _find_window_dict(window_id: int) -> dict | None:
     """Return the CGWindowInfo dict for a single on-screen window by ID."""
-    windows = _get_window_info_list(
-        kCGWindowListOptionIncludingWindow, window_id
-    )
+    windows = _get_window_info_list(kCGWindowListOptionIncludingWindow, window_id)
     return windows[0] if windows else None
 
 
@@ -64,12 +63,13 @@ def _bounds_to_xywh(bounds: dict) -> tuple[int, int, int, int]:
 # WindowManager
 # ---------------------------------------------------------------------------
 
+
 class MacWindowManager(WindowManager):
     """macOS implementation of WindowManager using CGWindowList APIs."""
 
     def find_game_window(
         self, title_pattern: str, process_name: str
-    ) -> Optional[WindowInfo]:
+    ) -> WindowInfo | None:
         own_pid = os.getpid()
         windows = _get_window_info_list(kCGWindowListOptionOnScreenOnly)
 
@@ -147,6 +147,7 @@ class MacWindowManager(WindowManager):
 # ScreenCapture
 # ---------------------------------------------------------------------------
 
+
 class MacScreenCapture(ScreenCapture):
     """macOS screen capture using CGWindowListCreateImage at ~1 FPS."""
 
@@ -154,7 +155,7 @@ class MacScreenCapture(ScreenCapture):
 
     def __init__(self) -> None:
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._active = False
 
     def start(
@@ -194,7 +195,7 @@ class MacScreenCapture(ScreenCapture):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _capture_frame(window_id: int) -> Optional[np.ndarray]:
+    def _capture_frame(window_id: int) -> np.ndarray | None:
         if Quartz is None:
             return None
 
@@ -237,13 +238,14 @@ class MacScreenCapture(ScreenCapture):
 # FocusTracker
 # ---------------------------------------------------------------------------
 
+
 class MacFocusTracker(FocusTracker):
     """Tracks whether the target game process is the frontmost application."""
 
     def __init__(self) -> None:
         self._game_active = False
         self._target: str = ""
-        self._observer: Optional[object] = None
+        self._observer: object | None = None
 
     def start(self, target_process_name: str) -> None:
         self._target = target_process_name
@@ -292,7 +294,7 @@ class MacFocusTracker(FocusTracker):
         if app is not None:
             self._game_active = self._matches(app.localizedName())
 
-    def _matches(self, app_name: Optional[str]) -> bool:
+    def _matches(self, app_name: str | None) -> bool:
         if not app_name or not self._target:
             return False
         return self._target.lower() in app_name.lower()
@@ -301,6 +303,7 @@ class MacFocusTracker(FocusTracker):
 # ---------------------------------------------------------------------------
 # AudioPlayer
 # ---------------------------------------------------------------------------
+
 
 class MacAudioPlayer(AudioPlayer):
     """macOS audio player using the system afplay utility."""
