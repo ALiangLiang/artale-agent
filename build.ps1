@@ -6,7 +6,6 @@ Stop-Process -Name "ArtaleAgent" -ErrorAction SilentlyContinue
 Write-Host "Cleaning up old build artifacts..." -ForegroundColor Cyan
 if (Test-Path "./dist") { Remove-Item -Path "./dist" -Recurse -Force }
 if (Test-Path "./build") { Remove-Item -Path "./build" -Recurse -Force }
-if (Test-Path "*.spec") { Remove-Item -Path "*.spec" -Force }
 
 # 2. Run PyInstaller
 Write-Host "Starting PyInstaller build..." -ForegroundColor Green
@@ -23,6 +22,8 @@ python -m PyInstaller `
     --hidden-import "pynput.keyboard._win32" `
     --hidden-import "win32process" `
     --hidden-import "win32file" `
+    --hidden-import "PyQt6.QtWebSockets" `
+    --hidden-import "sip" `
     --clean `
     --noconsole `
     main.py
