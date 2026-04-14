@@ -14,15 +14,11 @@ try:
 except ImportError:
     winsound = None
 
+from utils import resource_path
+
 logger = logging.getLogger(__name__)
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+# resource_path removed (now in utils.py)
 
 class IconSelectorDialog(QDialog):
     def __init__(self, parent=None):
