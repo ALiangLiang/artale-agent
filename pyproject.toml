@@ -1,0 +1,30 @@
+[project]
+name = "artale-agent"
+version = "0.2.16"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyqt6==6.11.0",
+    "opencv-python==4.13.0.92",
+    "numpy==2.2.6",
+    "psutil==7.2.2",
+    "pynput==1.8.1",
+    "pytesseract==0.3.13",
+    "windows-capture==1.5.0; sys_platform == 'win32'",
+    "pywin32==311; sys_platform == 'win32'",
+    "sentry-sdk==2.57.0",
+    "sip",
+    "certifi==2026.2.25",
+    "packaging==26.0",
+    "pillow==12.2.0",
+    "pyqt6-qt6==6.11.0",
+    "pyqt6-sip==13.11.1",
+    "six==1.17.0",
+    "urllib3==2.6.3",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller",
+]

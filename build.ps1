@@ -10,7 +10,7 @@ if (Test-Path "./build") { Remove-Item -Path "./build" -Recurse -Force }
 # 2. Run PyInstaller
 Write-Host "Starting PyInstaller build..." -ForegroundColor Green
 
-python -m PyInstaller `
+uv run python -m PyInstaller `
     --onefile `
     --name "ArtaleAgent" `
     --icon "app_icon.ico" `
