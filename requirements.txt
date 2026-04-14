@@ -14,3 +14,4 @@ sentry-sdk
 six
 urllib3
 windows-capture
+pyqt6-websockets
