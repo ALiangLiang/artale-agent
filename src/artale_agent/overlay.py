@@ -330,7 +330,7 @@ class ArtaleOverlay(QWidget):
 
         logger.debug(
             "[Debug] Overlay spans: %s, %s to %s, %s",
-            v_rect.x(), v_rect.y(), v_rect.width(), v_rect.height()
+            v_rect.x(), v_rect.y(), v_rect.width(), v_rect.height(),
         )
         self.show()
 
@@ -826,7 +826,7 @@ class ArtaleOverlay(QWidget):
             QApplication.clipboard().setPixmap(pixmap)
 
             logger.info(
-                f"[ExpTracker] Report exported to {save_path} and copied to clipboard"
+                "[ExpTracker] Report exported to %s and copied to clipboard", save_path
             )
             self.show_notification("✅ 成果圖已儲存並複製到剪貼簿！")
             # Try to open the file
