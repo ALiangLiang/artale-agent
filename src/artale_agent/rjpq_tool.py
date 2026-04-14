@@ -183,7 +183,7 @@ class RJPQTabContent(QWidget):
         self.client.room_created.connect(self.on_room_created)
 
     def on_error_message(self, error):
-        logging.error(f"[RJPQ 同步錯誤] {error}")
+        logging.error(f"[RJPQ 同步錯誤] %s", error)
         # 在彈出對話框前立即重置按鈕狀態
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
