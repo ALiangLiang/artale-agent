@@ -1,5 +1,7 @@
 import json
 import logging
+import certifi
+import os
 logger = logging.getLogger(__name__)
 import urllib.request
 import urllib.parse
@@ -60,9 +62,19 @@ class RJPQSyncClient(QObject):
             
             # 2. Advanced SSL configuration
             ssl_conf = QSslConfiguration.defaultConfiguration()
+            
+            # --- MANUALLY LOAD CA BUNDLE ---
+            # Explicitly load root certificates from certifi for OpenSSL 3.x stability in EXE
+            ca_path = certifi.where()
+            if os.path.exists(ca_path):
+                from PyQt6.QtNetwork import QSslCertificate
+                certs = QSslCertificate.fromPath(ca_path)
+                ssl_conf.setCaCertificates(certs)
+                logger.info(f"[RJPQ] Manually loaded {len(certs)} CA certificates from certifi.")
+            
             # Force TLS 1.2 or later for modern server compatibility
             ssl_conf.setProtocol(QSsl.SslProtocol.TlsV1_2OrLater)
-            # Skip peer verification if certificate chain is missing in EXE
+            # Skip peer verification if certificate chain is still problematic
             ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
             self.ws.setSslConfiguration(ssl_conf)
             
