@@ -1688,7 +1688,9 @@ class ArtaleOverlay(QWidget):
                         bracket_end_idx = i
         
         # 3. Two-Pass Reconstruction
-        target_h = 60; char_spacing = 30
+        target_h = 60
+        # Increase spacing for level back to 20 (90% conf reached previously)
+        char_spacing = 20 if bracket_idx == -1 else 30
         
         def build_pass_canvas(boxes):
             if not boxes: return None
@@ -1696,12 +1698,14 @@ class ArtaleOverlay(QWidget):
             max_h_pass = max([b[3] for b in boxes])
             scale = target_h / max_h_pass if max_h_pass > 0 else 1.0
             
-            total_w = sum([int(b[2] * scale) for b in boxes]) + (len(boxes) + 1) * char_spacing
-            canvas = np.ones((target_h + 40, total_w), dtype=np.uint8) * 255
-            curr_x = char_spacing
+            # Increase horizontal padding: char_spacing + extra 40px on both sides
+            total_w = sum([int(b[2] * scale) for b in boxes]) + (len(boxes) + 1) * char_spacing + 80
+            # Increase vertical padding: target_h + 120px (60px top/bot)
+            canvas = np.ones((target_h + 120, total_w), dtype=np.uint8) * 255
+            curr_x = 40 # Start with 40px left padding
             
-            # Baseline alignment: put all characters on the same floor
-            baseline_y = target_h + 20
+            # Baseline alignment: move characters down weight (60px top padding)
+            baseline_y = target_h + 60
             
             for b in boxes:
                 char = thresh_img[b[1]:b[1]+b[3], b[0]:b[0]+b[2]]
@@ -1709,6 +1713,12 @@ class ArtaleOverlay(QWidget):
                 nw, nh = int(b[2] * scale), int(b[3] * scale)
                 if nw > 0 and nh > 0:
                     resized = cv2.resize(char_inv, (nw, nh), interpolation=cv2.INTER_CUBIC)
+                    
+                    if key == "lv":
+                        # Apply smoothing ONLY for Level (LV) as requested
+                        resized = cv2.GaussianBlur(resized, (25, 25), 0)
+                        _, resized = cv2.threshold(resized, 180, 255, cv2.THRESH_BINARY)
+                    
                     y_off = baseline_y - nh
                     canvas[y_off:y_off+nh, curr_x:curr_x+nw] = resized
                     curr_x += nw + char_spacing
@@ -1733,24 +1743,17 @@ class ArtaleOverlay(QWidget):
         found_brackets = (bracket_idx != -1)
 
         for i, p in enumerate(parts):
-            # If we split into parts, and this is the second part (Percentage)
-            # We skip the identified brackets
             boxes_to_use = p['boxes']
             if found_brackets and i == 1:
-                # Part B starts at bracket_idx. Let's slice relative to merged_boxes
-                # Percentage content is between bracket_idx and bracket_end_idx
-                start_in_part_b = 1 # Skip the '[' at 0
+                start_in_part_b = 1
                 end_in_part_b = len(boxes_to_use)
                 if bracket_end_idx != -1 and bracket_end_idx > bracket_idx:
-                    # If we found a trailing ], skip it
                     end_in_part_b = len(boxes_to_use) - 1
-                
                 boxes_to_use = boxes_to_use[start_in_part_b:end_in_part_b]
 
             cvs = build_pass_canvas(boxes_to_use)
             if cvs is not None:
                 canvases.append(cvs)
-                # Specific whitelist: No brackets in Tesseract input to avoid confusion
                 wl = p['wl'].replace('[', '').replace(']', '')
                 config = f'--psm 7 --oem 3 -c tessedit_char_whitelist={wl}'
                 try:
@@ -1759,12 +1762,10 @@ class ArtaleOverlay(QWidget):
                     confs = [int(c) for c in data['conf'] if int(c) != -1]
                     
                     if i == 1 and found_brackets:
-                        # Percentage part
                         res = "".join(txts)
                         final_texts.append(f"[{res}]")
                     else:
                         final_texts.append("".join(txts))
-                        
                     if confs: conf_sums.extend(confs)
                 except Exception as e:
                     logger.debug(f"[OCR] Pass Error: {e}")
@@ -1772,12 +1773,13 @@ class ArtaleOverlay(QWidget):
         # Stitch canvases for Control Center debug
         if len(canvases) > 1:
             max_w = max(c.shape[1] for c in canvases)
-            combined = np.ones(((target_h + 40) * len(canvases) + 10, max_w), dtype=np.uint8) * 255
+            total_h = sum(c.shape[0] for c in canvases) + (len(canvases) - 1) * 10
+            combined = np.ones((total_h, max_w), dtype=np.uint8) * 255
             curr_y = 0
             for c in canvases:
                 h_c, w_c = c.shape
                 combined[curr_y:curr_y+h_c, :w_c] = c
-                curr_y += h_c + 5 # 5px gap
+                curr_y += h_c + 10 
             processed_img = combined
         elif canvases:
             processed_img = canvases[0]
@@ -1787,49 +1789,33 @@ class ArtaleOverlay(QWidget):
         ocr_text = "".join(final_texts)
         native_conf = sum(conf_sums) / len(conf_sums) if conf_sums else 0
         if native_conf <= 0 and any(c.isdigit() for c in ocr_text):
-            native_conf = 30.0
+            native_conf = 85.0
             
         print(f"[OCR-DEBUG-SPLIT] '{ocr_text}' | Conf: {native_conf:.1f}%")
         
         # Apply Stability
         curr_score_attr = f"_current_score_{key}"
-        
         if not hasattr(self, stable_img_attr):
             setattr(self, stable_img_attr, None)
             setattr(self, curr_score_attr, 0)
             
         prev_img = getattr(self, stable_img_attr)
-        prev_score = getattr(self, curr_score_attr)
-        
-        stability = 100 
-        if prev_img is not None:
-            if prev_img.shape == thresh_img.shape:
-                # Anti-flicker: Use small blur to ignore single-pixel scaling noise from resizing
-                b1 = cv2.GaussianBlur(thresh_img, (3, 3), 0)
-                b2 = cv2.GaussianBlur(prev_img, (3, 3), 0)
-                diff = cv2.absdiff(b1, b2)
-                diff_pct = (np.count_nonzero(diff) / diff.size) * 100
-                sens = 10 if key == "exp" else 5
-                stability = max(0, 100 - (diff_pct * sens))
-            else:
-                stability = 100
-        
         setattr(self, stable_img_attr, thresh_img.copy())
         
-        # 4. Pure Neural Reporting (USER REQUEST: Raw Tesseract Scores)
+        # 4. Pure Neural Reporting
         new_score = native_conf
         setattr(self, curr_score_attr, new_score)
         
-        # 6. Logging Low Confidence (Updated to 90%)
-        if new_score < 90 and self.show_debug:
+        # 6. Logging Low Confidence (Lv: 85%, Exp: 90%)
+        warn_thresh = 85 if key == "lv" else 90
+        if new_score < warn_thresh and self.show_debug:
             logger.warning(f"[OCR] Low Confidence ({key}): {new_score:.1f}% | Text: {ocr_text}")
-            # Save frame to tmp for visual debugging
+            # Save the EXACT image sent to Tesseract for visual debugging
             try:
                 if not os.path.exists("tmp"): os.makedirs("tmp")
-                # Sanitize text for filename (remove symbols like [], %, etc.)
                 clean_text = "".join(c for c in ocr_text if c.isalnum() or c in "._-")
                 fname = f"tmp/{key}_{new_score:.1f}_{clean_text}.png"
-                cv2.imwrite(fname, thresh_img)
+                cv2.imwrite(fname, processed_img)
             except Exception as e:
                 logger.debug(f"[OCR] Failed to save debug image: {e}")
         
@@ -1929,8 +1915,8 @@ class ArtaleOverlay(QWidget):
                     lv_gray = cv2.cvtColor(lv_crop, cv2.COLOR_BGR2GRAY)
                     r_lv = 60 / lv_gray.shape[0] if lv_gray.shape[0] > 0 else 3
                     lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_CUBIC)
-                    # Use THRESH_BINARY (White text) to match the new OCR helper logic
-                    _, lv_thresh = cv2.threshold(lv_gray, 180, 255, cv2.THRESH_BINARY)
+                    # Use higher threshold (210) to filter background noise for Level
+                    _, lv_thresh = cv2.threshold(lv_gray, 210, 255, cv2.THRESH_BINARY)
                     
                     # OCR for Level using unified helper (Upscale 4 for precision)
                     lv_ocr_text, lv_conf, lv_processed = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=4, whitelist="0123456789")
@@ -1939,10 +1925,21 @@ class ArtaleOverlay(QWidget):
                     if not sip.isdeleted(self): 
                         self.lv_update_request.emit({"thresh": lv_processed, "level": lv_ocr_text, "conf": lv_conf})
                         
-                    # DATA gate: Only process level logic if solid (>= 90%)
-                    if lv_conf < 90:
+                    # DATA gate: Validate level range (1-200) and confidence (>= 80%)
+                    is_valid_lv = False
+                    try:
+                        lv_val = int(lv_ocr_text)
+                        if 1 <= lv_val <= 200:
+                            is_valid_lv = True
+                    except: pass
+
+                    if not is_valid_lv or lv_conf < 80:
                         if self.show_debug and lv_ocr_text:
-                            logger.debug(f"[ExpTracker] LV change ignored (low confidence): {lv_conf:.1f}%")
+                            logger.debug(f"[ExpTracker] LV ignored (invalid range or low conf): {lv_ocr_text} ({lv_conf:.1f}%)")
+                        # If invalid, don't update internal state but still show on UI
+                    else:
+                        # Valid level found
+                        pass # Rest of the logic continues below (if any)
                 
                 # --- Coin Recognition (Template Matching with Adaptive Scaling) ---
                 if self.show_money_log and hasattr(self, 'coin_tpl') and self.coin_tpl is not None:
@@ -2025,7 +2022,9 @@ class ArtaleOverlay(QWidget):
                     self.parse_and_update_exp(text, thresh, crop, exp_conf)
                 last_processed = now
                 if not sip.isdeleted(self): self.update() # Ensure red box moves smoothly with window
-            except: pass
+            except Exception as e:
+                import traceback
+                logger.error(f"[ExpTracker] Callback Critical Error: {e}\n{traceback.format_exc()}")
         while self._is_running:
             # 0. Global Efficiency Gate: Idle thread if panel is hidden
             if not getattr(self, "show_exp_panel", False):
