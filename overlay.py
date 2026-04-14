@@ -199,7 +199,7 @@ class ArtaleOverlay(QWidget):
              # Handle signal in main.py later
              pass
         
-        self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(100)
+        self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(1000)
         self.world_timers = {} 
         
         # Initialize ExpTracker (Only start if panel is requested on startup)
@@ -491,8 +491,8 @@ class ArtaleOverlay(QWidget):
                 # Shift all history timestamps to maintain efficiency without dilution
                 self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
             self.needs_calibration = True # Skip next frame's gain calculation
-            
-        logger.info(f"[ExpTracker] Recording {status}")
+            time.sleep(1.0) # Rate limit to once per second
+        logger.info("[ExpTracker] Scan thread terminated.")
         self.show_notification(f"📊 經驗追蹤 {status} (F11)")
         self.update()
 

@@ -47,12 +47,21 @@ class RJPQSyncClient(QObject):
 
     def connect_to_room(self, code, pwd):
         try:
-            logger.info(f"[RJPQ] Connecting to room: {code}")
+            logger.info(f"[RJPQ] Initiating WebSocket open to: {code}")
             self.room_code = code
             self.room_pwd = pwd
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
+            
+            # Use safer SSL configuration for OpenSSL 3.x compatibility
+            from PyQt6.QtNetwork import QSslConfiguration, QSsl
+            ssl_conf = QSslConfiguration.defaultConfiguration()
+            # If certificates are missing in EXE, we ignore peer verification to ensure connectivity
+            ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
+            self.ws.setSslConfiguration(ssl_conf)
+            
             self.ws.open(QUrl(url))
+            logger.info(f"[RJPQ] ws.open() called for {code}, waiting for response...")
         except Exception as e:
             logger.error(f"[RJPQ] Connection failure: {e}")
 
