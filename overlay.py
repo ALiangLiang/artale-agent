@@ -98,14 +98,7 @@ if pytesseract:
 
 CONFIG_FILE = "config.json"
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+# Using resource_path from skill_timer.py
 
 class ConfigManager:
     @staticmethod
@@ -1329,14 +1322,16 @@ class ArtaleOverlay(QWidget):
             my_pid = os.getpid()
             def callback(h, extra):
                 nonlocal hwnd
-                if not win32gui.IsWindowVisible(h): return True
-                _, pid = win32process.GetWindowThreadProcessId(h)
-                if pid == my_pid: return True # Skip ourselves
-                title = win32gui.GetWindowText(h).lower()
-                if self.target_window_title.lower() in title:
-                    hwnd = h; return False
+                try:
+                    if not win32gui.IsWindowVisible(h): return True
+                    _, pid = win32process.GetWindowThreadProcessId(h)
+                    if pid == my_pid: return True
+                    title = win32gui.GetWindowText(h).lower()
+                    if self.target_window_title.lower() in title:
+                        hwnd = h; return False
+                except: pass
                 return True
-            win32gui.EnumWindows(callback, None)
+            win32gui.EnumWindows(callback, 0)
         except Exception as e:
             # Error 2 or 1400 are common during window transitions, log only other errors
             err_str = str(e)
