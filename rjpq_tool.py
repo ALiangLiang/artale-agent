@@ -8,7 +8,7 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 from PyQt6.QtWebSockets import QWebSocket
-from PyQt6.QtNetwork import QAbstractSocket, QSslSocket
+from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QNetworkProxy, QSslConfiguration, QSsl
 
 # --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
@@ -53,17 +53,22 @@ class RJPQSyncClient(QObject):
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
             
-            # Use safer SSL configuration for OpenSSL 3.x compatibility
-            from PyQt6.QtNetwork import QSslConfiguration, QSsl
+            # --- Network Hardening ---
+            # 1. Disable proxy to avoid interference from system settings/VPNs
+            self.ws.setProxy(QNetworkProxy.NoProxy)
+            
+            # 2. Advanced SSL configuration
             ssl_conf = QSslConfiguration.defaultConfiguration()
-            # If certificates are missing in EXE, we ignore peer verification to ensure connectivity
+            # Force TLS 1.2 or later for modern server compatibility
+            ssl_conf.setProtocol(QSsl.SslProtocol.TlsV1_2OrLater)
+            # Skip peer verification if certificate chain is missing in EXE
             ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
             self.ws.setSslConfiguration(ssl_conf)
             
             self.ws.open(QUrl(url))
-            logger.info(f"[RJPQ] ws.open() called for {code}, waiting for response...")
+            logger.info(f"[RJPQ] ws.open() executed for {code}. Current state: Connecting...")
         except Exception as e:
-            logger.error(f"[RJPQ] Connection failure: {e}")
+            logger.error(f"[RJPQ] Error in connect_to_room setup: {e}")
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
@@ -117,7 +122,8 @@ class RJPQSyncClient(QObject):
 
     def on_error(self, error):
         err_str = self.ws.errorString()
-        logger.error(f"[RJPQ] WebSocket Internal Error: {err_str} (Code: {error})")
+        state = self.ws.state()
+        logger.error(f"[RJPQ] WebSocket Error! State: {state}, Message: {err_str} (Code: {error})")
         self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
 
