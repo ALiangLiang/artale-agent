@@ -1,12 +1,16 @@
+import json
 import logging
 import os
 import re
 import shutil
 import subprocess
-from typing import override
 import sys
 import threading
 import time
+import traceback
+import urllib.request
+import webbrowser
+from typing import override
 
 import cv2
 import psutil
@@ -278,10 +282,6 @@ class ArtaleOverlay(QWidget):
 
         def _check():
             try:
-                import json
-                import urllib.request
-                import webbrowser
-
                 url = f"https://api.github.com/repos/{REPO_URL}/releases/latest"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=5) as response:

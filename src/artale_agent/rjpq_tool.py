@@ -2,8 +2,11 @@ import json
 import logging
 import certifi
 import os
+import traceback
 import urllib.parse
 import urllib.request
+
+logger = logging.getLogger(__name__)
 
 from PyQt6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
@@ -135,8 +138,6 @@ class RJPQSyncClient(QObject):
                 pass
         except Exception as e:
             logger.error("[RJPQ] Message runtime error: %s", e)
-            import traceback
-
             logger.error(traceback.format_exc())
 
     def on_error(self, error):
