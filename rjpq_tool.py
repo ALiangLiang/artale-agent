@@ -36,6 +36,7 @@ class RJPQSyncClient(QObject):
         self.ws.disconnected.connect(self.on_disconnected)
         self.ws.textMessageReceived.connect(self.on_message)
         self.ws.errorOccurred.connect(self.on_error)
+        self.ws.sslErrors.connect(self.on_ssl_errors) # Re-added for force-proceed
         self.ws.stateChanged.connect(self.on_state_changed)
         self.room_code = ""
         self.room_pwd = ""
@@ -55,8 +56,15 @@ class RJPQSyncClient(QObject):
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
             
+            # Force permissive SSL configuration
+            conf = QSslConfiguration.defaultConfiguration()
+            conf.setProtocol(QSsl.SslProtocol.TlsV1_2OrLater)
+            conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone)
+            self.ws.setSslConfiguration(conf)
+            
             # Ensure the socket is clean before opening
-            self.ws.abort()
+            if self.ws.state() != QAbstractSocket.SocketState.UnconnectedState:
+                self.ws.abort()
             
             self.ws.open(QUrl(url))
         except Exception as e:
@@ -118,6 +126,12 @@ class RJPQSyncClient(QObject):
         logger.error(f"[RJPQ] WebSocket Error! State: {state}, Message: {err_str} (Code: {error})")
         self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
+
+    def on_ssl_errors(self, errors):
+        # Force handshake to proceed
+        self.ws.ignoreSslErrors()
+        for err in errors:
+            logger.debug(f"[RJPQ] SSL Warning (Ignored): {err.errorString()}")
 
     def on_state_changed(self, state):
         mapping = {
