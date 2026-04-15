@@ -97,7 +97,7 @@ class ArtaleOverlay(QWidget):
     Y_OFF_FROM_BOTTOM = 66   # Fixed vertical offset from bottom
     BASE_CW, BASE_CH = 240, 22
     
-    LV_X_OFF_FROM_LEFT = 100
+    LV_X_OFF_FROM_LEFT = 96
     LV_Y_OFF_FROM_BOTTOM = 46
     LV_BASE_CW, LV_BASE_CH = 75, 26
     
@@ -771,7 +771,7 @@ class ArtaleOverlay(QWidget):
                 if lv_crop.size > 0:
                     lv_gray = cv2.cvtColor(lv_crop, cv2.COLOR_BGR2GRAY)
                     r_lv = 60 / lv_gray.shape[0] if lv_gray.shape[0] > 0 else 3
-                    lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_CUBIC)
+                    lv_gray = cv2.resize(lv_gray, None, fx=r_lv, fy=r_lv, interpolation=cv2.INTER_NEAREST)
                     _, lv_thresh = cv2.threshold(lv_gray, 210, 255, cv2.THRESH_BINARY)
                     lv_text, lv_conf, lv_processed = self._perform_enhanced_ocr(lv_thresh, "lv", upscale=4, whitelist="0123456789")
                     if not sip.isdeleted(self): 
@@ -818,7 +818,7 @@ class ArtaleOverlay(QWidget):
                             if ic_crop.size > 0:
                                 ic_gray = cv2.cvtColor(ic_crop, cv2.COLOR_BGR2GRAY)
                                 ic_r = 60 / ic_gray.shape[0] if ic_gray.shape[0] > 0 else 3
-                                ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_CUBIC)
+                                ic_gray = cv2.resize(ic_gray, None, fx=ic_r, fy=ic_r, interpolation=cv2.INTER_NEAREST)
                                 _, ic_thresh = cv2.threshold(ic_gray, 130, 255, cv2.THRESH_BINARY)
                                 
                                 # Emit debug image & confidence for UI
@@ -1232,16 +1232,8 @@ class ArtaleOverlay(QWidget):
 
         # Calculate Gain (Delta)
         gain = total_val - self.last_total_money
-        
-        # Filter: Only record positive gains, ignore drops (spending)
-        if gain > 0:
-            # SANITY CHECK: Ignore insane spikes (e.g. OCR error reading 100M+ jump in 1s)
-            if gain < 50_000_000: 
-                self.cumulative_money += gain
-                self.money_history.append((now, gain))
-        elif gain < -100:
-            # User likely spent money. Re-align base to avoid counting the whole wealth after next gain.
-            logger.info(f"[MoneyTracker] Money dropped ({gain:,}), re-aligning baseline.")
+        self.cumulative_money += gain
+        self.money_history.append((now, gain))
         
         self.last_total_money = total_val
         
