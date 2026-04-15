@@ -1,5 +1,7 @@
 import json
 import logging
+import certifi
+import os
 logger = logging.getLogger(__name__)
 import urllib.request
 import urllib.parse
@@ -8,7 +10,7 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 from PyQt6.QtWebSockets import QWebSocket
-from PyQt6.QtNetwork import QAbstractSocket, QSslSocket
+from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QSslConfiguration
 
 # Check SSL Support at module level
 try:
@@ -55,6 +57,22 @@ class RJPQSyncClient(QObject):
             self.room_pwd = pwd
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
+            
+            # Use default first, and complement with certifi if needed
+            from PyQt6.QtNetwork import QSslConfiguration
+            conf = QSslConfiguration.defaultConfiguration()
+            
+            # If in EXE or system has no certs, manually load from certifi bundle
+            import sys
+            if getattr(sys, 'frozen', False) or not conf.caCertificates():
+                if os.path.exists(certifi.where()):
+                    from PyQt6.QtNetwork import QSslCertificate
+                    certs = QSslCertificate.fromPath(certifi.where())
+                    conf.setCaCertificates(certs)
+                    # For stability in frozen builds, explicitly allow standard handshake
+                    logger.info(f"[RJPQ] Manual CA certificates loaded for stability (Count: {len(certs)})")
+
+            self.ws.setSslConfiguration(conf)
             self.ws.open(QUrl(url))
         except Exception as e:
             logger.error(f"[RJPQ] Connection failure: {e}")
