@@ -22,9 +22,12 @@ python -m PyInstaller `
     --hidden-import "pynput.keyboard._win32" `
     --hidden-import "win32process" `
     --hidden-import "win32file" `
+    --hidden-import "PyQt6.QtCore" `
+    --hidden-import "PyQt6.QtGui" `
+    --hidden-import "PyQt6.QtWidgets" `
+    --hidden-import "PyQt6.QtNetwork" `
     --hidden-import "PyQt6.QtWebSockets" `
     --hidden-import "sip" `
-    --collect-all "PyQt6" `
     --clean `
     --noconsole `
     --noupx `
