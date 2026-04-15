@@ -1,7 +1,5 @@
 import json
 import logging
-import certifi
-import os
 logger = logging.getLogger(__name__)
 import urllib.request
 import urllib.parse
@@ -10,7 +8,19 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 from PyQt6.QtWebSockets import QWebSocket
-from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QNetworkProxy, QSslConfiguration, QSsl
+from PyQt6.QtNetwork import QAbstractSocket, QSslSocket
+
+# Check SSL Support at module level
+try:
+    ssl_ok = QSslSocket.supportsSsl()
+    import logging
+    temp_logger = logging.getLogger("Artale")
+    temp_logger.info(f"[RJPQ] Qt6 SSL Support: {ssl_ok}")
+    if ssl_ok:
+        temp_logger.info(f"[RJPQ] SSL Library Build: {QSslSocket.sslLibraryBuildVersionString()}")
+        temp_logger.info(f"[RJPQ] SSL Library Runtime: {QSslSocket.sslLibraryVersionString()}")
+except Exception as e:
+    pass
 
 # --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
@@ -23,21 +33,11 @@ class RJPQSyncClient(QObject):
 
     def __init__(self):
         super().__init__()
-        # Check SSL Support locally so it shows in log
-        try:
-            ssl_ok = QSslSocket.supportsSsl()
-            logger.info(f"[RJPQ] Qt6 SSL Support: {ssl_ok}")
-            if ssl_ok:
-                logger.info(f"[RJPQ] SSL Library: {QSslSocket.sslLibraryVersionString()}")
-        except: pass
-
         self.ws = QWebSocket()
         self.ws.connected.connect(self.on_connected)
         self.ws.disconnected.connect(self.on_disconnected)
         self.ws.textMessageReceived.connect(self.on_message)
         self.ws.errorOccurred.connect(self.on_error)
-        self.ws.sslErrors.connect(self.on_ssl_errors) # Re-added for force-proceed
-        self.ws.stateChanged.connect(self.on_state_changed)
         self.room_code = ""
         self.room_pwd = ""
         self.is_connected = False
@@ -55,17 +55,6 @@ class RJPQSyncClient(QObject):
             self.room_pwd = pwd
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
-            
-            # Force permissive SSL configuration
-            conf = QSslConfiguration.defaultConfiguration()
-            conf.setProtocol(QSsl.SslProtocol.TlsV1_2OrLater)
-            conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone)
-            self.ws.setSslConfiguration(conf)
-            
-            # Ensure the socket is clean before opening
-            if self.ws.state() != QAbstractSocket.SocketState.UnconnectedState:
-                self.ws.abort()
-            
             self.ws.open(QUrl(url))
         except Exception as e:
             logger.error(f"[RJPQ] Connection failure: {e}")
@@ -122,33 +111,9 @@ class RJPQSyncClient(QObject):
 
     def on_error(self, error):
         err_str = self.ws.errorString()
-        state = self.ws.state()
-        logger.error(f"[RJPQ] WebSocket Error! State: {state}, Message: {err_str} (Code: {error})")
+        logger.error(f"[RJPQ] WebSocket Internal Error: {err_str} (Code: {error})")
         self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
-
-    def on_ssl_errors(self, errors):
-        # Force handshake to proceed
-        self.ws.ignoreSslErrors()
-        for err in errors:
-            logger.debug(f"[RJPQ] SSL Warning (Ignored): {err.errorString()}")
-
-    def on_state_changed(self, state):
-        mapping = {
-            QAbstractSocket.SocketState.UnconnectedState: "Unconnected",
-            QAbstractSocket.SocketState.HostLookupState: "HostLookup",
-            QAbstractSocket.SocketState.ConnectingState: "Connecting",
-            QAbstractSocket.SocketState.ConnectedState: "Connected",
-            QAbstractSocket.SocketState.BoundState: "Bound",
-            QAbstractSocket.SocketState.ClosingState: "Closing",
-            QAbstractSocket.SocketState.ListeningState: "Listening"
-        }
-        state_name = mapping.get(state, f"Unknown ({state})")
-        logger.info(f"[RJPQ] WebSocket State Changed: {state_name}")
-        if state == QAbstractSocket.SocketState.UnconnectedState:
-            err = self.ws.errorString()
-            if err and "Unknown error" not in err:
-                logger.error(f"[RJPQ] Disconnect reason: {err}")
 
     def create_room(self, pwd):
         try:

@@ -41,8 +41,8 @@ except ImportError:
     WindowsCapture = None
 
 # Local imports
-from rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
-from skill_timer import IconSelectorDialog, PositionHandle, TimerManager
+from rjpq_tool import draw_rjpq_panel
+from skill_timer import TimerManager
 from settings_window import SettingsWindow
 
 # Initialize logger

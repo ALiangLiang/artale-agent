@@ -22,7 +22,7 @@ except ImportError:
 
 from utils import resource_path, ConfigManager, VERSION, REPO_URL
 from skill_timer import IconSelectorDialog, PositionHandle
-from rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
+from rjpq_tool import RJPQSyncClient, RJPQTabContent
 
 logger = logging.getLogger(__name__)
 
