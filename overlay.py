@@ -1452,7 +1452,7 @@ class ArtaleOverlay(QWidget):
             if self.show_preview and not self.timer_manager.active_timers: color = QColor(255, 255, 255, 150)
             font = QFont()
             font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-            font.setPointSize(22 if seconds > 3 else 26)
+            font.setPointSize(15 if display_seconds >= 1000 else (22 if seconds > 3 else 26))
             font.setBold(True)
             painter.setFont(font)
             text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
