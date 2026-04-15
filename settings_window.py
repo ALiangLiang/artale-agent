@@ -415,7 +415,7 @@ class SettingsWindow(QWidget):
 
     def qt_key_to_name(self, event):
         code = event.key(); is_numpad = bool(event.modifiers() & Qt.KeyboardModifier.KeypadModifier)
-        special = {Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3", Qt.Key.Key_F4: "f4", Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6", Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8", Qt.Key.Key_F9: "f9", Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space", Qt.Key.Key_Pause: "pause"}
+        special = {Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3", Qt.Key.Key_F4: "f4", Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6", Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8", Qt.Key.Key_F9: "f9", Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", Qt.Key.Key_F12: "f12", Qt.Key.Key_Shift: "shift", Qt.Key.Key_Control: "ctrl", Qt.Key.Key_Alt: "alt", Qt.Key.Key_Space: "space", Qt.Key.Key_Pause: "pause", Qt.Key.Key_Insert: "insert", Qt.Key.Key_Home: "home", Qt.Key.Key_End: "end", Qt.Key.Key_Delete: "delete", Qt.Key.Key_PageUp: "page_up", Qt.Key.Key_PageDown: "page_down"}
         if is_numpad:
             if Qt.Key.Key_0 <= code <= Qt.Key.Key_9: return f"num_{code - Qt.Key.Key_0}"
             if code == Qt.Key.Key_Period: return "num_dot"
