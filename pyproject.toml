@@ -36,10 +36,9 @@ lint = [
 ]
 
 [project.scripts]
-dev = "artale_agent.main:run_app"
+dev = "artale_agent.dev_entry:run_app"
 clean = "artale_agent.cli:clean"
 build-win = "artale_agent.cli:build_win"
-build-mac = "artale_agent.cli:build_mac"
 
 [tool.uv]
 package = true

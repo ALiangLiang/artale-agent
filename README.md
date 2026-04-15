@@ -40,13 +40,15 @@
 2. **Tesseract-OCR**：經驗值辨識核心，專案中已內附免安裝版。
 
 ### 開發者執行
-1. 安裝 Python 套件：
+1. 安裝 [uv](https://docs.astral.sh/uv/getting-started/installation/)：
    ```bash
-   pip install PyQt6 pynput pywin32 psutil pytesseract opencv-python windows-capture PyQt6-WebSockets
+   # Windows (PowerShell)
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
-2. 啟動主程式：
+2. 安裝依賴並啟動主程式：
    ```bash
-   python main.py
+   uv sync
+   uv run python -m artale_agent
    ```
 
 ### 建立執行檔 (EXE)
