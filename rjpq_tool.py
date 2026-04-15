@@ -36,6 +36,7 @@ class RJPQSyncClient(QObject):
         self.ws.disconnected.connect(self.on_disconnected)
         self.ws.textMessageReceived.connect(self.on_message)
         self.ws.errorOccurred.connect(self.on_error)
+        self.ws.sslErrors.connect(self.on_ssl_errors) # New: Track SSL errors
         self.ws.stateChanged.connect(self.on_state_changed)
         self.room_code = ""
         self.room_pwd = ""
@@ -46,6 +47,11 @@ class RJPQSyncClient(QObject):
         self.reconnect_timer = QTimer(self)
         self.reconnect_timer.setSingleShot(True)
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
+
+        # Connection timeout timer
+        self.conn_timeout_timer = QTimer(self)
+        self.conn_timeout_timer.setSingleShot(True)
+        self.conn_timeout_timer.timeout.connect(self.handle_conn_timeout)
 
     def connect_to_room(self, code, pwd):
         try:
@@ -63,23 +69,29 @@ class RJPQSyncClient(QObject):
             # 2. Advanced SSL configuration
             ssl_conf = QSslConfiguration.defaultConfiguration()
             
-            # --- MANUALLY LOAD CA BUNDLE ---
-            # Explicitly load root certificates from certifi for OpenSSL 3.x stability in EXE
+            # --- SSL Compatibility Adjustments ---
+            # Set to SecureProtocols (standard way to allow modern TLS without forcing 1.2+ manually)
+            ssl_conf.setProtocol(QSsl.SslProtocol.SecureProtocols)
+            
+            # Use VerifyNone if the server's cert chain is tricky (which was previously manually requested)
+            ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
+            
+            # If VerifyNone is used, CA certificates are not strictly needed, 
+            # but we keep the certifi loading for completeness if the user ever switches back to VerifyPeer
             ca_path = certifi.where()
             if os.path.exists(ca_path):
                 from PyQt6.QtNetwork import QSslCertificate
                 certs = QSslCertificate.fromPath(ca_path)
                 ssl_conf.setCaCertificates(certs)
-                logger.info(f"[RJPQ] Manually loaded {len(certs)} CA certificates from certifi.")
+                logger.info(f"[RJPQ] Certificates available from certifi: {len(certs)}")
             
-            # Force TLS 1.2 or later for modern server compatibility
-            ssl_conf.setProtocol(QSsl.SslProtocol.TlsV1_2OrLater)
-            # Skip peer verification if certificate chain is still problematic
-            ssl_conf.setPeerVerifyMode(QSslSocket.PeerVerifyMode.VerifyNone) 
             self.ws.setSslConfiguration(ssl_conf)
             
+            # Start timeout timer (10s)
+            self.conn_timeout_timer.start(10000)
+            
             self.ws.open(QUrl(url))
-            logger.info(f"[RJPQ] ws.open() executed for {code}. Current state: Connecting...")
+            logger.info(f"[RJPQ] ws.open() executed for {code}. Current state: {self.ws.state().name}")
         except Exception as e:
             logger.error(f"[RJPQ] Error in connect_to_room setup: {e}")
 
@@ -91,6 +103,7 @@ class RJPQSyncClient(QObject):
     def on_connected(self):
         logger.info("[RJPQ] Connected to server!")
         self.is_connected = True
+        self.conn_timeout_timer.stop() # Stop timeout!
         self.status_changed.emit(True)
         self.reconnect_timer.stop()
         join_msg = {"type": "join", "code": self.room_code, "password": self.room_pwd}
@@ -134,11 +147,24 @@ class RJPQSyncClient(QObject):
             logger.error(traceback.format_exc())
 
     def on_error(self, error):
+        self.conn_timeout_timer.stop()
         err_str = self.ws.errorString()
         state = self.ws.state()
         logger.error(f"[RJPQ] WebSocket Error! State: {state}, Message: {err_str} (Code: {error})")
         self.error_received.emit(f"連線錯誤: {err_str}")
         self.status_changed.emit(False)
+
+    def on_ssl_errors(self, errors):
+        for err in errors:
+            logger.warning(f"[RJPQ] SSL Error: {err.errorString()}")
+        # Important: Don't automatically ignore if we are using VerifyNone anyway, 
+        # but logging it helps debug why it's slow.
+
+    def handle_conn_timeout(self):
+        if not self.is_connected and self.ws.state() != QAbstractSocket.SocketState.UnconnectedState:
+            logger.error("[RJPQ] Connection timeout (10s) reached. Closing socket.")
+            self.ws.close()
+            self.error_received.emit("連線超時，請檢查網路或伺服器狀態")
 
     def on_state_changed(self, state):
         mapping = {
