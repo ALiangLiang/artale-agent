@@ -20,7 +20,7 @@ VERSION = get_version()
 REPO_URL = "ALiangLiang/artale-agent"
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ 獲取資源的絕對路徑，支援開發環境與 PyInstaller 打包環境 """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -35,7 +35,7 @@ class ConfigManager:
                 with open(CONFIG_FILE, "r", encoding='utf-8') as f:
                     config = json.load(f)
                     
-                    # Migration: Old single profile -> Multi profile
+                    # 版本遷移：舊版單一配置 -> 新版多重配置
                     if "profiles" not in config:
                         old_triggers = config.get("triggers", {"f1": {"seconds": 300, "icon": ""}})
                         old_offset = config.get("offset", [0, 0])
@@ -49,7 +49,7 @@ class ConfigManager:
                     
                     new_profiles = {}
                     old_profiles = config.get("profiles", {})
-                    for i in range(1, 10): # Supporting up to F9 now
+                    for i in range(1, 10): # 目前支援 F1 到 F9
                         old_key = f"Profile {i}"
                         new_key = f"F{i}"
                         
@@ -118,8 +118,8 @@ class ConfigManager:
         with open(CONFIG_FILE, "w", encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-# Artale EXP Table (Level 1 - 200)
-# Format: { level: exp_needed_for_next_level }
+# Artale 經驗值表 (Level 1 - 200)
+# 格式: { 當前等級: 升至下一級所需的經驗值 }
 EXP_TABLE = {
     1: 15, 2: 34, 3: 57, 4: 92, 5: 135, 6: 372, 7: 560, 8: 840, 9: 1242, 10: 1716,
     11: 2360, 12: 3216, 13: 4200, 14: 5460, 15: 7050, 16: 8840, 17: 11040, 18: 13716, 19: 16680, 20: 20216,

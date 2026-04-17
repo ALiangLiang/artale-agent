@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt6.QtWebSockets import QWebSocket
 from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QSslConfiguration
 
-# Check SSL Support at module level
+# 在模組層級檢查 SSL 支援
 try:
     ssl_ok = QSslSocket.supportsSsl()
     import logging
@@ -24,14 +24,14 @@ try:
 except Exception as e:
     pass
 
-# --- RJPQ Sync Client ---
+# --- RJPQ 同步客戶端 ---
 class RJPQSyncClient(QObject):
     sync_received = pyqtSignal(list)
     char_counts_received = pyqtSignal(list)
     status_changed = pyqtSignal(bool)
     error_received = pyqtSignal(str)
     room_created = pyqtSignal(str, str)
-    overlay_toggle_request = pyqtSignal(bool) # New signal to talk to overlay
+    overlay_toggle_request = pyqtSignal(bool) # 用於與 overlay 通訊的新訊號
 
     def __init__(self):
         super().__init__()
@@ -43,9 +43,9 @@ class RJPQSyncClient(QObject):
         self.room_code = ""
         self.room_pwd = ""
         self.is_connected = False
-        self.reconnect_enabled = False # Becomes True after user manually connects
+        self.reconnect_enabled = False # 在使用者手動連線後變更為 True
         
-        # Reconnect timer
+        # 重新連線計時器
         self.reconnect_timer = QTimer(self)
         self.reconnect_timer.setSingleShot(True)
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
@@ -58,19 +58,19 @@ class RJPQSyncClient(QObject):
             self.reconnect_enabled = True 
             url = "wss://rjpq.juanwang.cc"
             
-            # Use default first, and complement with certifi if needed
+            # 優先使用預設配置，必要時使用 certifi 補充
             from PyQt6.QtNetwork import QSslConfiguration
             conf = QSslConfiguration.defaultConfiguration()
             
-            # If in EXE or system has no certs, manually load from certifi bundle
+            # 若處於 EXE 封裝後或系統缺乏憑證，手動從 certifi 載入
             import sys
             if getattr(sys, 'frozen', False) or not conf.caCertificates():
                 if os.path.exists(certifi.where()):
                     from PyQt6.QtNetwork import QSslCertificate
                     certs = QSslCertificate.fromPath(certifi.where())
                     conf.setCaCertificates(certs)
-                    # For stability in frozen builds, explicitly allow standard handshake
-                    logger.info(f"[RJPQ] Manual CA certificates loaded for stability (Count: {len(certs)})")
+                    # 為提升封裝版穩定性，明確允許標準連線交握
+                    logger.info(f"[RJPQ] 已手動載入 CA 憑證 (數量: {len(certs)})")
 
             self.ws.setSslConfiguration(conf)
             self.ws.open(QUrl(url))
@@ -78,7 +78,7 @@ class RJPQSyncClient(QObject):
             logger.error(f"[RJPQ] Connection failure: {e}")
 
     def disconnect_from_room(self):
-        self.reconnect_enabled = False # Disable auto-reconnect when user clicks disconnect
+        self.reconnect_enabled = False # 當使用者點擊斷開時，停用自動重新連線
         if self.ws:
             self.ws.close()
 
@@ -96,7 +96,7 @@ class RJPQSyncClient(QObject):
         self.is_connected = False
         self.status_changed.emit(False)
         
-        # Trigger auto-reconnect if enabled
+        # 若已啟用則觸發自動重新連線
         if self.reconnect_enabled:
             logger.info("[RJPQ] Reconnecting in 3s...")
             self.reconnect_timer.start(3000)
@@ -117,10 +117,10 @@ class RJPQSyncClient(QObject):
             elif msg["type"] == "error":
                 self.error_received.emit(msg["error"])
             elif msg["type"] == "pong":
-                # Silently ignore pong
+                # 安靜地忽略 pong 回應
                 pass
             else:
-                # Silently ignore other unknown types to avoid terminal spam/errors
+                # 安靜地忽略其他未知類型，避免造成終端機負擔或報錯
                 pass
         except Exception as e:
             logger.error(f"[RJPQ] Message runtime error: {e}")
@@ -153,7 +153,7 @@ class RJPQSyncClient(QObject):
         if self.ws and self.ws.state() == QAbstractSocket.SocketState.ConnectedState:
             self.ws.sendTextMessage(json.dumps(action))
 
-# --- RJPQ UI Component ---
+# --- RJPQ UI 元件 ---
 class RJPQTabContent(QWidget):
     color_selected = pyqtSignal(int)
     
@@ -170,15 +170,15 @@ class RJPQTabContent(QWidget):
         self.client.room_created.connect(self.on_room_created)
 
     def on_error_message(self, error):
-        logging.error(f"[RJPQ Sync Error] {error}")
-        # Reset button state immediately before popping up dialogs
+        logging.error(f"[RJPQ 同步錯誤] {error}")
+        # 在彈出對話框前立即重置按鈕狀態
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
         self.create_btn.setVisible(True)
         
-        # Show critical popups for real failures (including password errors)
+        # 針對真正的失敗 (包含密碼錯誤) 顯示警告視窗
         if any(kw in error for kw in ["失敗", "連線", "密碼錯誤", "密码错误"]):
-            # If it's a password error, disable auto-reconnect to stop the loop
+            # 如果是密碼錯誤，則停用自動重連以停止無限迴圈
             if "密碼" in error or "密码" in error:
                 self.client.reconnect_enabled = False
                 if hasattr(self, 'disconnect_timer'):
@@ -189,7 +189,7 @@ class RJPQTabContent(QWidget):
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
         
-        # 1. Room Widget (Always Visible)
+        # 1. 房間小工具 (始終顯示)
         self.room_widget = QWidget()
         room_row = QHBoxLayout(self.room_widget)
         self.code_inp = QLineEdit()
@@ -228,7 +228,7 @@ class RJPQTabContent(QWidget):
         room_row.addStretch()
         self.main_layout.addWidget(self.room_widget)
 
-        # 1.1 Overlay Visibility Toggle
+        # 1.1 Overlay 顯示切換控制
         self.overlay_ctrl = QWidget()
         ctrl_layout = QHBoxLayout(self.overlay_ctrl)
         ctrl_layout.setContentsMargins(10, 0, 10, 5)
@@ -239,7 +239,7 @@ class RJPQTabContent(QWidget):
         ctrl_layout.addWidget(self.overlay_cb)
         self.main_layout.addWidget(self.overlay_ctrl)
 
-        # 2. Char Widget (Visible after Connected)
+        # 2. 角色選擇小工具 (連線後顯示)
         self.char_widget = QWidget()
         char_row = QHBoxLayout(self.char_widget)
         self.char_btns = []
@@ -256,7 +256,7 @@ class RJPQTabContent(QWidget):
         self.char_widget.setVisible(False)
         self.main_layout.addWidget(self.char_widget)
 
-        # 3. Grid Widget (Visible after Char Selected)
+        # 3. 網格儀表板 (選擇角色後顯示)
         self.grid_widget = QFrame()
         self.grid_widget.setObjectName("Dashboard")
         self.grid_widget.setStyleSheet("""
@@ -289,7 +289,7 @@ class RJPQTabContent(QWidget):
                 btn = QPushButton(str(col + 1))
                 btn.setFixedSize(58, 28)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                # Standard glass style
+                # 標準毛玻璃風格樣式
                 btn.setStyleSheet("QPushButton { background: rgba(255,255,255,0.05); color: #666; border: 1px solid #222; border-radius: 4px; font-weight: bold; } "
                                  "QPushButton:hover { background: rgba(255,255,255,0.1); border-color: #444; }")
                 btn.clicked.connect(lambda checked, i=idx: self.platform_clicked(i))
@@ -297,7 +297,7 @@ class RJPQTabContent(QWidget):
                 grid_layout.addWidget(btn, row, col + 1)
         grid_vbox.addLayout(grid_layout)
 
-        # Reset button in grid widget
+        # 網格小工具中的重置按鈕
         reset_btn = QPushButton("🔄 重置所有人的標記 (全隊歸零)")
         reset_btn.setStyleSheet("""
             QPushButton { 
@@ -321,7 +321,7 @@ class RJPQTabContent(QWidget):
 
     def find_target_row(self):
         if self.selected_color == -1: return -1
-        # Loop from row 1 (bottom) to 10 (top). Grid indices 0-3 is row 10, 36-39 is row 1
+        # 從第 1 排 (底部) 掃描至第 10 排 (頂部)。網格索引 0-3 為第 10 排，36-39 為第 1 排
         for row in range(9, -1, -1):
             row_marked_by_me = False
             for col in range(4):
@@ -353,13 +353,13 @@ class RJPQTabContent(QWidget):
         self.create_btn.setEnabled(False)
 
     def on_room_created(self, code, pwd):
-        # Auto fill the room code and notify
+        # 自動填入房間代碼並通知
         self.code_inp.setText(code)
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
-        self.create_btn.setVisible(False) # Hide after success
-        # Removed success popup as per user request
-        # Trigger actual join process
+        self.create_btn.setVisible(False) # 成功後隱藏
+        # 根據使用者要求移除成功彈窗
+        # 觸發實際的加入流程
         self.on_connect_clicked()
 
     def on_connect_clicked(self):
@@ -398,7 +398,7 @@ class RJPQTabContent(QWidget):
                 self.char_widget.setVisible(True)
                 if self.selected_color != -1:
                     self.grid_widget.setVisible(True)
-                    # Auto-reselect character if we had one
+                    # 若原本已有選擇角色，則延遲 500ms 後自動重新選擇
                     QTimer.singleShot(500, lambda: self.select_char(self.selected_color))
             else:
                 self.conn_btn.setText("連線")
@@ -410,15 +410,15 @@ class RJPQTabContent(QWidget):
                     return
 
                 if not self.disconnect_timer.isActive():
-                    logger.info("[RJPQ] Unintended disconnect. Grace period started (3s)...")
+                    logger.info("[RJPQ] 非預期中斷，進入寬限期 (3秒)...")
                     self.disconnect_timer.start(3000)
         except Exception as e:
             logger.error(f"[RJPQ] update_status error: {e}")
 
     def hide_ui_on_disconnect(self):
-        # Only hide if we are still actually disconnected
+        # 僅在目前仍處於斷線狀態時隱藏
         if not self.client.is_connected:
-            logging.info("[RJPQ Sync] Grace period expired. Hiding UI.")
+            logging.info("[RJPQ 同步] 寬限期結束，隱藏介面。")
             self.char_widget.setVisible(False)
             self.grid_widget.setVisible(False)
             for btn in self.char_btns: btn.setChecked(False)
@@ -430,7 +430,7 @@ class RJPQTabContent(QWidget):
         self.client.send_action({"type": "selectChar", "color": idx})
         self.color_selected.emit(idx)
         
-        # Show grid
+        # 顯示網格儀表板
         self.grid_widget.setVisible(True)
         self.update_grid(self.current_data)
 
@@ -466,13 +466,13 @@ class RJPQTabContent(QWidget):
                 border_style = "2px solid #ffd700" if is_target else "1px solid #333"
                 
                 if val < 4:
-                    # Active state
+                    # 啟用狀態
                     color = char_colors[val]
-                    # If someone else marked it, make it slightly semi-transparent
+                    # 若是其他人標記的，則設定為半透明
                     opacity = "1.0" if (self.selected_color == -1 or val == self.selected_color) else "0.6"
                     btn.setStyleSheet(f"QPushButton {{ background: {color}; color: #fff; border: {border_style}; border-radius: 4px; font-weight: bold; opacity: {opacity}; }}")
                 else:
-                    # Idle state
+                    # 閒置狀態 (未標記)
                     btn.setStyleSheet(f"QPushButton {{ background: rgba(255,255,255,0.03); color: #444; border: {border_style}; border-radius: 4px; }}")
         except Exception as e:
             logger.error(f"[RJPQ] update_grid error: {e}")
@@ -483,7 +483,7 @@ class RJPQTabContent(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.client.send_action({"type": "reset"})
 
-# --- Overlay Drawer ---
+# --- Overlay 影像繪製邏輯 ---
 def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     path = QPainterPath()
@@ -534,9 +534,9 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
                     painter.setBrush(QColor(255, 255, 255, 150))
                     painter.drawEllipse(QPoint(int(cx + cell_w//2), int(cy + cell_h//2)), 3, 3)
 
-    # Draw Target Row Highlight (Yellow Border)
+    # 繪製目標排的高亮框 (金色外框)
     if selected_color != -1:
-        # Find target row using duplicate logic for drawer
+        # 針對繪製邏輯尋找目標排 (複寫邏輯)
         target_row = -1
         for row in range(9, -1, -1):
             row_marked_by_me = False

@@ -40,8 +40,8 @@ class SettingsWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
         self.trigger_data = {}
-        self.recording_global_key = None # Which global hotkey we are recording
-        self.global_hk_buttons = {} # Store button refs
+        self.recording_global_key = None # 目前正在錄製哪一個全域熱鍵
+        self.global_hk_buttons = {} # 儲存按鈕引用
         
         self.handle = None
         self.exp_handle = None
@@ -51,79 +51,48 @@ class SettingsWindow(QWidget):
         self.request_show.connect(self.safe_show)
 
     def update_debug_img(self, data):
+        """更新統一的批次 OCR 監控影像"""
         if not data: return
         
-        # 1. Update EXP Debug Info
-        if "thresh" in data:
-            thresh = data["thresh"]
-            if thresh is not None and thresh.size > 0:
-                h, w = thresh.shape
-                bytes_data = np.ascontiguousarray(thresh).tobytes()
-                q_img = QImage(bytes_data, w, h, w, QImage.Format.Format_Grayscale8).copy()
-                pixmap = QPixmap.fromImage(q_img)
-                if not pixmap.isNull():
-                    self.debug_img_lbl.setPixmap(pixmap.scaled(self.debug_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-            
-            exp_conf = data.get("conf", 0)
-            self.debug_exp_conf_lbl.setText(f"Conf: {exp_conf:.0f}%")
-            exp_conf_color = "#51cf66" if exp_conf >= 100 else ("#ffd700" if exp_conf >= 50 else "#ff6b6b")
-            self.debug_exp_conf_lbl.setStyleSheet(f"color: {exp_conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
-
-        # ... (Coin update ...)
-        if "coin" in data:
-            coin_thresh = data["coin"]
-            if coin_thresh is not None and coin_thresh.size > 0:
-                ch, cw = coin_thresh.shape
-                bytes_data = np.ascontiguousarray(coin_thresh).tobytes()
-                q_coin = QImage(bytes_data, cw, ch, cw, QImage.Format.Format_Grayscale8).copy()
-                pixmap = QPixmap.fromImage(q_coin)
-                if not pixmap.isNull():
-                    self.debug_coin_img_lbl.setPixmap(pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-            
-            # Coin Match Conf
-            cm_conf = data.get("coin_match_conf", 0)
-            self.debug_coin_conf_lbl.setText(f"Match: {cm_conf:.0f}%")
-            cm_color = "#51cf66" if cm_conf >= 85 else ("#ffd700" if cm_conf >= 70 else "#ff6b6b")
-            self.debug_coin_conf_lbl.setStyleSheet(f"color: {cm_color}; font-family: Consolas; font-weight: bold; font-size: 11px;")
-            
-            # Money OCR Conf
-            m_conf = data.get("money_ocr_conf", 0)
-            self.debug_money_conf_lbl.setText(f"OCR: {m_conf:.0f}%")
-            m_color = "#51cf66" if m_conf >= 80 else ("#ffd700" if m_conf >= 60 else "#ff6b6b")
-            self.debug_money_conf_lbl.setStyleSheet(f"color: {m_color}; font-family: Consolas; font-weight: bold; font-size: 11px;")
-
-    def update_lv_debug_img(self, data):
-        if not data: return
-        thresh = data.get("thresh")
-        if thresh is not None and thresh.size > 0:
-            h, w = thresh.shape
-            bytes_data = np.ascontiguousarray(thresh).tobytes()
+        # 1. 更新大批次畫布 (Big Batch Canvas)
+        img = data.get("exp") # 在批次模式下，"exp" 包含完整的畫布
+        if img is not None and img.size > 0:
+            h, w = img.shape
+            bytes_data = np.ascontiguousarray(img).tobytes()
             q_img = QImage(bytes_data, w, h, w, QImage.Format.Format_Grayscale8).copy()
             pixmap = QPixmap.fromImage(q_img)
             if not pixmap.isNull():
-                self.debug_lv_img_lbl.setPixmap(pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                self.debug_batch_img_lbl.setPixmap(pixmap.scaled(self.debug_batch_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
+        # 2. 更新信心度指標
+        conf = data.get("conf", 0)
+        self.debug_global_conf_lbl.setText(f"OCR Confidence: {conf:.0f}%")
+        color = "#51cf66" if conf >= 85 else ("#ffd700" if conf >= 60 else "#ff6b6b")
+        self.debug_global_conf_lbl.setStyleSheet(f"color: {color}; font-family: Consolas; font-weight: bold; font-size: 12px;")
+
+    def update_lv_debug_img(self, data):
+        """僅更新等級數字資訊 (影像現在已成為批次的一部分)"""
+        if not data: return
         lv_text = data.get("level")
-        lv_conf = data.get("conf", 0)
+        lv_conf = data.get("conf", 100) # 如果是簡單的數字匹配，預設為 100
         
-        self.debug_lv_conf_lbl.setText(f"Conf: {lv_conf:.0f}%")
-        conf_color = "#51cf66" if lv_conf >= 100 else ("#ffd700" if lv_conf >= 50 else "#ff6b6b")
-        self.debug_lv_conf_lbl.setStyleSheet(f"color: {conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;")
+        self.debug_lv_stats_lbl.setText(f"LATEST LV: {lv_text or '--'}")
 
         if lv_text and lv_conf >= 100 and self.overlay: 
             try:
+                # 處理等級更新與升級偵測
                 lv_val = int(lv_text)
                 self.overlay.current_lv = f"LV.{lv_val}"
                 
                 if self.overlay.last_confirmed_lv is not None:
                     level_diff = lv_val - self.overlay.last_confirmed_lv
                     if 0 < level_diff <= 2:
-                        logger.info(f"[ExpTracker] Confirmed Level UP! {self.overlay.last_confirmed_lv} -> {lv_val}")
+                        logger.info(f"[ExpTracker] 確認升級！ {self.overlay.last_confirmed_lv} -> {lv_val}")
                         self.overlay.exp_initial_val = None
                         self.overlay.cumulative_gain = 0
                         self.overlay.exp_history = []
                     elif level_diff != 0:
-                        logger.debug(f"[ExpTracker] Filtered out unreasonable jump: {self.overlay.last_confirmed_lv} -> {lv_val}")
+                        logger.debug(f"[ExpTracker] 已過濾掉不合理的等級跳變: {self.overlay.last_confirmed_lv} -> {lv_val}")
                 
                 self.overlay.last_confirmed_lv = lv_val
             except:
@@ -140,8 +109,6 @@ class SettingsWindow(QWidget):
         if self.overlay:
             if hasattr(self.overlay, '_latest_version_info') and self.overlay._latest_version_info:
                 self.show_update_banner(*self.overlay._latest_version_info)
-            else:
-                self.overlay.check_for_updates(auto=True)
 
     def init_ui(self):
         self.setWindowTitle("Artale 瑞士刀")
@@ -169,7 +136,7 @@ class SettingsWindow(QWidget):
             QPushButton:hover { background-color: #333; border: 1px solid #555; }
         """
 
-        # Tab 1: Timer
+        # 分頁 1: 計時器 (Timer)
         timer_tab = QWidget()
         timer_tab_layout = QVBoxLayout(timer_tab)
         
@@ -221,7 +188,7 @@ class SettingsWindow(QWidget):
         pos_btn = QPushButton("🔱 調整計時器位置"); pos_btn.setStyleSheet(btn_common_style); pos_btn.clicked.connect(self.toggle_timer_handle); timer_tab_layout.addWidget(pos_btn)
         self.tabs.addTab(timer_tab, "⏲️ 計時器")
 
-        # Tab 2: EXP/Money
+        # 分頁 2: 經驗值/楓幣
         exp_tab = QWidget(); exp_tab_layout = QVBoxLayout(exp_tab)
         exp_info = QLabel("📊 經驗值/楓幣設定"); exp_info.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; margin-top: 10px;"); exp_tab_layout.addWidget(exp_info)
         
@@ -247,57 +214,37 @@ class SettingsWindow(QWidget):
         
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)"); self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;"); exp_tab_layout.addWidget(self.debug_mode_cb)
         
-        # --- Debug Monitoring Group ---
+        # --- 批次 OCR 監控群組 ---
         self.debug_group = QWidget()
         self.debug_layout = QVBoxLayout(self.debug_group)
         self.debug_layout.setContentsMargins(0, 5, 0, 0)
         
-        # EXP Debug
-        self.debug_info_lbl = QLabel("🔍 EXP 監控 (白底黑字為正常)")
-        self.debug_info_lbl.setStyleSheet("color: #666; font-size: 10px;")
-        exp_row = QHBoxLayout()
-        self.debug_img_lbl = QLabel()
-        self.debug_img_lbl.setFixedSize(180, 24)
-        self.debug_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
-        self.debug_exp_conf_lbl = QLabel("Conf: --%")
-        self.debug_exp_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
-        exp_row.addWidget(self.debug_img_lbl); exp_row.addWidget(self.debug_exp_conf_lbl); exp_row.addStretch()
-        self.debug_layout.addWidget(self.debug_info_lbl); self.debug_layout.addLayout(exp_row)
-
-        # LV Debug
-        self.debug_lv_info_lbl = QLabel("🔍 LV 監控")
-        self.debug_lv_info_lbl.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
-        lv_row = QHBoxLayout()
-        self.debug_lv_img_lbl = QLabel()
-        self.debug_lv_img_lbl.setFixedSize(120, 24)
-        self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
-        self.debug_lv_conf_lbl = QLabel("Conf: --%")
-        self.debug_lv_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
-        lv_row.addWidget(self.debug_lv_img_lbl); lv_row.addWidget(self.debug_lv_conf_lbl); lv_row.addStretch()
-        self.debug_layout.addWidget(self.debug_lv_info_lbl); self.debug_layout.addLayout(lv_row)
-
-        # Coin Debug
-        self.debug_coin_info_lbl = QLabel("🔍 楓幣監控")
-        self.debug_coin_info_lbl.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
-        coin_row = QHBoxLayout()
-        self.debug_coin_img_lbl = QLabel()
-        self.debug_coin_img_lbl.setFixedSize(120, 24)
-        self.debug_coin_img_lbl.setStyleSheet("border: 1px solid #444; background: #000;")
-        self.debug_coin_conf_lbl = QLabel("Match: --%")
-        self.debug_coin_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
-        self.debug_money_conf_lbl = QLabel("OCR: --%")
-        self.debug_money_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
-
-        coin_row.addWidget(self.debug_coin_img_lbl)
-        coin_row.addWidget(self.debug_coin_conf_lbl)
-        coin_row.addWidget(self.debug_money_conf_lbl)
-        coin_row.addStretch()
-        self.debug_layout.addWidget(self.debug_coin_info_lbl); self.debug_layout.addLayout(coin_row)
+        self.debug_info_lbl = QLabel("🔍 全域 OCR 批次監控 (由上而下: LV, Money, EXP)")
+        self.debug_info_lbl.setStyleSheet("color: #888; font-size: 10px; font-weight: bold;")
+        
+        self.debug_batch_img_lbl = QLabel()
+        self.debug_batch_img_lbl.setFixedSize(380, 160)
+        self.debug_batch_img_lbl.setStyleSheet("border: 1px solid #444; background: #000; padding: 5px;")
+        self.debug_batch_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        status_row = QHBoxLayout()
+        self.debug_global_conf_lbl = QLabel("OCR Confidence: --%")
+        self.debug_global_conf_lbl.setStyleSheet("color: #00ffff; font-family: Consolas; font-size: 11px;")
+        self.debug_lv_stats_lbl = QLabel("LATEST LV: --")
+        self.debug_lv_stats_lbl.setStyleSheet("color: #ffd700; font-family: Consolas; font-size: 11px;")
+        
+        status_row.addWidget(self.debug_global_conf_lbl)
+        status_row.addStretch()
+        status_row.addWidget(self.debug_lv_stats_lbl)
+        
+        self.debug_layout.addWidget(self.debug_info_lbl)
+        self.debug_layout.addWidget(self.debug_batch_img_lbl)
+        self.debug_layout.addLayout(status_row)
         
         exp_tab_layout.addWidget(self.debug_group)
         exp_tab_layout.addStretch()
         
-        # Initial state
+        # 初始狀態設定
         if self.overlay: 
             self.debug_mode_cb.setChecked(self.overlay.show_debug)
             self.debug_group.setVisible(self.overlay.show_debug)
@@ -305,7 +252,7 @@ class SettingsWindow(QWidget):
         
         self.tabs.addTab(exp_tab, "📊 經驗值/楓幣")
 
-        # Tab 3: RJPQ
+        # 分頁 3: 羅茱 YzY 同步
         self.rjpq_client = RJPQSyncClient()
         self.rjpq_tab = RJPQTabContent(self.rjpq_client)
         if self.overlay:
@@ -319,7 +266,7 @@ class SettingsWindow(QWidget):
         self.rjpq_tab.main_layout.insertWidget(2, move_rjpq_btn)
         self.tabs.addTab(self.rjpq_tab, "🎮 羅茱 YzY")
 
-        # Tab 4: System / Hotkeys
+        # 分頁 4: 系統 / 熱鍵設定
         sys_tab = QWidget(); sys_layout = QVBoxLayout(sys_tab)
         hk_grid = QGridLayout()
         hk_labels = {
@@ -330,6 +277,7 @@ class SettingsWindow(QWidget):
             "show_settings": "🍁 顯示/隱藏控制中心"
         }
         hotkeys = config.get("hotkeys", {})
+        # 繪製全域熱鍵列表
         for idx, (hk_id, txt) in enumerate(hk_labels.items()):
             hk_grid.addWidget(QLabel(txt), idx, 0)
             raw_val = hotkeys.get(hk_id, "None").upper()
@@ -338,16 +286,17 @@ class SettingsWindow(QWidget):
             hk_grid.addWidget(btn, idx, 1); self.global_hk_buttons[hk_id] = btn
         sys_layout.addLayout(hk_grid); sys_layout.addStretch()
         
+        # 底部資訊與檢查更新
         credit_lbl = QLabel('✨ 由 ALiangLiang 傾心製作 ❤️'); credit_lbl.setOpenExternalLinks(True); credit_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter); sys_layout.addWidget(credit_lbl)
-        update_btn = QPushButton(f"🔍 檢查更新 (目前版本: {VERSION})"); update_btn.setStyleSheet("background:transparent; color:#888;"); update_btn.clicked.connect(self.overlay.check_for_updates if self.overlay else lambda: None); sys_layout.addWidget(update_btn)
+        update_btn = QPushButton(f"🔍 檢查更新 (目前版本: {VERSION})"); update_btn.setStyleSheet("background:transparent; color:#888;"); update_btn.clicked.connect(lambda: self.overlay.controller.check_for_updates() if (self.overlay and self.overlay.controller) else None); sys_layout.addWidget(update_btn)
         
         self.update_banner = QLabel(""); self.update_banner.setVisible(False); sys_layout.addWidget(self.update_banner)
         self.tabs.addTab(sys_tab, "⚙️ 設定")
 
-        # Profile Switcher / Nickname
+        # 配置切換器 / 暱稱輸入
         self.update_profile_dropdown()
 
-        # Save Button
+        # 儲存按鈕
         save_btn = QPushButton("💾 儲存並套用")
         save_btn.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffd54f, stop:1 #ffb300); color: #222; font-weight: bold; height: 40px;")
         save_btn.clicked.connect(self.save_and_close)
@@ -358,6 +307,7 @@ class SettingsWindow(QWidget):
     def start_recording_global(self, hk_id):
         self.is_recording = False; self.recording_global_key = hk_id
         for btn in self.global_hk_buttons.values(): btn.setText(btn.text().replace(" (錄製中...)", ""))
+        # 視覺化錄製狀態
         self.global_hk_buttons[hk_id].setText("錄製中...")
         self.global_hk_buttons[hk_id].setStyleSheet("background: #552222; color: #ff5555; border: 1px solid #ff0000;")
 
@@ -410,7 +360,6 @@ class SettingsWindow(QWidget):
     def switch_profile_ui(self, index):
         p_key = self.profile_box.itemData(index); config = ConfigManager.load_config(); config["active_profile"] = p_key; ConfigManager.save_config(config)
         self.nickname_inp.setText(config["profiles"][p_key].get("name", "")); self.refresh_items()
-        if self.overlay: self.overlay.load_profile_immediately()
         self.config_updated.emit()
 
     def qt_key_to_name(self, event):

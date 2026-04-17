@@ -18,7 +18,7 @@ from utils import resource_path
 
 logger = logging.getLogger(__name__)
 
-# resource_path removed (now in utils.py)
+# resource_path 已移除 (現位於 utils.py)
 
 class IconSelectorDialog(QDialog):
     def __init__(self, parent=None):
@@ -112,6 +112,7 @@ class IconSelectorDialog(QDialog):
         self.accept()
 
 class PositionHandle(QWidget):
+    """用於拖曳調整 UI 位置的把手介面"""
     position_changed = pyqtSignal(int, int)
     
     def __init__(self, icon_path="buff_pngs/arrow.png"):
@@ -154,6 +155,7 @@ class PositionHandle(QWidget):
         self.position_changed.emit(gp.x(), gp.y())
 
 class TimerManager(QObject):
+    """管理所有活動計時器的核心邏輯及其生命週期"""
     updated = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -180,6 +182,7 @@ class TimerManager(QObject):
         
         self.active_timers[key] = {"seconds": seconds, "pixmap": pixmap, "sound_enabled": sound_enabled}
         self.is_active = True
+        # 如果計時器尚未啟動，則立即啟動
         if not self.countdown_timer.isActive():
             self.countdown_timer.start(1000)
         self.updated.emit()
@@ -192,8 +195,8 @@ class TimerManager(QObject):
             sound_enabled = self.active_timers[key].get("sound_enabled", True)
             
             if rem == 20 and sound_enabled: self.play_sound(1)
-            elif rem == 0: self.play_sound(2)
-            elif -10 < rem < 0: self.play_sound(1)
+            elif rem == 0: self.play_sound(2) # 倒數結束提示
+            elif -10 < rem < 0: self.play_sound(1) # 負數超時提示
             
             if rem <= -10:
                 to_remove.append(key)
