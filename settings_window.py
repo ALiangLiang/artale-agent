@@ -219,11 +219,16 @@ class SettingsWindow(QWidget):
         self.debug_layout = QVBoxLayout(self.debug_group)
         self.debug_layout.setContentsMargins(0, 5, 0, 0)
         
-        self.debug_info_lbl = QLabel("🔍 全域 OCR 批次監控 (由上而下: LV, Money, EXP)")
+        self.debug_info_lbl = QLabel("🔍 全域 OCR 監控 (頂部: LV | 底部: EXP)")
         self.debug_info_lbl.setStyleSheet("color: #888; font-size: 10px; font-weight: bold;")
         
+        self.debug_lv_img_lbl = QLabel()
+        self.debug_lv_img_lbl.setFixedHeight(40)
+        self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #222; padding: 2px;")
+        self.debug_lv_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         self.debug_batch_img_lbl = QLabel()
-        self.debug_batch_img_lbl.setFixedSize(380, 160)
+        self.debug_batch_img_lbl.setFixedSize(380, 110)
         self.debug_batch_img_lbl.setStyleSheet("border: 1px solid #444; background: #000; padding: 5px;")
         self.debug_batch_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -238,6 +243,7 @@ class SettingsWindow(QWidget):
         status_row.addWidget(self.debug_lv_stats_lbl)
         
         self.debug_layout.addWidget(self.debug_info_lbl)
+        self.debug_layout.addWidget(self.debug_lv_img_lbl)
         self.debug_layout.addWidget(self.debug_batch_img_lbl)
         self.debug_layout.addLayout(status_row)
         
@@ -456,6 +462,12 @@ class SettingsWindow(QWidget):
     def on_money_toggle_changed(self, checked):
         if self.overlay: self.overlay.show_money_log = checked; config = ConfigManager.load_config(); config["show_money_log"] = checked; ConfigManager.save_config(config)
 
+    def on_exp_toggle_changed(self, checked):
+        if self.overlay and self.overlay.show_exp_panel != checked: self.overlay.on_toggle_exp()
+
+    def on_reset_exp_clicked(self):
+        if self.overlay: self.overlay.reset_exp_stats()
+
     def on_debug_mode_changed(self, checked):
         if self.overlay: 
             self.overlay.show_debug = checked
@@ -466,11 +478,36 @@ class SettingsWindow(QWidget):
         self.opacity_val_lbl.setText(f"{v}%")
         if self.overlay: self.overlay.base_opacity = v / 100.0; self.overlay.update()
 
-    def on_exp_toggle_changed(self, checked):
-        if self.overlay and self.overlay.show_exp_panel != checked: self.overlay.on_toggle_exp()
+    def update_debug_img(self, data):
+        """更新除錯影像 (包含等級與經驗值)"""
+        if not self.isVisible() or not self.debug_group.isVisible(): return
+        
+        # 1. 處理經驗值影像
+        exp_data = data.get("exp")
+        if exp_data is not None:
+            h, w = exp_data.shape[:2]; bytes_p_l = w
+            qimg = QImage(exp_data.data, w, h, bytes_p_l, QImage.Format.Format_Grayscale8)
+            pix = QPixmap.fromImage(qimg)
+            self.debug_batch_img_lbl.setPixmap(pix.scaled(self.debug_batch_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
+        # 2. 處理等級影像
+        lv_data = data.get("lv_img")
+        if lv_data is not None:
+            h, w = lv_data.shape[:2]; bytes_p_l = w
+            qimg = QImage(lv_data.data, w, h, bytes_p_l, QImage.Format.Format_Grayscale8)
+            pix = QPixmap.fromImage(qimg)
+            self.debug_lv_img_lbl.setPixmap(pix.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
+        conf = data.get("exp_conf", 0)
+        self.debug_global_conf_lbl.setText(f"EXP Conf: {conf:.1f}%")
 
-    def on_reset_exp_clicked(self):
-        if self.overlay: self.overlay.reset_exp_stats()
+    def update_lv_debug_img(self, data):
+        """更新等級辨識狀態資訊"""
+        if not self.isVisible() or not self.debug_group.isVisible(): return
+        lv = data.get("level", "--")
+        conf = data.get("conf", 0)
+        self.debug_lv_stats_lbl.setText(f"LV: {lv} ({conf:.1f}%)")
+
 
     def save_and_close(self):
         config = ConfigManager.load_config(); p_key = self.profile_box.currentData() or "F1"; triggers = self.capture_ui_data()

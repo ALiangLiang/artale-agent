@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import logging
 import os
+from typing import Optional, Tuple, Dict, Any, List
 from PyQt6.QtCore import QObject, pyqtSignal
 
 # Optional Tesseract
@@ -19,20 +20,19 @@ class ArtaleOCR(QObject):
     """
     # 用於 UI 更新的訊號 (由 ArtaleOverlay 連接)
     lv_update = pyqtSignal(dict)
-    lv_update = pyqtSignal(dict)
     money_update = pyqtSignal(int)
     exp_visual_update = pyqtSignal(dict)
     exp_parsed_update = pyqtSignal(dict) # 用於呼叫 overlay 中的 parse_and_update_exp
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         # 設計常數設定
         # 1080p 校準參考 (與 ArtaleOverlay 保持同步)
         self.BASE_W, self.BASE_H = 1920, 1080
         self.LV_X_OFF_FROM_LEFT, self.LV_Y_OFF_FROM_BOTTOM = 96, 46
         self.LV_BASE_CW, self.LV_BASE_CH = 75, 26
-        self.X_OFF_FROM_LEFT, self.Y_OFF_FROM_BOTTOM = 1084, 66
-        self.BASE_CW, self.BASE_CH = 240, 22
+        self.X_OFF_FROM_LEFT, self.Y_OFF_FROM_BOTTOM = 1084, 69
+        self.BASE_CW, self.BASE_CH = 240, 26
         
         # 內部狀態
         self.coin_tpl = None
@@ -44,7 +44,7 @@ class ArtaleOCR(QObject):
         self.show_money_log = True
         self.show_debug = False
 
-    def set_coin_template(self, tpl_path):
+    def set_coin_template(self, tpl_path: str) -> None:
         if os.path.exists(tpl_path):
             self.coin_tpl = cv2.imread(tpl_path)
             if self.coin_tpl is not None:
@@ -193,19 +193,24 @@ class ArtaleOCR(QObject):
         
         return ocr_text, score, processed_img
 
-    def process_frame(self, img, scale, off_x, off_y, cw_ref, ch_ref):
-        """單次批次 OCR 處理，兼顧清晰度與效能"""
+    def process_frame(self, img: np.ndarray, scale: float, off_x: int, off_y: int, cw_ref: int, ch_ref: int) -> None:
+        """核心處理引擎：將影像分區並執行獨立的 OCR 辨識"""
         if self.exp_paused and not self.show_debug: return
         try:
             h, w = img.shape[:2]
-            parts = [] 
+            results = {"exp_conf": 0, "lv_conf": 0, "money_conf": 0}
+            lv_thresh = None; m_thresh = None; exp_stack = None
             
             # --- 1. 等級區域 (LEVEL) ---
             lv_cx, lv_cy = off_x + int(self.LV_X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.LV_Y_OFF_FROM_BOTTOM * scale))
             lv_cw, lv_ch = int(self.LV_BASE_CW * scale), int(self.LV_BASE_CH * scale)
             lv_crop = img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
             if lv_crop.size > 0:
-                parts.append(("LV", self.preprocess_for_ocr(lv_crop)))
+                if self.show_debug: cv2.imwrite("./tmp/debug_lv_crop.png", lv_crop)
+                lv_thresh = self.preprocess_for_ocr(lv_crop)
+                lv_txt, lv_conf = self._do_single_ocr(lv_thresh, "0123456789", psm=7)
+                self.lv_update.emit({"level": lv_txt, "conf": lv_conf})
+                results["lv_conf"] = lv_conf
 
             # --- 2. 楓幣區域 (MONEY) ---
             if self.show_money_log and self.coin_tpl is not None:
@@ -217,157 +222,116 @@ class ArtaleOCR(QObject):
                     _, max_val, _, max_loc = cv2.minMaxLoc(res)
                     if max_val > 0.7:
                         info_w, info_h = int(280 * scale), int(31 * scale)
-                        m_ix = max_loc[0] + st_w + int(30 * scale)
+                        m_ix = max_loc[0] + st_w + int(20 * scale)
                         m_iy = max_loc[1] + (st_h // 2) - (info_h // 2) + int(1 * scale)
                         m_crop = img[max(0, m_iy):min(h, m_iy+info_h), max(0, m_ix):min(w, m_ix+info_w)]
                         if m_crop.size > 0:
-                            parts.append(("MONEY", self.preprocess_for_ocr(m_crop, threshold=120)))
+                            m_thresh = self.preprocess_for_ocr(m_crop, threshold=120)
+                            m_txt, m_conf = self._do_single_ocr(m_thresh, "0123456789,", psm=7)
+                            m_val_clean = "".join(filter(lambda c: c.isdigit(), m_txt))
+                            if m_val_clean: self.money_update.emit(int(m_val_clean))
+                            results["money_conf"] = m_conf
 
-            # --- 3. 經驗值區域 (EXP - 優化後的單次分割) ---
+            # --- 3. 經驗值區域 (EXP) ---
             if not self.exp_paused:
-                # 垂直方向微調以避開 UI 邊框
                 exp_lx, exp_ly = off_x + int(self.X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale)) + 2
                 exp_cw, exp_ch = int(self.BASE_CW * scale), int(self.BASE_CH * scale) - 2
                 exp_crop = img[max(0, exp_ly):min(h, exp_ly+exp_ch), max(0, exp_lx):min(w, exp_lx+exp_cw)]
                 if exp_crop.size > 0:
-                    # 僅執行一次預處理
                     full_thresh = self.preprocess_for_ocr(exp_crop)
-                    # 嘗試基於已二值化的影像進行分割
+                    if self.show_debug: cv2.imwrite("./tmp/debug_exp_processed.png", full_thresh)
                     ev, ep = self.split_already_threshed(full_thresh, scale)
                     if ev is not None and ep is not None:
-                        parts.append(("EXP_V", ev))
-                        parts.append(("EXP_P", ep))
-                    else:
-                        parts.append(("EXP_FULL", full_thresh))
+                        # 將經驗值與百分比排成兩行 (不帶括號)，增加寬鬆邊距與間距
+                        h_v, w_v = ev.shape; h_p, w_p = ep.shape
+                        max_w = max(w_v, w_p)
+                        spacing = 20; pad = 20 # 外部邊距與行間距
+                        canvas_h = h_v + h_p + spacing + (pad * 2)
+                        canvas_w = max_w + (pad * 2)
+                        
+                        exp_stack = np.ones((canvas_h, canvas_w), dtype=np.uint8) * 255
+                        exp_stack[pad : pad+h_v, pad : pad+w_v] = ev
+                        exp_stack[pad+h_v+spacing : pad+h_v+spacing+h_p, pad : pad+w_p] = ep
+                        
+                        exp_txt, exp_conf = self._do_single_ocr(exp_stack, "0123456789.%", psm=6)
+                        self.exp_parsed_update.emit({
+                            "text": exp_txt, 
+                            "e_conf": exp_conf,
+                            "thresh": exp_stack,
+                            "crop": None
+                        })
+                        results["exp_conf"] = exp_conf
 
-            if not parts: return
-            
-            # --- 2. 垂直拼接影像 (Stitch vertically) ---
-            # 我們將小圖拼成一張大圖，減少 Tesseract 的啟動次數，提高效率。
-            spacing = 45
-            total_h = sum(p[1].shape[0] for p in parts) + spacing * (len(parts) - 1)
-            max_w = max(p[1].shape[1] for p in parts)
-            canvas = np.ones((total_h + 80, max_w + 80), dtype=np.uint8) * 255
-            cur_y = 40
-            for i, (p_type, p_img) in enumerate(parts):
-                ph, pw = p_img.shape[:2]
-                canvas[cur_y:cur_y+ph, 40:40+pw] = p_img
-                if i < len(parts) - 1:
-                    line_y = cur_y + ph + (spacing // 2)
-                    cv2.line(canvas, (20, line_y), (max_w + 60, line_y), 200, 1)
-                cur_y += ph + spacing
-
-            # --- 3. 呼叫 Tesseract 字典模式 (用於獲取信心度) ---
-            config = '--psm 6 -c tessedit_char_whitelist=0123456789.%,LV[] '
-            data = pytesseract.image_to_data(canvas, config=config, output_type=pytesseract.Output.DICT)
-            
-            lines_data = [] 
-            current_line_text, current_line_conf = [], []
-            last_line_num = -1
-            
-            for i in range(len(data['text'])):
-                txt = data['text'][i].strip()
-                if not txt: continue
-                line_n = data['line_num'][i]
-                conf_val = data['conf'][i]
-                
-                if line_n != last_line_num and last_line_num != -1:
-                    # 真實 Tesseract 信心度：僅對有效分數 (>0) 進行平均
-                    valid_scores = [c for c in current_line_conf if c >= 0]
-                    avg_conf = sum(valid_scores)/len(valid_scores) if valid_scores else 0
-                    lines_data.append({"text": " ".join(current_line_text), "conf": avg_conf})
-                    current_line_text, current_line_conf = [], []
-                
-                current_line_text.append(txt)
-                current_line_conf.append(conf_val)
-                last_line_num = line_n
-                if self.show_debug:
-                    logger.debug(f"[OCR] Token: '{txt}' | Conf: {conf_val}")
-                
-            if current_line_text:
-                valid_scores = [c for c in current_line_conf if c >= 0]
-                avg_conf = sum(valid_scores)/len(valid_scores) if valid_scores else 0
-                lines_data.append({"text": " ".join(current_line_text), "conf": avg_conf})
-
+            # --- 最終除錯影像發送 ---
             if self.show_debug:
-                logger.debug(f"[OCR] Raw Tesseract Confidences: {data['conf']}")
-
-            # --- 4. 最終數據對齊與分發 (Final Mapping) ---
-            results = {} 
-            line_idx = 0
-            for p_type, _ in parts:
-                if line_idx >= len(lines_data): break
-                row = lines_data[line_idx]
-                
-                if p_type == "LV":
-                    self.lv_update.emit({"level": row['text'], "conf": row['conf']})
-                    results['lv_conf'] = row['conf']
-                elif p_type == "MONEY":
-                    m_val = "".join(filter(str.isdigit, row['text']))
-                    if m_val: self.money_update.emit(int(m_val))
-                    results['money_conf'] = row['conf']
-                elif p_type == "EXP_V":
-                    nxt = lines_data[line_idx+1] if line_idx+1 < len(lines_data) else {"text": "0", "conf": 0}
-                    combined_conf = (row['conf'] + nxt['conf']) / 2
-                    self.exp_parsed_update.emit({
-                        "text": f"{row['text']} {nxt['text']}", 
-                        "e_conf": combined_conf,
-                        "thresh": canvas,
-                        "crop": None
-                    })
-                    results['exp_conf'] = combined_conf
-                    line_idx += 1
-                elif p_type == "EXP_FULL":
-                    self.exp_parsed_update.emit({
-                        "text": row['text'], 
-                        "e_conf": row['conf'],
-                        "thresh": canvas,
-                        "crop": None
-                    })
-                    results['exp_conf'] = row['conf']
-                
-                line_idx += 1
-                
-            if self.show_debug:
-                results.update({"exp": canvas})
+                if lv_thresh is not None: results.update({"lv_img": lv_thresh})
+                if exp_stack is not None: results.update({"exp": exp_stack})
                 self.exp_visual_update.emit(results)
 
         except Exception as e:
-            logger.debug(f"[OCR] Batch process error: {e}")
+            logger.debug(f"[OCR] Process Frame Error: {e}")
 
-    def split_already_threshed(self, threshed_exp, scale):
-        """將已二值化並放大過的影像分割為 [數值] 與 [百分比]"""
+    def _do_single_ocr(self, img: np.ndarray, whitelist: str, psm: int = 7) -> Tuple[str, float]:
+        """執行單一影像區域的 OCR"""
+        if img is None: return "", 0
         try:
-            # 用於尋找括號的比例必須計入預處理中的 4 倍放大
-            upscale_f = 4.0
-            contours, _ = cv2.findContours(threshed_exp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            brackets = []
+            config = f'--psm {psm} -c tessedit_char_whitelist={whitelist}'
+            data = pytesseract.image_to_data(img, config=config, output_type=pytesseract.Output.DICT)
+            txts = [t for t in data['text'] if t.strip()]
+            confs = [c for c in data['conf'] if c >= 0]
+            avg_conf = sum(confs)/len(confs) if confs else 0
+            return " ".join(txts), avg_conf
+        except:
+            return "", 0
+
+    def split_already_threshed(self, threshed_exp: np.ndarray, scale: float) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """抹除括號並保留原始字元細節 (包含孔洞)"""
+        try:
+            # 1. 偵測括號輪廓 (需在黑底白字上進行)
+            inv = cv2.bitwise_not(threshed_exp)
+            contours, _ = cv2.findContours(inv, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if len(contours) < 3: return None, None
+            
+            objs = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
-                # 調整放縮影像的判定基準
-                if h > 20 * scale and w < 15 * scale:
-                    brackets.append((x, y, w, h))
+                objs.append({'x': x, 'y': y, 'w': w, 'h': h, 'c': c})
             
-            if len(brackets) >= 2:
-                brackets.sort(key=lambda b: b[0])
-                bx1 = brackets[0][0]
-                # 從第一個括號前幾個像素處切割
-                val_img = threshed_exp[:, :bx1 - 2]
-                pct_img = threshed_exp[:, bx1 - 2:]
-                return val_img, pct_img
-        except: pass
+            # 依高度排序找括號
+            objs.sort(key=lambda o: o['h'], reverse=True)
+            brackets = sorted(objs[:2], key=lambda o: o['x'])
+            b_left = brackets[0]; b_right = brackets[1]
+            
+            # 2. 建立「抹除遮罩」並套用至原圖
+            # 我們只想要抹除 brackets，其餘字元維持原圖像素以保留孔洞
+            clean_img = threshed_exp.copy()
+            mask = np.zeros_like(threshed_exp)
+            cv2.drawContours(mask, [b_left['c'], b_right['c']], -1, 255, thickness=-1)
+            # 將遮罩範圍內的像素塗白 (背景色)
+            clean_img[mask == 255] = 255
+            
+            # 3. 依據括號位置分割已抹除括號的原圖
+            # 數值部分：第一個括號左側 (加上小補償避免切到邊緣)
+            val_img = clean_img[:, :max(0, b_left['x'] - 2)]
+            
+            # 百分比部分：第一個括號與第二個括號之間
+            pct_start = b_left['x'] + b_left['w'] + 2
+            pct_end = b_right['x'] - 2
+            if pct_end > pct_start:
+                pct_img = clean_img[:, pct_start:pct_end]
+            else:
+                pct_img = None
+                
+            return val_img, pct_img
+        except Exception as e:
+            logger.debug(f"[OCR] Masked Split failed: {e}")
         return None, None
 
-    def preprocess_for_ocr(self, img, threshold=None):
+    def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = None) -> Optional[np.ndarray]:
         """單一二值化處理點，支援 Otsu 演算法"""
         if img is None or img.size == 0: return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.bitwise_not(gray) # 反相處理
-        gray = cv2.resize(gray, None, fx=4.0, fy=4.0, interpolation=cv2.INTER_CUBIC)
-        # 預設使用 Otsu 以避免手動調整閾值的麻煩
-        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
-
-    def ocr_level(self, *args): pass
-    def ocr_money(self, *args): pass
-    def ocr_exp(self, *args): pass
+        r = 60 / gray.shape[0] if gray.shape[0] > 0 else 3
+        gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
+        _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+        return cv2.bitwise_not(thresh)

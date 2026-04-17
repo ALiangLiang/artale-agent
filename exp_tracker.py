@@ -40,6 +40,8 @@ class ExpTracker(QObject):
         self.show_debug = False
         self.is_paused = False
         self.pause_start_time = 0
+        self.last_known_lv = None # 用於更精準的等級提升判斷
+        self.last_exp_val_time = 0 # 記錄最後一次成功的 OCR 時間點
 
         # 最後輸出的 UI 數據包
         self.stats_data = {
@@ -62,7 +64,7 @@ class ExpTracker(QObject):
         """
         try:
             cleaned = raw_text.replace(' ', '')
-            match = re.search(r'(\d+)\[(\d+\.?\d*)%\]', cleaned)
+            match = re.search(r'(\d+)(\d+\.?\d*)%', cleaned)
             if match:
                 val = int(match.group(1))
                 pct = float(match.group(2))
@@ -110,14 +112,26 @@ class ExpTracker(QObject):
             if inf_lv:
                 self.current_lv = f"LV.{inf_lv}"
                 self.lv_inferred.emit(self.current_lv)
+            self.last_exp_val_time = now
                 
             logger.info(f"建立初始基準值: {val:,} ({pct}%)")
             self._broadcast(raw_text, val, pct, now)
             return
 
-        # 2. 偵測等級提升
-        if val < self.last_exp_val - 1000:
-            logger.info("偵測到等級變更，重置統計基準。")
+        # 2. 偵測等級提升 (僅依賴等級 OCR)
+        level_up_triggered = False
+        if self.current_lv:
+            try:
+                curr_lv_num = int(self.current_lv)
+                if self.last_known_lv and curr_lv_num > self.last_known_lv:
+                    logger.info(f"偵測到等級提升: {self.last_known_lv} -> {curr_lv_num}")
+                    level_up_triggered = True
+                self.last_known_lv = curr_lv_num
+            except:
+                pass
+
+        if level_up_triggered:
+            logger.info("重置統計基準。")
             self.exp_initial_val = val
             self.last_exp_val = val
             self.last_exp_pct = pct
@@ -141,6 +155,7 @@ class ExpTracker(QObject):
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         self.last_exp_val = val
         self.last_exp_pct = pct
+        self.last_exp_val_time = now # 記錄本次成功的時間點
 
         self._broadcast(raw_text, val, pct, now)
 
