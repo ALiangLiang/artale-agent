@@ -29,8 +29,8 @@ class ArtaleOCR(QObject):
         # 設計常數設定
         # 1080p 校準參考 (與 ArtaleOverlay 保持同步)
         self.BASE_W, self.BASE_H = 1920, 1080
-        self.LV_X_OFF_FROM_LEFT, self.LV_Y_OFF_FROM_BOTTOM = 96, 46
-        self.LV_BASE_CW, self.LV_BASE_CH = 75, 26
+        self.LV_X_OFF_FROM_LEFT, self.LV_Y_OFF_FROM_BOTTOM = 92, 46
+        self.LV_BASE_CW, self.LV_BASE_CH = 77, 26
         self.X_OFF_FROM_LEFT, self.Y_OFF_FROM_BOTTOM = 1084, 69
         self.BASE_CW, self.BASE_CH = 240, 26
         
@@ -207,7 +207,7 @@ class ArtaleOCR(QObject):
             lv_crop = img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
             if lv_crop.size > 0:
                 if self.show_debug: cv2.imwrite("./tmp/debug_lv_crop.png", lv_crop)
-                lv_thresh = self.preprocess_for_ocr(lv_crop)
+                lv_thresh = self.preprocess_for_ocr(lv_crop, threshold=180)
                 lv_txt, lv_conf = self._do_single_ocr(lv_thresh, "0123456789", psm=7)
                 self.lv_update.emit({"level": lv_txt, "conf": lv_conf})
                 results["lv_conf"] = lv_conf
@@ -238,7 +238,7 @@ class ArtaleOCR(QObject):
                 exp_cw, exp_ch = int(self.BASE_CW * scale), int(self.BASE_CH * scale) - 2
                 exp_crop = img[max(0, exp_ly):min(h, exp_ly+exp_ch), max(0, exp_lx):min(w, exp_lx+exp_cw)]
                 if exp_crop.size > 0:
-                    full_thresh = self.preprocess_for_ocr(exp_crop)
+                    full_thresh = self.preprocess_for_ocr(exp_crop, threshold=150)
                     if self.show_debug: cv2.imwrite("./tmp/debug_exp_processed.png", full_thresh)
                     ev, ep = self.split_already_threshed(full_thresh, scale)
                     if ev is not None and ep is not None:
@@ -297,9 +297,21 @@ class ArtaleOCR(QObject):
                 x, y, w, h = cv2.boundingRect(c)
                 objs.append({'x': x, 'y': y, 'w': w, 'h': h, 'c': c})
             
-            # 依高度排序找括號
-            objs.sort(key=lambda o: o['h'], reverse=True)
-            brackets = sorted(objs[:2], key=lambda o: o['x'])
+            # --- 新增驗證邏輯：最右側的物件必須是最高的兩個之一 (右括號判定) ---
+            # 1. 找到最右側的物件
+            objs_by_x = sorted(objs, key=lambda o: o['x'])
+            last_obj = objs_by_x[-1]
+            
+            # 2. 找到最高的兩個物件
+            objs_by_h = sorted(objs, key=lambda o: o['h'], reverse=True)
+            top2_h = objs_by_h[:2]
+            
+            # 3. 驗證：如果最右側的物件不在最高的前二中，代表右括號抓錯或被遮擋
+            if last_obj not in top2_h:
+                return None, None
+            
+            # 確認括號位置
+            brackets = sorted(top2_h, key=lambda o: o['x'])
             b_left = brackets[0]; b_right = brackets[1]
             
             # 2. 建立「抹除遮罩」並套用至原圖
@@ -327,11 +339,11 @@ class ArtaleOCR(QObject):
             logger.debug(f"[OCR] Masked Split failed: {e}")
         return None, None
 
-    def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = None) -> Optional[np.ndarray]:
+    def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = 150) -> Optional[np.ndarray]:
         """單一二值化處理點，支援 Otsu 演算法"""
         if img is None or img.size == 0: return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         r = 60 / gray.shape[0] if gray.shape[0] > 0 else 3
         gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
-        _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
         return cv2.bitwise_not(thresh)

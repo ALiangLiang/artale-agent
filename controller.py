@@ -91,12 +91,17 @@ class ArtaleController(QObject):
         if conf == 0 or conf >= 90:
             self.tracker.update_exp(raw_text)
         else:
+            self.tracker.update_tick() # 即使失敗也維持時鐘跳動
             if self.overlay.show_debug:
                 logger.debug(f"[Controller] 經驗值信心度不足 ({conf}), 已忽略")
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""
-        self.tracker.current_lv = data.get("level")
+        lv_text = data.get("level")
+        # 只有當 OCR 真的抓到有效數字時，才更新統計器
+        if lv_text and str(lv_text).isdigit():
+            self.tracker.current_lv = int(lv_text)
+        
         self.overlay.lv_update_request.emit(data)
 
     def toggle_tracking(self, active):

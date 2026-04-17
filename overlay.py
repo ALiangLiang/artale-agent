@@ -1,3 +1,4 @@
+from exp_tracker import StatsData
 import sys
 import json
 import os
@@ -152,11 +153,9 @@ class ArtaleOverlay(QWidget):
         self.rjpq_x_offset = -400
         self.rjpq_y_offset = 0
         self.rjpq_click_zones = {}
-        self.last_capture_time = 0
         self.current_lv = None 
         self.last_confirmed_lv = None # 用於升級偵測
         self.last_crop_info = None
-        self.last_lv_crop_info = None
         
         self.timer_request.connect(self.timer_manager.start_timer)
         self.clear_request.connect(self.timer_manager.clear_all)
@@ -184,10 +183,6 @@ class ArtaleOverlay(QWidget):
         self.world_timers = {} 
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
-        self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
-        self.last_coin_pos = None # (x, y, w, h) in client coords
-        self.last_coin_info_pos = None
-        self.last_coin_ocr = ""
         self.icon_frame = QPixmap(frame_p) if os.path.exists(frame_p) else None
         self.last_coin_pos = None # (x, y, w, h) in client coords
         self.last_coin_info_pos = None
@@ -245,13 +240,9 @@ class ArtaleOverlay(QWidget):
 
     def reset_exp_stats(self, silent=False):
         """重置經驗值追蹤基準點"""
-        self.exp_history = []
-        self.exp_rate_history = []
         self.cumulative_gain = 0
         self.cumulative_pct = 0.0
         self.max_10m_exp = 0
-        self.exp_initial_val = None
-        self.last_exp_pct = 0.0
         if not silent:
             self.show_notification("📊 經驗值統計已重置")
 
@@ -301,9 +292,9 @@ class ArtaleOverlay(QWidget):
                 return True
             win32gui.EnumWindows(callback, 0)
         except Exception as e:
-            # Error 2 or 1400 are common during window transitions, log only other errors
+            # Error 2, 18 or 1400 are common during window transitions, log only other errors
             err_str = str(e)
-            if not any(code in err_str for code in ["(2,", "(1400,"]):
+            if not any(code in err_str for code in ["(2,", "(18,", "(1400,"]):
                 logger.debug(f"[Overlay] Window search failed: {e}")
             self.game_hwnd = None
         
@@ -374,7 +365,7 @@ class ArtaleOverlay(QWidget):
                 return True
         return False
 
-    def on_stats_updated(self, stats):
+    def on_stats_updated(self, stats: StatsData):
         """接收來自 ExpTracker 的完整數據包並同步至 UI 顯示層"""
         self.current_exp_data = stats
         self.cumulative_gain = stats.get("cumulative_gain", 0)

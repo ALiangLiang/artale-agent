@@ -4,47 +4,66 @@ import logging
 from PyQt6.QtCore import QObject, pyqtSignal
 from utils import EXP_TABLE
 
+from typing import List, Tuple, Optional, Dict, Any, TypedDict
+
+class StatsData(TypedDict):
+    text: Optional[str]
+    value: int
+    percent: float
+    gained_10m: int
+    percent_10m: float
+    time_to_level: int
+    is_estimated: bool
+    tracking_duration: int
+    money_10m: int
+    cumulative_money: int
+    cumulative_gain: int
+    cumulative_pct: float
+    max_10m_exp: int
+    exp_rate_history: List[int]
+    money_rate_history: List[int]
+
 logger = logging.getLogger("ExpTracker")
 
 class ExpTracker(QObject):
     """
     負責經驗值與楓幣的統計運算邏輯，與 UI 渲染完全解耦。
     """
-    lv_inferred = pyqtSignal(str) # 當推算出新等級時發送
+    lv_inferred = pyqtSignal(int) # 當推算出新等級時發送
     updated = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
         # 經驗值相關狀態
-        self.exp_initial_val = None 
-        self.last_exp_val = 0
-        self.last_exp_pct = 0.0
-        self.cumulative_gain = 0
-        self.cumulative_pct = 0.0
-        self.exp_history = []  # [(timestamp, value, percent)]
-        self.exp_session_start_time = None
-        self.max_10m_exp = 0
-        self.exp_rate_history = [] # 趨勢圖數據
+        self.exp_initial_val: Optional[int] = None 
+        self.last_exp_val: int = 0
+        self.last_exp_pct: float = 0.0
+        self.cumulative_gain: int = 0
+        self.cumulative_pct: float = 0.0
+        self.exp_history: List[Tuple[float, int, float]] = []  # [(timestamp, value, percent)]
+        self.exp_session_start_time: Optional[float] = None
+        self.max_10m_exp: int = 0
+        self.exp_rate_history: List[int] = [] # 趨勢圖數據
         
         # 楓幣相關狀態
-        self.money_initial_val = None
-        self.last_total_money = 0
-        self.cumulative_money = 0
-        self.money_history = [] # [(timestamp, gain)]
-        self.money_rate_history = []
+        self.money_initial_val: Optional[int] = None
+        self.last_total_money: int = 0
+        self.cumulative_money: int = 0
+        self.money_history: List[Tuple[float, int]] = [] # [(timestamp, gain)]
+        self.money_rate_history: List[int] = []
         
         # 系統狀態
-        self.current_lv = None
-        self.exp_session_start_pct = 0.0
-        self.last_graph_sample_time = 0
-        self.show_debug = False
-        self.is_paused = False
-        self.pause_start_time = 0
-        self.last_known_lv = None # 用於更精準的等級提升判斷
-        self.last_exp_val_time = 0 # 記錄最後一次成功的 OCR 時間點
+        self.current_lv: Optional[int] = None
+        self.exp_session_start_pct: float = 0.0
+        self.last_graph_sample_time: float = 0
+        self.show_debug: bool = False
+        self.is_paused: bool = False
+        self.pause_start_time: float = 0
+        self.last_known_lv: Optional[int] = None # 用於更精準的等級提升判斷
+        self.last_exp_val_time: float = 0 # 記錄最後一次成功的 OCR 時間點
 
         # 最後輸出的 UI 數據包
-        self.stats_data = {
+        self.stats_data: StatsData = {
             "text": "---",
             "value": 0,
             "percent": 0.0,
@@ -54,7 +73,12 @@ class ExpTracker(QObject):
             "is_estimated": True,
             "tracking_duration": 0,
             "money_10m": 0,
-            "cumulative_money": 0
+            "cumulative_money": 0,
+            "cumulative_gain": 0,
+            "cumulative_pct": 0.0,
+            "max_10m_exp": 0,
+            "exp_rate_history": [],
+            "money_rate_history": []
         }
 
     def parse_exp_text(self, raw_text):
@@ -63,8 +87,7 @@ class ExpTracker(QObject):
         支援格式如: "45013389 [98.85%]"
         """
         try:
-            cleaned = raw_text.replace(' ', '')
-            match = re.search(r'(\d+)(\d+\.?\d*)%', cleaned)
+            match = re.search(r'(\d+)[\s]*(\d+\.?\d*)%', raw_text)
             if match:
                 val = int(match.group(1))
                 pct = float(match.group(2))
@@ -78,25 +101,48 @@ class ExpTracker(QObject):
         """
         透過經驗值與百分比推算目前等級。
         """
+        possible_levels = []
         best_lv = None
         min_diff = 999999999
         
         for lv, next_exp in EXP_TABLE.items():
             calc_exp = int(next_exp * (current_pct / 100.0))
             diff = abs(calc_exp - current_exp)
-            if diff < min_diff:
-                min_diff = diff
-                best_lv = lv
-                
-        if min_diff < 10000: # 容錯門檻
-            return best_lv
-        return None
+            
+            # 使用動態容錯門檻
+            tolerance = max(100, next_exp * 0.0001)
+            
+            if diff < tolerance:
+                possible_levels.append(lv)
+                if diff < min_diff:
+                    min_diff = diff
+                    best_lv = lv
+        
+        # 判斷推斷品質
+        if len(possible_levels) > 1:
+            # 如果可能等級太多 (例如超過 3 個)，代表數據極度模糊 (通常是 0.00%)
+            logger.debug(f"等級推斷存在模糊性: 共有 {len(possible_levels)} 個可能等級 {possible_levels[:5]}... 目前選擇偏差最小的 LV.{best_lv}")
+        elif len(possible_levels) == 0:
+            logger.debug(f"等級推斷失敗: 經驗值 {current_exp} 與百分比 {current_pct}% 在所有等級中皆不符合一致性檢查。")
+
+        return best_lv
 
     def update_exp(self, raw_text, timestamp=None):
         """處理經驗值數據更新"""
         now = timestamp or time.time()
         val, pct = self.parse_exp_text(raw_text)
         if val is None: return
+
+        # --- 數據一致性校驗 (Data Consistency Check) ---
+        # 每次都推斷一次等級，確保這組 [經驗值 + 百分比] 是合法的
+        inf_lv = self.infer_level(val, pct)
+        if inf_lv is None:
+            if self.show_debug:
+                logger.debug(f"跳過不一致數據: 數值 {val:,} 與百分比 {pct}% 無法匹配任何等級。")
+            # 廣播舊的經驗值，維持介面更新 (僅在已初始化時)
+            if self.exp_initial_val is not None:
+                self.update_tick(timestamp=now)
+            return
 
         # 1. 初始化基準值
         if self.exp_initial_val is None:
@@ -106,39 +152,42 @@ class ExpTracker(QObject):
             self.exp_history = [(now, val, pct)]
             self.exp_session_start_time = None
             self.exp_session_start_pct = pct
-            
-            # 嘗試推測等級
-            inf_lv = self.infer_level(val, pct)
-            if inf_lv:
-                self.current_lv = f"LV.{inf_lv}"
-                self.lv_inferred.emit(self.current_lv)
+            self.current_lv = inf_lv
+            self.lv_inferred.emit(self.current_lv)
             self.last_exp_val_time = now
                 
-            logger.info(f"建立初始基準值: {val:,} ({pct}%)")
+            logger.info(f"建立初始基準值: {val:,} ({pct}%) -> 識別等級: LV.{inf_lv}")
             self._broadcast(raw_text, val, pct, now)
             return
 
-        # 2. 偵測等級提升 (僅依賴等級 OCR)
+        # 2. 偵測等級變動 (由推斷結果決定)
         level_up_triggered = False
-        if self.current_lv:
-            try:
-                curr_lv_num = int(self.current_lv)
-                if self.last_known_lv and curr_lv_num > self.last_known_lv:
-                    logger.info(f"偵測到等級提升: {self.last_known_lv} -> {curr_lv_num}")
-                    level_up_triggered = True
-                self.last_known_lv = curr_lv_num
-            except:
-                pass
+        if inf_lv != self.current_lv:
+            # 只有等級上升才觸發升級邏輯 (避免 OCR 偶爾跳回低等級造成的誤判)
+            if inf_lv > (self.current_lv or 0):
+                logger.info(f"偵測到等級提升 (自動推斷): {self.current_lv} -> {inf_lv}")
+                level_up_triggered = True
+                self.current_lv = inf_lv
+                self.lv_inferred.emit(self.current_lv)
+            else:
+                # 如果推斷等級變小了，可能是極其嚴重的誤判，暫時忽略這筆
+                if self.show_debug:
+                    logger.debug(f"忽略異常等級跳變: {self.current_lv} -> {inf_lv}")
+                # 維持介面更新
+                self.update_tick(timestamp=now)
+                return
 
         if level_up_triggered:
-            logger.info("重置統計基準。")
+            logger.info("重置統計基準 (升級)。")
+            # 升級時重置累積值
             self.exp_initial_val = val
             self.last_exp_val = val
             self.last_exp_pct = pct
-            self.cumulative_gain = 0
-            self.cumulative_pct = 0.0
             self.exp_session_start_time = None
+            self.cumulative_gain = 0
             self.exp_history = [(now, val, pct)]
+            self.money_history = []
+            self.money_initial_val = None 
             self._broadcast(raw_text, val, pct, now)
             return
 
@@ -155,9 +204,15 @@ class ExpTracker(QObject):
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         self.last_exp_val = val
         self.last_exp_pct = pct
-        self.last_exp_val_time = now # 記錄本次成功的時間點
-
+        self.last_exp_val_time = now
+        
         self._broadcast(raw_text, val, pct, now)
+
+    def update_tick(self):
+        """僅更新時間與效率廣播 (用於辨識失敗時維持 UI 時鐘運作)"""
+        # 只要計時已經開始，就持續廣播當前狀態以更新 Duration
+        if self.exp_session_start_time:
+            self._broadcast(None, self.last_exp_val, self.last_exp_pct, time.time())
 
     def update_money(self, total_val, timestamp=None):
         """處理楓幣數據更新"""
@@ -180,6 +235,7 @@ class ExpTracker(QObject):
         # 楓幣不需要頻繁廣播，隨經驗值更新一起發送即可
 
     def _broadcast(self, raw_text, val, pct, now):
+        print('_broadcast', raw_text, val, pct, now)
         """計算統計結果並發送給 UI"""
         # A. 效率計算 (10分鐘滑動視窗)
         h_ago_10m = now - 600
@@ -188,7 +244,7 @@ class ExpTracker(QObject):
         gain_10m = 0; pct_10m = 0.0; time_to_lv = -1; is_est = True
         if len(recent) >= 2:
             dt = recent[-1][0] - recent[0][0]
-            if dt > 5:
+            if dt > 3:
                 dv = recent[-1][1] - recent[0][1]
                 dp = recent[-1][2] - recent[0][2]
                 gain_10m = int(dv * 600 / dt)
@@ -280,4 +336,9 @@ class ExpTracker(QObject):
 
     def set_lv(self, data):
         """外部同步等級訊息"""
-        self.current_lv = data.get("level")
+        lv = data.get("level")
+        if lv:
+            try:
+                self.current_lv = int(lv)
+            except (ValueError, TypeError):
+                logger.warning(f"無效的等級數據: {lv}")
