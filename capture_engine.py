@@ -6,6 +6,7 @@ import cv2
 import win32gui
 import win32con
 import win32process
+import numpy as np
 import psutil
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -38,6 +39,7 @@ class ArtaleCapture(QObject):
         
         # 1080p 校準參考
         self.BASE_W, self.BASE_H = 1920, 1080
+        self._session_start_maximized = False
 
     def start(self):
         self._is_running = True
@@ -49,21 +51,44 @@ class ArtaleCapture(QObject):
         self._active = False
         self.wake_event.set()
 
-    def _get_window_metrics(self, target_hwnd, frame_w, frame_h):
+    def _get_window_metrics(self, target_hwnd, img):
         """計算視窗縮放比例以及相對於截取影格的偏移量"""
         try:
+            h, w = img.shape[:2]
+            
+            # 1. 取得座標與當前狀態
+            wr = win32gui.GetWindowRect(target_hwnd)
+            client_tl = win32gui.ClientToScreen(target_hwnd, (0, 0))
+
+            # 2. 取得內容區域 (Client Area) 的寬高
             crect = win32gui.GetClientRect(target_hwnd)
             cw_ref, ch_ref = crect[2], crect[3]
-            scale = min(cw_ref / self.BASE_W, ch_ref / self.BASE_H)
+            if cw_ref <= 0 or ch_ref <= 0: return None
             
-            placement = win32gui.GetWindowPlacement(target_hwnd)
-            if placement[1] == win32con.SW_SHOWMAXIMIZED:
-                off_x = 0; off_y = frame_h - ch_ref
-            else:
-                border_w = max(0, (frame_w - cw_ref) // 2)
-                off_x = border_w; off_y = max(0, frame_h - ch_ref - border_w)
-            return scale, off_x, off_y, cw_ref, ch_ref
-        except:
+            scale = min(cw_ref / self.BASE_W, ch_ref / self.BASE_H)
+
+            # 3. 核心邏輯：固定 Y 軸相對偏移 (Fixed Relative Offset Y)
+            # WGC 影格與內容區的 Y 軸相對位置在 Session 開始時就固定了
+            if not hasattr(self, '_session_fixed_off_y'):
+                # 判定影格原點是在哪裡 (0 還是 wr[1])
+                padding_top = 0
+                for y in range(min(32, h)):
+                    if np.any(img[y, w//2] != 0):
+                        padding_top = y; break
+                
+                # 如果是最大化啟動且無黑邊，影格原點在螢幕 0，偏移量即為絕對座標
+                if self._session_start_maximized and padding_top == 0:
+                    self._session_fixed_off_y = client_tl[1]
+                else:
+                    # 否則影格原點在視窗頂部 (wr[1])，偏移量為相對座標 (標題列高度)
+                    self._session_fixed_off_y = client_tl[1] - wr[1]
+                
+                logger.info(f"[Capture] Y-Offset Locked: {self._session_fixed_off_y} (Maximized: {self._session_start_maximized}, Padding: {padding_top})")
+
+            # X 軸經測試不需要偏移 (WGC 影格左側即為內容區起點)
+            return scale, 0, self._session_fixed_off_y, cw_ref, ch_ref
+        except Exception as e:
+            logger.error(f"Error getting window metrics: {e}")
             return None
 
     def _find_target_window(self):
@@ -112,6 +137,15 @@ class ArtaleCapture(QObject):
 
             try:
                 precise_name = win32gui.GetWindowText(self.target_hwnd)
+                
+                # 重置 Session 狀態
+                if hasattr(self, '_session_start_maximized'): delattr(self, '_session_start_maximized')
+                if hasattr(self, '_session_fixed_off_y'): delattr(self, '_session_fixed_off_y')
+                
+                placement = win32gui.GetWindowPlacement(self.target_hwnd)
+                self._session_start_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
+                logger.info(f"[Capture] Starting Session. Initial Maximized: {self._session_start_maximized}")
+                
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
@@ -140,9 +174,14 @@ class ArtaleCapture(QObject):
 
                     self.last_cap_w, self.last_cap_h = w, h
                     
-                    metrics = self._get_window_metrics(self.target_hwnd, w, h)
+                    metrics = self._get_window_metrics(self.target_hwnd, img)
                     if metrics:
                         scale, off_x, off_y, cw, ch = metrics
+                        # 只有當偏移量發生明顯變化時才記錄日誌，避免刷屏
+                        if not hasattr(self, '_last_log_metrics') or self._last_log_metrics != (off_x, off_y, cw, ch):
+                            logger.info(f"[Capture] Metrics: scale={scale:.2f}, offset=({off_x}, {off_y}), client={cw}x{ch}")
+                            self._last_log_metrics = (off_x, off_y, cw, ch)
+
                         self.frame_arrived.emit(img, scale, off_x, off_y, cw, ch)
                         last_processed_time = now
 
