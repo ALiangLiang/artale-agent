@@ -145,8 +145,8 @@ class ExpTracker(QObject):
         # 2. 偵測等級變動 (由推斷結果決定)
         level_up_triggered = False
         if inf_lv != self.current_lv:
-            # 只有等級上升才觸發升級邏輯 (避免 OCR 偶爾跳回低等級造成的誤判)
-            if inf_lv > (self.current_lv or 0):
+            # 只有等級上升1等才觸發升級邏輯 (避免 OCR 偶爾跳回低等級造成的誤判)
+            if inf_lv == (self.current_lv or 0) + 1:
                 logger.info(f"偵測到等級提升 (自動推斷): {self.current_lv} -> {inf_lv}")
                 level_up_triggered = True
                 self.current_lv = inf_lv

@@ -306,7 +306,6 @@ class ArtaleOCR(QObject):
         try:
             config = f'--psm {psm} -c tessedit_char_whitelist={whitelist}'
             data = pytesseract.image_to_data(img, config=config, output_type=pytesseract.Output.DICT)
-            print(data)
             txts = [t for t in data['text'] if t.strip()]
             confs = [c for c in data['conf'] if c >= 0]
             avg_conf = sum(confs)/len(confs) if confs else 0
