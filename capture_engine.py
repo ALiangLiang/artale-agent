@@ -21,7 +21,7 @@ class ArtaleCapture(QObject):
     處理視窗尋找與螢幕截取的生命週期。
     透過訊號 (Signals) 將影格處理委派給其他組件。
     """
-    frame_arrived = pyqtSignal(object, float, int, int, int, int) # img, scale, off_x, off_y, cw, ch
+    frame_arrived = pyqtSignal(object, float, int, int, int, int) # img(ndarray), scale, off_x, off_y, cw, ch
     session_started = pyqtSignal(int) # hwnd
     session_closed = pyqtSignal()
 
@@ -33,6 +33,7 @@ class ArtaleCapture(QObject):
         self.wake_event = threading.Event()
         self.last_cap_w = 0
         self.last_cap_h = 0
+        self.target_hwnd = None
         self.target_window_title = "MapleStory Worlds-Artale (繁體中文版)"
         
         # 1080p 校準參考
@@ -105,12 +106,12 @@ class ArtaleCapture(QObject):
                 self.wake_event.clear()
                 if not self._active: continue
 
-            target_hwnd = self._find_target_window()
-            if not target_hwnd:
+            self.target_hwnd = self.target_hwnd or self._find_target_window()
+            if not self.target_hwnd:
                 time.sleep(2.0); continue
 
             try:
-                precise_name = win32gui.GetWindowText(target_hwnd)
+                precise_name = win32gui.GetWindowText(self.target_hwnd)
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
@@ -136,15 +137,10 @@ class ArtaleCapture(QObject):
                     img_orig = frame.frame_buffer
                     img = cv2.cvtColor(img_orig, cv2.COLOR_BGRA2BGR)
                     h, w = img.shape[:2]
-                    
-                    # 偵測解析度變化
-                    if self.last_cap_w != 0 and (abs(w - self.last_cap_w) > 10 or abs(h - self.last_cap_h) > 10):
-                        logger.info(f"[Capture] 解析度發生變更，正在重啟...")
-                        control.stop(); return
 
                     self.last_cap_w, self.last_cap_h = w, h
                     
-                    metrics = self._get_window_metrics(target_hwnd, w, h)
+                    metrics = self._get_window_metrics(self.target_hwnd, w, h)
                     if metrics:
                         scale, off_x, off_y, cw, ch = metrics
                         self.frame_arrived.emit(img, scale, off_x, off_y, cw, ch)
@@ -154,12 +150,14 @@ class ArtaleCapture(QObject):
                 def on_closed():
                     self.session_closed.emit()
 
-                self.session_started.emit(target_hwnd)
+                self.session_started.emit(self.target_hwnd)
                 capture.start_free_threaded()
                 
                 # 健康狀況監控
                 while self._active and self._is_running:
-                    if not win32gui.IsWindow(target_hwnd): break
+                    if not win32gui.IsWindow(self.target_hwnd): 
+                        self.target_hwnd = None # 視窗消失，重置句柄
+                        break
                     time.sleep(1.0)
                 
                 capture.stop()

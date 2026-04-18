@@ -1,14 +1,9 @@
-from exp_tracker import StatsData
+from data_types import StatsData, LVUpdateData, ExpVisualData
 import sys
-import json
 import os
-import threading
 import time
-import re
 import logging
-import webbrowser
 import subprocess
-import urllib.request
 try:
     import win32gui
     import win32process
@@ -22,18 +17,10 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QSystemTrayIcon, QMenu)
 from PyQt6.QtCore import (Qt, QPoint, QRect, QTimer, pyqtSignal, QRectF, QStandardPaths)
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QLinearGradient
 
-try:
-    from windows_capture import WindowsCapture
-except ImportError:
-    WindowsCapture = None
-
 # Local imports
-from capture_engine import ArtaleCapture
-from ocr_engine import ArtaleOCR
 from rjpq_tool import draw_rjpq_panel
 from skill_timer import TimerManager
 from settings_window import SettingsWindow
-from ocr_engine import ArtaleOCR
 
 # 初始化日誌記錄器
 logging.getLogger('pytesseract').setLevel(logging.WARNING)
@@ -96,8 +83,8 @@ class ArtaleOverlay(QWidget):
     notification_request = pyqtSignal(str)
     profile_switch_request = pyqtSignal()
     exp_update_request = pyqtSignal(dict)    # 用於統計數據
-    exp_visual_request = pyqtSignal(dict)    # 用於除錯影像: exp, lv, coin
-    lv_update_request = pyqtSignal(dict)
+    exp_visual_request = pyqtSignal(ExpVisualData)    # 用於除錯影像: exp, lv, coin
+    lv_update_request = pyqtSignal(LVUpdateData)
     toggle_exp_request = pyqtSignal()
     toggle_pause_request = pyqtSignal()
     toggle_rjpq_request = pyqtSignal()
@@ -137,10 +124,14 @@ class ArtaleOverlay(QWidget):
         self.exp_x_offset = 0; self.exp_y_offset = 0
         
         # UI 顯示用的實時數據包
-        self.current_exp_data = {
-            "text": "---", "value": 0, "percent": 0.0, 
-            "gained_10m": 0, "percent_10m": 0.0, "tracking_duration": 0
-        }
+        self.current_exp_data = StatsData(
+            text="---", value=0, percent=0.0, 
+            gained_10m=0, percent_10m=0.0, time_to_level=-1,
+            is_estimated=True, tracking_duration=0,
+            money_10m=0, cumulative_money=0, cumulative_gain=0,
+            cumulative_pct=0.0, max_10m_exp=0,
+            exp_rate_history=[], money_rate_history=[]
+        )
         self.exp_rate_history = [] 
         self.money_rate_history = []
         self.cumulative_gain = 0
@@ -368,12 +359,12 @@ class ArtaleOverlay(QWidget):
     def on_stats_updated(self, stats: StatsData):
         """接收來自 ExpTracker 的完整數據包並同步至 UI 顯示層"""
         self.current_exp_data = stats
-        self.cumulative_gain = stats.get("cumulative_gain", 0)
-        self.cumulative_pct = stats.get("cumulative_pct", 0.0)
-        self.cumulative_money = stats.get("cumulative_money", 0)
-        self.max_10m_exp = stats.get("max_10m_exp", 0)
-        self.exp_rate_history = stats.get("exp_rate_history", [])
-        self.money_rate_history = stats.get("money_rate_history", [])
+        self.cumulative_gain = stats.cumulative_gain
+        self.cumulative_pct = stats.cumulative_pct
+        self.cumulative_money = stats.cumulative_money
+        self.max_10m_exp = stats.max_10m_exp
+        self.exp_rate_history = stats.exp_rate_history
+        self.money_rate_history = stats.money_rate_history
         self.update()
 
     def on_toggle_exp(self):
@@ -691,6 +682,7 @@ class ArtaleOverlay(QWidget):
 
     def _draw_exp_content(self, painter, px, py, pw, ph, is_export=False):
         now = time.time()
+        if not self.current_exp_data: return
         # 1. 標題與標籤
         painter.setPen(QColor(255, 255, 255))
         font = QFont("Microsoft JhengHei")
@@ -701,7 +693,7 @@ class ArtaleOverlay(QWidget):
         
         # 2. 次要資訊 (紀錄時長與累計，整合在同一行)
         y += (28 if is_export else 25)
-        duration_sec = self.current_exp_data.get("tracking_duration", 0)
+        duration_sec = self.current_exp_data.tracking_duration
         h_dur = duration_sec // 3600; m_dur = (duration_sec % 3600) // 60; s_dur = duration_sec % 60
         val_dur = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
         
@@ -733,16 +725,16 @@ class ArtaleOverlay(QWidget):
         lbl_ttl = "升級預計還需: "
         painter.drawText(px + 15, y, lbl_ttl)
         
-        ttl_sec = self.current_exp_data.get("time_to_level", -1)
+        ttl_sec = self.current_exp_data.time_to_level
         val_ttl = f"{ttl_sec // 3600}小時 {(ttl_sec % 3600) // 60}分" if ttl_sec > 0 else "計算速率中..."
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_ttl)
         
         # 4. 十分鍾效率 (Sliding Window)
         y += (32 if is_export else 28)
-        gain_val = self.current_exp_data.get("gained_10m", 0)
-        gain_pct = self.current_exp_data.get("percent_10m", 0.0)
-        is_est = self.current_exp_data.get("is_estimated", True)
+        gain_val = self.current_exp_data.gained_10m
+        gain_pct = self.current_exp_data.percent_10m
+        is_est = self.current_exp_data.is_estimated
         
         lbl_eff = f"{'（預估）' if is_est else ''}10分鐘效率: "
         painter.setPen(QColor(100, 255, 100))
@@ -758,7 +750,7 @@ class ArtaleOverlay(QWidget):
         painter.setPen(QColor(100, 255, 100))
         painter.drawText(px + 15, y, lbl_max)
         
-        duration_sec = self.current_exp_data.get("tracking_duration", 0)
+        duration_sec = self.current_exp_data.tracking_duration
         val_max = f"{self.max_10m_exp:,}" if duration_sec >= 600 else "(未滿十分鐘)"
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_max)
@@ -770,7 +762,7 @@ class ArtaleOverlay(QWidget):
             lbl_money_10m = "十分鐘楓幣效率: "
             painter.setPen(QColor(255, 215, 0)) # 黃金色
             painter.drawText(px + 15, y, lbl_money_10m)
-            money_10m = self.current_exp_data.get("money_10m", 0)
+            money_10m = self.current_exp_data.money_10m
             val_money_10m = f"+{money_10m:,}"
             painter.setPen(QColor(255, 255, 255))
             painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_money_10m)

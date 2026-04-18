@@ -3,25 +3,8 @@ import re
 import logging
 from PyQt6.QtCore import QObject, pyqtSignal
 from utils import EXP_TABLE
-
-from typing import List, Tuple, Optional, Dict, Any, TypedDict
-
-class StatsData(TypedDict):
-    text: Optional[str]
-    value: int
-    percent: float
-    gained_10m: int
-    percent_10m: float
-    time_to_level: int
-    is_estimated: bool
-    tracking_duration: int
-    money_10m: int
-    cumulative_money: int
-    cumulative_gain: int
-    cumulative_pct: float
-    max_10m_exp: int
-    exp_rate_history: List[int]
-    money_rate_history: List[int]
+from typing import List, Tuple, Optional, Dict, Any
+from data_types import StatsData
 
 logger = logging.getLogger("ExpTracker")
 
@@ -30,7 +13,7 @@ class ExpTracker(QObject):
     負責經驗值與楓幣的統計運算邏輯，與 UI 渲染完全解耦。
     """
     lv_inferred = pyqtSignal(int) # 當推算出新等級時發送
-    updated = pyqtSignal(dict)
+    stats_updated = pyqtSignal(StatsData) # 修改訊號名稱與類型以匹配 Overlay 預期
 
     def __init__(self):
         super().__init__()
@@ -139,9 +122,8 @@ class ExpTracker(QObject):
         if inf_lv is None:
             if self.show_debug:
                 logger.debug(f"跳過不一致數據: 數值 {val:,} 與百分比 {pct}% 無法匹配任何等級。")
-            # 廣播舊的經驗值，維持介面更新 (僅在已初始化時)
-            if self.exp_initial_val is not None:
-                self.update_tick(timestamp=now)
+            # 廣播舊的經驗值，維持介面更新
+            self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
             return
 
         # 1. 初始化基準值
@@ -174,7 +156,7 @@ class ExpTracker(QObject):
                 if self.show_debug:
                     logger.debug(f"忽略異常等級跳變: {self.current_lv} -> {inf_lv}")
                 # 維持介面更新
-                self.update_tick(timestamp=now)
+                self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
                 return
 
         if level_up_triggered:
@@ -235,7 +217,6 @@ class ExpTracker(QObject):
         # 楓幣不需要頻繁廣播，隨經驗值更新一起發送即可
 
     def _broadcast(self, raw_text, val, pct, now):
-        print('_broadcast', raw_text, val, pct, now)
         """計算統計結果並發送給 UI"""
         # A. 效率計算 (10分鐘滑動視窗)
         h_ago_10m = now - 600
@@ -284,25 +265,25 @@ class ExpTracker(QObject):
         if self.exp_session_start_time is None:
              self.exp_session_start_pct = pct
              
-        self.stats_data = {
-            "text": raw_text,
-            "value": val,
-            "percent": pct,
-            "gained_10m": max(0, gain_10m),
-            "percent_10m": max(0.0, pct_10m),
-            "time_to_level": time_to_lv,
-            "is_estimated": is_est,
-            "tracking_duration": int(duration),
-            "money_10m": max(0, m_gain_10m),
-            "cumulative_money": self.cumulative_money,
-            "cumulative_gain": self.cumulative_gain,
-            "cumulative_pct": pct - self.exp_session_start_pct,
-            "max_10m_exp": self.max_10m_exp,
-            "exp_rate_history": self.exp_rate_history,
-            "money_rate_history": self.money_rate_history
-        }
+        self.stats_data = StatsData(
+            text=raw_text,
+            value=val,
+            percent=pct,
+            gained_10m=max(0, gain_10m),
+            percent_10m=max(0.0, pct_10m),
+            time_to_level=time_to_lv,
+            is_estimated=is_est,
+            tracking_duration=int(duration),
+            money_10m=max(0, m_gain_10m),
+            cumulative_money=self.cumulative_money,
+            cumulative_gain=self.cumulative_gain,
+            cumulative_pct=pct - self.exp_session_start_pct,
+            max_10m_exp=self.max_10m_exp,
+            exp_rate_history=self.exp_rate_history,
+            money_rate_history=self.money_rate_history
+        )
 
-        self.updated.emit(self.stats_data)
+        self.stats_updated.emit(self.stats_data)
 
     def toggle_pause(self):
         """切換暫停狀態並補償時間戳"""
@@ -333,12 +314,3 @@ class ExpTracker(QObject):
         self.money_history = []
         self.exp_session_start_time = None
         self.updated.emit(self.stats_data)
-
-    def set_lv(self, data):
-        """外部同步等級訊息"""
-        lv = data.get("level")
-        if lv:
-            try:
-                self.current_lv = int(lv)
-            except (ValueError, TypeError):
-                logger.warning(f"無效的等級數據: {lv}")

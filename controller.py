@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPixmap, QPainter
 from capture_engine import ArtaleCapture
 from ocr_engine import ArtaleOCR
 from exp_tracker import ExpTracker
+from data_types import LVUpdateData
 
 logger = logging.getLogger("ArtaleController")
 
@@ -37,14 +38,13 @@ class ArtaleController(QObject):
         self.ocr_engine.lv_update.connect(self.on_lv_parsed)
         
         # 4. 連結 統計器 -> 介面更新
-        self.tracker.updated.connect(self.overlay.on_stats_updated)
-        self.tracker.lv_inferred.connect(lambda lv: self.overlay.lv_update_request.emit({"level": lv}))
+        self.tracker.stats_updated.connect(self.overlay.on_stats_updated)
+        self.tracker.lv_inferred.connect(lambda lv: self.overlay.lv_update_request.emit(LVUpdateData(level=str(lv), conf=100.0)))
         
         # 5. 連結 OCR 視覺輔助 -> 介面
         self.ocr_engine.exp_visual_update.connect(self.overlay.exp_visual_request)
         
         # 6. 連結 介面訊號 -> 控制器動作
-        self.overlay.lv_update_request.connect(self.tracker.set_lv) # 手動確認等級時同步至 Tracker
         self.overlay.export_report_request.connect(self.export_exp_report)
         self.overlay.profile_switch_request.connect(self.load_profile)
         self.overlay.settings_window.config_updated.connect(self.load_profile)
@@ -84,8 +84,8 @@ class ArtaleController(QObject):
         """將辨識出的經驗值數據傳遞給統計器"""
         if not data: return
         
-        raw_text = data.get('text', "")
-        conf = data.get('e_conf', 0)
+        raw_text = data.text
+        conf = data.e_conf
         
         # 信心度過濾邏輯 (維持原狀)
         if conf == 0 or conf >= 90:
@@ -97,9 +97,10 @@ class ArtaleController(QObject):
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""
-        lv_text = data.get("level")
+        lv_text = data.level
         # 只有當 OCR 真的抓到有效數字時，才更新統計器
-        if lv_text and str(lv_text).isdigit():
+        # 等級數字最多三位數
+        if lv_text and str(lv_text).isdigit() and len(str(lv_text)) <= 3:
             self.tracker.current_lv = int(lv_text)
         
         self.overlay.lv_update_request.emit(data)

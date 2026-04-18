@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Optional, Tuple, Dict, Any, List
 from PyQt6.QtCore import QObject, pyqtSignal
+from dataclasses import dataclass
 
 # Optional Tesseract
 try:
@@ -13,16 +14,19 @@ except ImportError:
 
 logger = logging.getLogger("ArtaleOCR")
 
+
+from data_types import LVUpdateData, ExpParsedData, ExpVisualData
+
 class ArtaleOCR(QObject):
     """
     處理 Artale 的所有 OCR (光學字元辨識) 與模板比對邏輯。
     與主要的 Overlay 介面邏輯解耦。
     """
     # 用於 UI 更新的訊號 (由 ArtaleOverlay 連接)
-    lv_update = pyqtSignal(dict)
+    lv_update = pyqtSignal(LVUpdateData)
     money_update = pyqtSignal(int)
-    exp_visual_update = pyqtSignal(dict)
-    exp_parsed_update = pyqtSignal(dict) # 用於呼叫 overlay 中的 parse_and_update_exp
+    exp_visual_update = pyqtSignal(ExpVisualData)
+    exp_parsed_update = pyqtSignal(ExpParsedData) # 用於呼叫 overlay 中的 parse_and_update_exp
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -30,7 +34,7 @@ class ArtaleOCR(QObject):
         # 1080p 校準參考 (與 ArtaleOverlay 保持同步)
         self.BASE_W, self.BASE_H = 1920, 1080
         self.LV_X_OFF_FROM_LEFT, self.LV_Y_OFF_FROM_BOTTOM = 92, 46
-        self.LV_BASE_CW, self.LV_BASE_CH = 77, 26
+        self.LV_BASE_CW, self.LV_BASE_CH = 84, 26
         self.X_OFF_FROM_LEFT, self.Y_OFF_FROM_BOTTOM = 1084, 69
         self.BASE_CW, self.BASE_CH = 240, 26
         
@@ -193,59 +197,81 @@ class ArtaleOCR(QObject):
         
         return ocr_text, score, processed_img
 
+    def _get_lv_crop(self, img, scale, off_x, off_y, ch_ref):
+        """計算並裁切等級區域"""
+        h, w = img.shape[:2]
+        lv_cx, lv_cy = off_x + int(self.LV_X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.LV_Y_OFF_FROM_BOTTOM * scale))
+        lv_cw, lv_ch = int(self.LV_BASE_CW * scale), int(self.LV_BASE_CH * scale)
+        return img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
+
+    def _get_money_crop(self, img, scale):
+        """透過模板匹配動態定位並裁切楓幣區域"""
+        if self.coin_tpl is None: return None
+        h, w = img.shape[:2]
+        tpl_h, tpl_w = self.coin_tpl.shape[:2]
+        st_w, st_h = int(tpl_w * scale), int(tpl_h * scale)
+        if st_w <= 5 or st_h <= 5: return None
+        
+        tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
+        res = cv2.matchTemplate(img, tpl_resized, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        
+        if max_val > 0.7:
+            info_w, info_h = int(280 * scale), int(31 * scale)
+            m_ix = max_loc[0] + st_w + int(20 * scale)
+            m_iy = max_loc[1] + (st_h // 2) - (info_h // 2) + int(1 * scale)
+            return img[max(0, m_iy):min(h, m_iy+info_h), max(0, m_ix):min(w, m_ix+info_w)]
+        return None
+
+    def _get_exp_crop(self, img, scale, off_x, off_y, ch_ref):
+        """計算並裁切經驗值區域"""
+        h, w = img.shape[:2]
+        exp_lx, exp_ly = off_x + int(self.X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale)) + 2
+        exp_cw, exp_ch = int(self.BASE_CW * scale), int(self.BASE_CH * scale) - 2
+        return img[max(0, exp_ly):min(h, exp_ly+exp_ch), max(0, exp_lx):min(w, exp_lx+exp_cw)]
+
     def process_frame(self, img: np.ndarray, scale: float, off_x: int, off_y: int, cw_ref: int, ch_ref: int) -> None:
         """核心處理引擎：將影像分區並執行獨立的 OCR 辨識"""
         if self.exp_paused and not self.show_debug: return
         try:
-            h, w = img.shape[:2]
             results = {"exp_conf": 0, "lv_conf": 0, "money_conf": 0}
             lv_thresh = None; m_thresh = None; exp_stack = None
             
-            # --- 1. 等級區域 (LEVEL) ---
-            lv_cx, lv_cy = off_x + int(self.LV_X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.LV_Y_OFF_FROM_BOTTOM * scale))
-            lv_cw, lv_ch = int(self.LV_BASE_CW * scale), int(self.LV_BASE_CH * scale)
-            lv_crop = img[max(0, lv_cy):min(h, lv_cy+lv_ch), max(0, lv_cx):min(w, lv_cx+lv_cw)]
+            # --- 1. 等級辨識 ---
+            lv_crop = self._get_lv_crop(img, scale, off_x, off_y, ch_ref)
             if lv_crop.size > 0:
                 if self.show_debug: cv2.imwrite("./tmp/debug_lv_crop.png", lv_crop)
+                # 預處理
                 lv_thresh = self.preprocess_for_ocr(lv_crop, threshold=180)
                 lv_txt, lv_conf = self._do_single_ocr(lv_thresh, "0123456789", psm=7)
-                self.lv_update.emit({"level": lv_txt, "conf": lv_conf})
+                self.lv_update.emit(LVUpdateData(level=lv_txt, conf=lv_conf))
                 results["lv_conf"] = lv_conf
 
-            # --- 2. 楓幣區域 (MONEY) ---
-            if self.show_money_log and self.coin_tpl is not None:
-                tpl_h, tpl_w = self.coin_tpl.shape[:2]
-                st_w, st_h = int(tpl_w * scale), int(tpl_h * scale)
-                if st_w > 5 and st_h > 5:
-                    tpl_resized = cv2.resize(self.coin_tpl, (st_w, st_h))
-                    res = cv2.matchTemplate(img, tpl_resized, cv2.TM_CCOEFF_NORMED)
-                    _, max_val, _, max_loc = cv2.minMaxLoc(res)
-                    if max_val > 0.7:
-                        info_w, info_h = int(280 * scale), int(31 * scale)
-                        m_ix = max_loc[0] + st_w + int(20 * scale)
-                        m_iy = max_loc[1] + (st_h // 2) - (info_h // 2) + int(1 * scale)
-                        m_crop = img[max(0, m_iy):min(h, m_iy+info_h), max(0, m_ix):min(w, m_ix+info_w)]
-                        if m_crop.size > 0:
-                            m_thresh = self.preprocess_for_ocr(m_crop, threshold=120)
-                            m_txt, m_conf = self._do_single_ocr(m_thresh, "0123456789,", psm=7)
-                            m_val_clean = "".join(filter(lambda c: c.isdigit(), m_txt))
-                            if m_val_clean: self.money_update.emit(int(m_val_clean))
-                            results["money_conf"] = m_conf
+            # --- 2. 楓幣辨識 ---
+            if self.show_money_log:
+                m_crop = self._get_money_crop(img, scale)
+                if m_crop is not None and m_crop.size > 0:
+                    # 預處理
+                    m_thresh = self.preprocess_for_ocr(m_crop, threshold=120)
+                    m_txt, m_conf = self._do_single_ocr(m_thresh, "0123456789,", psm=7)
+                    m_val_clean = "".join(filter(lambda c: c.isdigit(), m_txt))
+                    if m_val_clean: self.money_update.emit(int(m_val_clean))
+                    results["money_conf"] = m_conf
 
-            # --- 3. 經驗值區域 (EXP) ---
+            # --- 3. 經驗值辨識 ---
             if not self.exp_paused:
-                exp_lx, exp_ly = off_x + int(self.X_OFF_FROM_LEFT * scale), off_y + (ch_ref - int(self.Y_OFF_FROM_BOTTOM * scale)) + 2
-                exp_cw, exp_ch = int(self.BASE_CW * scale), int(self.BASE_CH * scale) - 2
-                exp_crop = img[max(0, exp_ly):min(h, exp_ly+exp_ch), max(0, exp_lx):min(w, exp_lx+exp_cw)]
+                exp_crop = self._get_exp_crop(img, scale, off_x, off_y, ch_ref)
                 if exp_crop.size > 0:
+                    # 預處理
                     full_thresh = self.preprocess_for_ocr(exp_crop, threshold=150)
                     if self.show_debug: cv2.imwrite("./tmp/debug_exp_processed.png", full_thresh)
+
+                    # 切分經驗值與百分比，有可能拆壞
                     ev, ep = self.split_already_threshed(full_thresh, scale)
                     if ev is not None and ep is not None:
-                        # 將經驗值與百分比排成兩行 (不帶括號)，增加寬鬆邊距與間距
                         h_v, w_v = ev.shape; h_p, w_p = ep.shape
                         max_w = max(w_v, w_p)
-                        spacing = 20; pad = 20 # 外部邊距與行間距
+                        spacing = 20; pad = 20
                         canvas_h = h_v + h_p + spacing + (pad * 2)
                         canvas_w = max_w + (pad * 2)
                         
@@ -254,19 +280,22 @@ class ArtaleOCR(QObject):
                         exp_stack[pad+h_v+spacing : pad+h_v+spacing+h_p, pad : pad+w_p] = ep
                         
                         exp_txt, exp_conf = self._do_single_ocr(exp_stack, "0123456789.%", psm=6)
-                        self.exp_parsed_update.emit({
-                            "text": exp_txt, 
-                            "e_conf": exp_conf,
-                            "thresh": exp_stack,
-                            "crop": None
-                        })
+                        self.exp_parsed_update.emit(ExpParsedData(
+                            text=exp_txt, 
+                            e_conf=exp_conf,
+                            thresh=exp_stack,
+                            scale=scale
+                        ))
                         results["exp_conf"] = exp_conf
 
             # --- 最終除錯影像發送 ---
             if self.show_debug:
-                if lv_thresh is not None: results.update({"lv_img": lv_thresh})
-                if exp_stack is not None: results.update({"exp": exp_stack})
-                self.exp_visual_update.emit(results)
+                self.exp_visual_update.emit(ExpVisualData(
+                    exp=exp_stack,
+                    lv=lv_thresh,
+                    coin=m_thresh,
+                    conf=sum(results.values()) / 3
+                ))
 
         except Exception as e:
             logger.debug(f"[OCR] Process Frame Error: {e}")
@@ -277,6 +306,7 @@ class ArtaleOCR(QObject):
         try:
             config = f'--psm {psm} -c tessedit_char_whitelist={whitelist}'
             data = pytesseract.image_to_data(img, config=config, output_type=pytesseract.Output.DICT)
+            print(data)
             txts = [t for t in data['text'] if t.strip()]
             confs = [c for c in data['conf'] if c >= 0]
             avg_conf = sum(confs)/len(confs) if confs else 0

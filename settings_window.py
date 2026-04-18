@@ -55,7 +55,7 @@ class SettingsWindow(QWidget):
         if not data: return
         
         # 1. 更新大批次畫布 (Big Batch Canvas)
-        img = data.get("exp") # 在批次模式下，"exp" 包含完整的畫布
+        img = data.exp # 在批次模式下，"exp" 包含完整的畫布
         if img is not None and img.size > 0:
             h, w = img.shape
             bytes_data = np.ascontiguousarray(img).tobytes()
@@ -65,7 +65,7 @@ class SettingsWindow(QWidget):
                 self.debug_batch_img_lbl.setPixmap(pixmap.scaled(self.debug_batch_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
         # 2. 更新信心度指標
-        conf = data.get("conf", 0)
+        conf = data.conf
         self.debug_global_conf_lbl.setText(f"OCR Confidence: {conf:.0f}%")
         color = "#51cf66" if conf >= 85 else ("#ffd700" if conf >= 60 else "#ff6b6b")
         self.debug_global_conf_lbl.setStyleSheet(f"color: {color}; font-family: Consolas; font-weight: bold; font-size: 12px;")
@@ -73,8 +73,8 @@ class SettingsWindow(QWidget):
     def update_lv_debug_img(self, data):
         """僅更新等級數字資訊 (影像現在已成為批次的一部分)"""
         if not data: return
-        lv_text = data.get("level")
-        lv_conf = data.get("conf", 100) # 如果是簡單的數字匹配，預設為 100
+        lv_text = data.level
+        lv_conf = data.conf
         
         self.debug_lv_stats_lbl.setText(f"LATEST LV: {lv_text or '--'}")
 
@@ -478,35 +478,8 @@ class SettingsWindow(QWidget):
         self.opacity_val_lbl.setText(f"{v}%")
         if self.overlay: self.overlay.base_opacity = v / 100.0; self.overlay.update()
 
-    def update_debug_img(self, data):
-        """更新除錯影像 (包含等級與經驗值)"""
-        if not self.isVisible() or not self.debug_group.isVisible(): return
-        
-        # 1. 處理經驗值影像
-        exp_data = data.get("exp")
-        if exp_data is not None:
-            h, w = exp_data.shape[:2]; bytes_p_l = w
-            qimg = QImage(exp_data.data, w, h, bytes_p_l, QImage.Format.Format_Grayscale8)
-            pix = QPixmap.fromImage(qimg)
-            self.debug_batch_img_lbl.setPixmap(pix.scaled(self.debug_batch_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        
-        # 2. 處理等級影像
-        lv_data = data.get("lv_img")
-        if lv_data is not None:
-            h, w = lv_data.shape[:2]; bytes_p_l = w
-            qimg = QImage(lv_data.data, w, h, bytes_p_l, QImage.Format.Format_Grayscale8)
-            pix = QPixmap.fromImage(qimg)
-            self.debug_lv_img_lbl.setPixmap(pix.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        
-        conf = data.get("exp_conf", 0)
-        self.debug_global_conf_lbl.setText(f"EXP Conf: {conf:.1f}%")
 
-    def update_lv_debug_img(self, data):
-        """更新等級辨識狀態資訊"""
-        if not self.isVisible() or not self.debug_group.isVisible(): return
-        lv = data.get("level", "--")
-        conf = data.get("conf", 0)
-        self.debug_lv_stats_lbl.setText(f"LV: {lv} ({conf:.1f}%)")
+
 
 
     def save_and_close(self):
