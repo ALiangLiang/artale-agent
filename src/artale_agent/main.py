@@ -1,13 +1,9 @@
 import sys
 import logging
-import ctypes
-import ctypes.wintypes
 import time
 import os
-import win32process
-import platform
+import platform as platform_mod
 import psutil
-import win32file
 import sentry_sdk
 
 # 強制匯入以確保 PyInstaller 的可見性與執行時的執行緒安全 (sip.isdeleted)
@@ -18,106 +14,56 @@ except ImportError:
     pass
 
 from sentry_sdk.integrations.logging import LoggingIntegration
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from pynput import keyboard, mouse
 
 # Local imports
 from .overlay import ArtaleOverlay, SettingsWindow, ConfigManager
 from .controller import ArtaleController
+from .platform import FocusTrackerImpl
 from .utils import get_version
 
 # 初始化日誌記錄器
 logger = logging.getLogger(__name__)
 
 def check_dynamic_console():
-    """如果參數中包含 --debug 或 --console，則啟用控制台視窗"""
+    """Enable console window if --debug or --console argument is present"""
+    if sys.platform != "win32":
+        return
     if "--debug" in sys.argv or "--console" in sys.argv:
+        import ctypes
+        import ctypes.wintypes
         try:
             # 附加到父進程控制台或分配一個新的控制台
             if not ctypes.windll.kernel32.AttachConsole(-1):
                 ctypes.windll.kernel32.AllocConsole()
+<<<<<<< HEAD
             
             # 將標準 I/O 重新映射到新控制台
             sys.stdout = open("CONOUT$", "w", encoding='utf-8')
             sys.stderr = open("CONOUT$", "w", encoding='utf-8')
             
             # 確保控制台字元集支援特殊字元
+=======
+
+            # Re-map standard I/O to the new console
+            sys.stdout = open("CONOUT$", "w", encoding='utf-8')
+            sys.stderr = open("CONOUT$", "w", encoding='utf-8')
+
+            # Ensure the console charset handles special characters
+>>>>>>> a17fcf4 (refactor: main.py uses platform abstraction, remove bare win32 imports)
             os.system('chcp 65001 > nul')
-            
+
             print("\n" + "="*50)
-            print("🚀 Artale 瑞士刀 - Debug Console Enabled")
+            print("Artale Swiss Knife - Debug Console Enabled")
             print("="*50 + "\n")
         except Exception as e:
             logger.error(f"[Main] Failed to allocate console: {e}")
 
 check_dynamic_console()
 
-# --- 使用 SetWinEventHook 追蹤遊戲焦點 ---
-EVENT_SYSTEM_FOREGROUND = 0x0003
-WINEVENT_OUTOFCONTEXT = 0x0000
-
-user32 = ctypes.windll.user32
-
-# 回調類型：void(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
-WinEventProcType = ctypes.WINFUNCTYPE(
-    None, ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD,
-    ctypes.wintypes.HWND, ctypes.wintypes.LONG,
-    ctypes.wintypes.LONG, ctypes.wintypes.DWORD,
-    ctypes.wintypes.DWORD
-)
-
-class GameFocusTracker:
-    TARGET_PROCESS = "msw.exe"
-    
-    def __init__(self):
-        self.is_game_active = False
-        self._callback = WinEventProcType(self._on_focus_change)
-        self._hook = user32.SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
-            0, self._callback, 0, 0, WINEVENT_OUTOFCONTEXT
-        )
-        # 檢查初始狀態
-        self._check_foreground()
-    
-    def _on_focus_change(self, hWinEventHook, event, hwnd, idObject,
-                         idChild, dwEventThread, dwmsEventTime):
-        self._check_foreground(hwnd)
-    
-    def _check_foreground(self, hwnd=None):
-        try:
-            if hwnd is None:
-                hwnd = user32.GetForegroundWindow()
-            if not hwnd or hwnd <= 0:
-                self.is_game_active = False
-                return
-                
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            # 確保 PID 被視為 32 位元無符號整數
-            pid = pid & 0xFFFFFFFF
-            
-            # 安全檢查：現實中 PID 幾乎不會超過 1,000,000
-            # 避免將極端的垃圾 PID 傳遞給 psutil
-            if pid <= 0 or pid > 2**31: 
-                self.is_game_active = False
-                return
-            
-            try:
-                proc = psutil.Process(pid)
-                p_name = proc.name().lower()
-            except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-                self.is_game_active = False
-                return
-                
-            was_active = self.is_game_active
-            self.is_game_active = (p_name == self.TARGET_PROCESS)
-            if self.is_game_active != was_active:
-                status = "focused" if self.is_game_active else "lost focus"
-                logger.info(f"[Focus] {self.TARGET_PROCESS} {status}")
-        except Exception:
-            # 焦點追蹤的靜默回退，避免控制台出現過多訊息
-            self.is_game_active = False
-
+# Platform-specific tracker implementation is now in .platform module
 def start_keyboard_listener(overlay, settings_window, focus_tracker):
     # --- 用於取消右鍵點擊的滑鼠監聽器 ---
     def on_click(x, y, button, pressed):
@@ -283,7 +229,11 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
     logger.info("[Input] Listener active. Press 'Pause Break' for Control Center (🍁).")
 
 def check_network_drive():
+    if sys.platform != "win32":
+        return
     try:
+        import win32file
+        from PyQt6.QtWidgets import QMessageBox
         # 獲取執行檔路徑
         app_path = os.path.abspath(sys.argv[0])
         drive = os.path.splitdrive(app_path)[0]
@@ -299,7 +249,6 @@ def check_network_drive():
                 msg.exec()
     except Exception as e:
         logger.debug(f"[Main] Network drive check skipped or failed: {e}")
-
 def run_app():
     # 設定儲存日誌
     log_file = os.path.join(os.getcwd(), "artale_agent.log")
@@ -313,8 +262,8 @@ def run_app():
         ]
     )
     logger = logging.getLogger("Artale")
-    logger.info(f"--- Artale Agent 啟動中 (記錄導向: {log_file}) ---")
-    logger.info(f"[系統資訊] 作業系統: {platform.platform()}")
+    logger.info(f"--- Artale Agent Initializing (Log: {log_file}) ---")
+    logger.info(f"[System] OS: {platform_mod.platform()}")
 
     # --- 初始化 Sentry (僅在打包後的正式環境啟用) ---
     if getattr(sys, 'frozen', False):
@@ -344,16 +293,18 @@ def run_app():
     
     from PyQt6.QtGui import QFont
     font = QFont()
-    font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+    if sys.platform == "darwin":
+        font.setFamilies(["PingFang TC", "Heiti TC"])
+    else:
+        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
     app.setFont(font)
     app.setQuitOnLastWindowClosed(False)
-    
     # 檢查是否在 Samba/網路磁碟機上執行 (目前註解掉)
     # check_network_drive()
-    
     main_overlay = ArtaleOverlay()
     settings_window = main_overlay.settings_window
-    focus_tracker = GameFocusTracker()
+    focus_tracker = FocusTrackerImpl()
+    focus_tracker.start("msw.exe")
     
     # 2026/04 模組化架構：實例化控制器以管理引擎與橋接邏輯
     from .controller import ArtaleController
