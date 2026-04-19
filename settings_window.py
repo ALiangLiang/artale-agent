@@ -64,6 +64,16 @@ class SettingsWindow(QWidget):
             if not pixmap.isNull():
                 self.debug_batch_img_lbl.setPixmap(pixmap.scaled(self.debug_batch_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
+        # 1.5 更新等級裁切畫布
+        lv_img = data.lv
+        if lv_img is not None and lv_img.size > 0:
+            lh, lw = lv_img.shape
+            l_bytes = np.ascontiguousarray(lv_img).tobytes()
+            ql_img = QImage(l_bytes, lw, lh, lw, QImage.Format.Format_Grayscale8).copy()
+            l_pixmap = QPixmap.fromImage(ql_img)
+            if not l_pixmap.isNull():
+                self.debug_lv_img_lbl.setPixmap(l_pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
         # 2. 更新信心度指標
         conf = data.conf
         self.debug_global_conf_lbl.setText(f"OCR Confidence: {conf:.0f}%")

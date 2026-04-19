@@ -199,7 +199,10 @@ class ArtaleCapture(QObject):
                         break
                     time.sleep(1.0)
                 
-                capture.stop()
+                # 停止 Session：windows-capture 1.5.0+ 並不建議直接在 capture 物件呼叫 stop()
+                # 而是透過 callback 中的 control.stop()。這裡我們只需等待 callback 收到下一張影格並自行停止。
+                # 或者如果視窗已關閉，Session 會自動結束。
+                pass
             except Exception as e:
                 logger.error(f"[Capture] Session Error: {e}")
                 time.sleep(2.0)

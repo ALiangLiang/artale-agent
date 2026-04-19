@@ -243,6 +243,8 @@ class ArtaleOCR(QObject):
                 if self.show_debug: cv2.imwrite("./tmp/debug_lv_crop.png", lv_crop)
                 # 預處理
                 lv_thresh = self.preprocess_for_ocr(lv_crop, threshold=180)
+                # 新增 Padding 提升 Tesseract 辨識品質
+                lv_thresh = cv2.copyMakeBorder(lv_thresh, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=(255,255,255))
                 lv_txt, lv_conf = self._do_single_ocr(lv_thresh, "0123456789", psm=7)
                 self.lv_update.emit(LVUpdateData(level=lv_txt, conf=lv_conf))
                 results["lv_conf"] = lv_conf
@@ -369,10 +371,21 @@ class ArtaleOCR(QObject):
         return None, None
 
     def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = 150) -> Optional[np.ndarray]:
-        """單一二值化處理點，支援 Otsu 演算法"""
+        """二值化處理並加入平滑化邏輯"""
         if img is None or img.size == 0: return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 1. 放大影格
         r = 60 / gray.shape[0] if gray.shape[0] > 0 else 3
         gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
+        
+        # 2. 邊緣平滑化：在二值化前進行高斯模糊
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # 3. 二值化
         _, thresh = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+        
+        # 4. 中值濾波：去除噪點並稍微平滑二值化後的邊緣
+        thresh = cv2.medianBlur(thresh, 3)
+        
         return cv2.bitwise_not(thresh)

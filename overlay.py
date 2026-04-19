@@ -231,9 +231,10 @@ class ArtaleOverlay(QWidget):
 
     def reset_exp_stats(self, silent=False):
         """重置經驗值追蹤基準點"""
-        self.cumulative_gain = 0
-        self.cumulative_pct = 0.0
-        self.max_10m_exp = 0
+        # 必須重置後端的 Tracker 狀態，否則 UI 數值會立即被舊數據覆蓋
+        if self.controller and self.controller.tracker:
+            self.controller.tracker.reset_baseline()
+            
         if not silent:
             self.show_notification("📊 經驗值統計已重置")
 
@@ -374,6 +375,10 @@ class ArtaleOverlay(QWidget):
         # Modular toggle logic via controller
         if self.controller:
             self.controller.toggle_tracking(self.show_exp_panel)
+            
+        # 使用者要求：開啟面板（F10）時重置數據，以便開始新的紀錄
+        if self.show_exp_panel:
+            self.reset_exp_stats(silent=True)
             
         self.show_notification(f"📊 經驗追蹤面板 {status} (F10)")
         self.update()

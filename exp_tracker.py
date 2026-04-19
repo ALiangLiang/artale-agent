@@ -145,31 +145,45 @@ class ExpTracker(QObject):
         # 2. 偵測等級變動 (由推斷結果決定)
         level_up_triggered = False
         if inf_lv != self.current_lv:
-            # 只有等級上升1等才觸發升級邏輯 (避免 OCR 偶爾跳回低等級造成的誤判)
+            # A. 正常升級：等級上升 1 等
             if inf_lv == (self.current_lv or 0) + 1:
                 logger.info(f"偵測到等級提升 (自動推斷): {self.current_lv} -> {inf_lv}")
                 level_up_triggered = True
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
+            # B. 初始修正：如果尚未開始正式計時，且推斷等級與 OCR 等級不符，則以推斷為準
+            elif self.exp_session_start_time is None:
+                logger.info(f"修正初始等級辨識: {self.current_lv} -> {inf_lv}")
+                self.current_lv = inf_lv
+                self.lv_inferred.emit(self.current_lv)
+                # 修正後繼續往下執行，不跳出
             else:
-                # 如果推斷等級變小了，可能是極其嚴重的誤判，暫時忽略這筆
+                # C. 異常跳變：如果已經在計時中，卻發生非 +1 的跳變，則忽略 (避免 OCR 誤判導致數據重置)
                 if self.show_debug:
                     logger.debug(f"忽略異常等級跳變: {self.current_lv} -> {inf_lv}")
-                # 維持介面更新
                 self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
                 return
 
         if level_up_triggered:
-            logger.info("重置統計基準 (升級)。")
-            # 升級時重置累積值
-            self.exp_initial_val = val
+            # 獲取前一等級所需的總經驗值以計算跨級增量
+            prev_lv = inf_lv - 1
+            max_exp_prev = EXP_TABLE.get(prev_lv, self.last_exp_val)
+            
+            # 計算增量：(前一級剩餘) + (這一級現有)
+            v_diff = (max_exp_prev - self.last_exp_val) + val
+            if v_diff > 0:
+                if self.exp_session_start_time is None:
+                    self.exp_session_start_time = now
+                self.cumulative_gain += v_diff
+                # 基於使用者要求「baseline 改成 0」，調整百分比起點以持續累加
+                self.exp_session_start_pct -= 100.0
+                
+            self.exp_history.append((now, val, pct))
             self.last_exp_val = val
             self.last_exp_pct = pct
-            self.exp_session_start_time = None
-            self.cumulative_gain = 0
-            self.exp_history = [(now, val, pct)]
-            self.money_history = []
-            self.money_initial_val = None 
+            self.last_exp_val_time = now
+            
+            logger.info(f"升級持續累計: 跨級增益 {v_diff:,} exp")
             self._broadcast(raw_text, val, pct, now)
             return
 
@@ -302,7 +316,7 @@ class ExpTracker(QObject):
             self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
             self.money_history = [(t + shift, g) for t, g in self.money_history]
             logger.info(f"統計已恢復，補償時長: {shift:.1f}秒")
-        self.updated.emit(self.stats_data)
+        self.stats_updated.emit(self.stats_data)
 
     def reset_baseline(self):
         """手動重置統計"""
@@ -312,5 +326,17 @@ class ExpTracker(QObject):
         self.cumulative_money = 0
         self.exp_history = []
         self.money_history = []
+        self.exp_rate_history = []
+        self.money_rate_history = []
         self.exp_session_start_time = None
-        self.updated.emit(self.stats_data)
+        self.max_10m_exp = 0
+        
+        # 重置最後輸出的數據包
+        self.stats_data = StatsData(
+            text="---", value=0, percent=0.0, gained_10m=0, percent_10m=0.0,
+            time_to_level=-1, is_estimated=True, tracking_duration=0,
+            money_10m=0, cumulative_money=0, cumulative_gain=0,
+            cumulative_pct=0.0, max_10m_exp=0,
+            exp_rate_history=[], money_rate_history=[]
+        )
+        self.stats_updated.emit(self.stats_data)
