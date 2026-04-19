@@ -5,12 +5,12 @@ import subprocess
 import threading
 from PyQt6.QtCore import QObject, Qt, QStandardPaths, QTimer
 from PyQt6.QtGui import QPixmap, QPainter
-from capture_engine import ArtaleCapture
-from ocr_engine import ArtaleOCR
-from exp_tracker import ExpTracker
-from data_types import LVUpdateData
+from .capture_engine import ArtaleCapture
+from .ocr_engine import ArtaleOCR
+from .exp_tracker import ExpTracker
+from .data_types import LVUpdateData
 
-logger = logging.getLogger("ArtaleController")
+logger = logging.getLogger(__name__)
 
 class ArtaleController(QObject):
     """
@@ -62,7 +62,7 @@ class ArtaleController(QObject):
             self.capture_engine.set_active(True)
 
     def on_session_started(self, hwnd):
-        logger.info(f"[Controller] Capture session active for HWND {hwnd}")
+        logger.info("[Controller] Capture session active for HWND %s", hwnd)
         self.overlay.last_target_hwnd = hwnd
 
     def on_frame_ready(self, img, scale, off_x, off_y, cw, ch):
@@ -93,7 +93,7 @@ class ArtaleController(QObject):
         else:
             self.tracker.update_tick() # 即使失敗也維持時鐘跳動
             if self.overlay.show_debug:
-                logger.debug(f"[Controller] 經驗值信心度不足 ({conf}), 已忽略")
+                logger.debug("[Controller] 經驗值信心度不足 (%s), 已忽略", conf)
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""
@@ -111,7 +111,7 @@ class ArtaleController(QObject):
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
-        from utils import ConfigManager
+        from .utils import ConfigManager
         
         # 1. 載入檔案
         config = ConfigManager.load_config()
@@ -125,11 +125,11 @@ class ArtaleController(QObject):
         
         # 3. 同步至其他引擎 (若有需要)
         self.tracker.show_debug = config.get("show_debug", False)
-        logger.info(f"[Controller] Profile '{active}' loaded successfully.")
+        logger.info("[Controller] Profile '%s' loaded successfully.", active)
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""
-        from utils import REPO_URL, VERSION
+        from .utils import REPO_URL, VERSION
         
         def _check():
             try:
@@ -163,7 +163,7 @@ class ArtaleController(QObject):
                     else:
                         if not auto: self.overlay.notification_request.emit("✅ 目前已是最新版本")
             except Exception as e:
-                logger.debug(f"[Update] Check failed: {e}")
+                logger.debug("[Update] Check failed: %s", e)
                 if not auto: self.overlay.notification_request.emit(f"❌ 檢查失敗: {e}")
         
         threading.Thread(target=_check, daemon=True).start()
@@ -192,7 +192,7 @@ class ArtaleController(QObject):
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setPixmap(pixmap)
             
-            logger.info(f"[Report] Exported to {save_path}")
+            logger.info("[Report] Exported to %s", save_path)
             self.overlay.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
             try: subprocess.Popen(f'explorer /select,"{save_path}"')
             except: pass
