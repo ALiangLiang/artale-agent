@@ -132,7 +132,7 @@ class ArtaleOverlay(QWidget):
         self.timer_manager = TimerManager(self)
         self.timer_manager.updated.connect(self.update)
         self.click_zones = {}
-        self.is_active = False  # For timers compat
+
         self.show_preview = False
         self.active_profile_name = "F1"
         self._is_running = True
@@ -617,7 +617,7 @@ class ArtaleOverlay(QWidget):
 
         # Guard: Stop painting if idle and no debug info
         if (
-            not self.is_active
+            not self.timer_manager.is_active
             and not self.show_preview
             and self.msg_opacity == 0
             and not self.show_debug
