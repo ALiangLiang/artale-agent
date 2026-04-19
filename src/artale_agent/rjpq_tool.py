@@ -5,8 +5,8 @@ import os
 logger = logging.getLogger(__name__)
 import urllib.request
 import urllib.parse
-from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl, QSize
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QBrush
+from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QObject, QUrl
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QGridLayout, QMessageBox, QCheckBox
 
 from PyQt6.QtWebSockets import QWebSocket

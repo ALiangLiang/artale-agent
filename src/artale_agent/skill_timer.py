@@ -1,12 +1,11 @@
 import os
-import sys
 import time
 import logging
 import threading
-from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QSize, QObject
-from PyQt6.QtGui import QFont, QColor, QPixmap, QIcon
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QScrollArea, QFrame, QGridLayout, 
+from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QSize, QObject
+from PyQt6.QtGui import QPixmap, QIcon
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, 
+                             QPushButton, QScrollArea, QGridLayout, 
                              QDialog, QTabWidget)
 
 try:
@@ -19,7 +18,6 @@ from .utils import resource_path
 logger = logging.getLogger(__name__)
 
 # resource_path 已移除 (現位於 utils.py)
-
 class IconSelectorDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)

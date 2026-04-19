@@ -3,7 +3,7 @@ import sys
 import shutil
 from pathlib import Path
 
-from .utils import _project_root
+from .utils import _project_root, VERSION
 
 def clean() -> None:
     root = Path(_project_root())

@@ -4,6 +4,8 @@ import os
 import time
 import logging
 import subprocess
+import psutil
+import semver
 try:
     import win32gui
     import win32process
@@ -14,12 +16,16 @@ import cv2
 import pytesseract
 from PyQt6 import sip
 from PyQt6.QtWidgets import (QApplication, QWidget, QSystemTrayIcon, QMenu)
-from PyQt6.QtCore import (Qt, QPoint, QRect, QTimer, pyqtSignal, QRectF, QStandardPaths)
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QLinearGradient
+from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QRectF, QStandardPaths
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QImage, QLinearGradient
+
+try:
+    from windows_capture import WindowsCapture
+except ImportError:
+    WindowsCapture = None
 
 # Local imports
-from .rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
-from .skill_timer import IconSelectorDialog, PositionHandle, TimerManager
+from .skill_timer import TimerManager
 from .settings_window import SettingsWindow
 
 # 初始化日誌記錄器
@@ -246,6 +252,31 @@ class ArtaleOverlay(QWidget):
         self._latest_version_info = (tag, url)
         pass
 
+    def check_for_updates(self, auto=False):
+        """Check GitHub for new releases"""
+        def _check():
+            try:
+                import urllib.request, json, webbrowser
+                url = f"https://api.github.com/repos/{REPO_URL}/releases/latest"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    latest_tag = data.get("tag_name", VERSION)
+                    latest_version = latest_tag[1:]
+                    current_version = VERSION[1:]
+                    if semver.compare(latest_version, current_version) == 1:
+                        html_url = data.get("html_url", f"https://github.com/{REPO_URL}/releases")
+                        self.update_found.emit(latest_tag, html_url)
+                        msg = f"✨ 發現新版本: {latest_tag}！請下載更新"
+                        self.notification_request.emit(msg)
+                        if not auto: webbrowser.open(html_url)
+                    else:
+                        if not auto: self.notification_request.emit("✅ 目前已是最新版本")
+            except Exception as e:
+                logger.debug(f"[Update] Check failed: {e}")
+                if not auto: self.notification_request.emit(f"❌ 檢查失敗: {e}")
+        
+        threading.Thread(target=_check, daemon=True).start()
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Tool)

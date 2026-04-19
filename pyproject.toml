@@ -22,6 +22,7 @@ dependencies = [
     "pyqt6-sip==13.11.1",
     "six==1.17.0",
     "urllib3==2.6.3",
+    "semver>=3.0.4",
 ]
 
 [dependency-groups]
