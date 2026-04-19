@@ -23,10 +23,9 @@ from PyQt6.QtCore import Qt
 from pynput import keyboard, mouse
 
 # Local imports
-import overlay
-from overlay import ArtaleOverlay, SettingsWindow, ConfigManager
-from controller import ArtaleController
-from utils import get_version
+from .overlay import ArtaleOverlay, SettingsWindow, ConfigManager
+from .controller import ArtaleController
+from .utils import get_version
 
 # 初始化日誌記錄器
 logger = logging.getLogger(__name__)
@@ -357,7 +356,7 @@ def run_app():
     focus_tracker = GameFocusTracker()
     
     # 2026/04 模組化架構：實例化控制器以管理引擎與橋接邏輯
-    from controller import ArtaleController
+    from .controller import ArtaleController
     app_controller = ArtaleController(main_overlay)
     main_overlay.controller = app_controller
     app_controller.start()

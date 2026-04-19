@@ -13,8 +13,8 @@ wheels = [
 
 [[package]]
 name = "artale-agent"
-version = "0.3.0"
-source = { virtual = "." }
+version = "0.2.16"
+source = { editable = "." }
 dependencies = [
     { name = "certifi" },
     { name = "numpy" },

@@ -13,11 +13,13 @@ Write-Host "Starting PyInstaller build..." -ForegroundColor Green
 uv run python -m PyInstaller `
     --onefile `
     --name "ArtaleAgent" `
-    --icon "app_icon.ico" `
-    --add-data "buff_pngs;buff_pngs" `
-    --add-data "Tesseract-OCR;Tesseract-OCR" `
-    --add-data "app_icon.png;." `
+    --icon "assets/app_icon.ico" `
+    --add-data "assets/buff_pngs;buff_pngs" `
+    --add-data "vendor/Tesseract-OCR;Tesseract-OCR" `
+    --add-data "assets/app_icon.png;." `
+    --add-data "assets/coin.png;." `
     --add-data "VERSION;." `
+    --paths "src" `
     --hidden-import "psutil" `
     --hidden-import "pynput.keyboard._win32" `
     --hidden-import "win32process" `
@@ -31,7 +33,7 @@ uv run python -m PyInstaller `
     --clean `
     --noconsole `
     --noupx `
-    main.py
+    src/main.py
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`nSuccessfully built dist/ArtaleAgent.exe!" -ForegroundColor Green

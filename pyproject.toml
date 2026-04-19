@@ -28,3 +28,9 @@ dependencies = [
 dev = [
     "pyinstaller",
 ]
+
+[project.scripts]
+dev = "artale_agent.main:run_app"
+
+[tool.uv]
+package = true

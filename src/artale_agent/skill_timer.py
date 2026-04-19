@@ -14,7 +14,7 @@ try:
 except ImportError:
     winsound = None
 
-from utils import resource_path
+from .utils import resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +100,15 @@ class IconSelectorDialog(QDialog):
     def select_icon(self, path):
         abs_path = os.path.abspath(path)
         base_dir = os.path.abspath(".")
-        
+
         try:
             if abs_path.lower().startswith(base_dir.lower()):
                 rel = os.path.relpath(abs_path, base_dir)
-                self.selected_icon = rel.replace("\\", "/")
+                rel = rel.replace("\\", "/")
+                # Normalize: strip "assets/" prefix so stored paths match PyInstaller bundle layout
+                if rel.startswith("assets/"):
+                    rel = rel[len("assets/"):]
+                self.selected_icon = rel
             else:
                 self.selected_icon = abs_path
         except:

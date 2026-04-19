@@ -7,9 +7,13 @@ logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "config.json"
 
+def _project_root():
+    """Get the project root directory (one level up from src/)"""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 def get_version():
     try:
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        base_dir = getattr(sys, '_MEIPASS', _project_root())
         v_path = os.path.join(base_dir, "VERSION")
         with open(v_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
@@ -24,8 +28,11 @@ def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+        base_path = _project_root()
+    if sys.platform == "win32":
+        relative_path = relative_path.replace("/", "\\")
+
+    return os.path.join(base_path, "assets", relative_path)
 
 class ConfigManager:
     @staticmethod

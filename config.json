@@ -1,0 +1,61 @@
+{
+  "active_profile": "F1",
+  "offset": [
+    0,
+    0
+  ],
+  "opacity": 0.5,
+  "profiles": {
+    "F1": {
+      "name": "切換組 F1",
+      "triggers": {}
+    },
+    "F2": {
+      "name": "切換組 F2",
+      "triggers": {}
+    },
+    "F3": {
+      "name": "切換組 F3",
+      "triggers": {}
+    },
+    "F4": {
+      "name": "切換組 F4",
+      "triggers": {}
+    },
+    "F5": {
+      "name": "切換組 F5",
+      "triggers": {}
+    },
+    "F6": {
+      "name": "切換組 F6",
+      "triggers": {}
+    },
+    "F7": {
+      "name": "切換組 F7",
+      "triggers": {}
+    },
+    "F8": {
+      "name": "切換組 F8",
+      "triggers": {}
+    },
+    "F9": {
+      "name": "切換組 F9",
+      "triggers": {}
+    }
+  },
+  "hotkeys": {
+    "exp_toggle": "f10",
+    "exp_pause": "f11",
+    "reset": "f12",
+    "rjpq_1": "1",
+    "rjpq_2": "2",
+    "rjpq_3": "3",
+    "rjpq_4": "4",
+    "exp_report": "f12",
+    "show_settings": "pause"
+  },
+  "exp_offset": [
+    0,
+    0
+  ]
+}

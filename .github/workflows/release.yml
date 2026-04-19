@@ -93,7 +93,7 @@ jobs:
       - name: Run Build Script
         shell: powershell
         run: |
-          ./build.ps1
+          ./scripts/build.ps1
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

@@ -20,9 +20,9 @@ try:
 except ImportError:
     sip = None
 
-from utils import resource_path, ConfigManager, VERSION, REPO_URL
-from skill_timer import IconSelectorDialog, PositionHandle
-from rjpq_tool import RJPQSyncClient, RJPQTabContent
+from .utils import resource_path, ConfigManager, VERSION, REPO_URL
+from .skill_timer import IconSelectorDialog, PositionHandle
+from .rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
 
 logger = logging.getLogger(__name__)
 
@@ -434,7 +434,7 @@ class SettingsWindow(QWidget):
         else: total_sec = (120 - ((now.minute % 4) * 60 + now.second)) % 240
         if total_sec <= 0: total_sec = 240
         if self.overlay:
-            icon = f"buff_pngs/Others/elevator_{dir}.png"; name = f"電梯({'下' if dir=='down' else '上'})"
+            icon = resource_path(f"buff_pngs/Others/elevator_{dir}.png"); name = f"電梯({'下' if dir=='down' else '上'})"
             self.overlay.timer_request.emit(name, total_sec, icon, True)
 
     def refresh_items(self):

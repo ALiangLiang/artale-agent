@@ -18,9 +18,9 @@ from PyQt6.QtCore import (Qt, QPoint, QRect, QTimer, pyqtSignal, QRectF, QStanda
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPixmap, QIcon, QPainterPath, QAction, QLinearGradient
 
 # Local imports
-from rjpq_tool import draw_rjpq_panel
-from skill_timer import TimerManager
-from settings_window import SettingsWindow
+from .rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
+from .skill_timer import IconSelectorDialog, PositionHandle, TimerManager
+from .settings_window import SettingsWindow
 
 # 初始化日誌記錄器
 logging.getLogger('pytesseract').setLevel(logging.WARNING)
@@ -28,7 +28,7 @@ logging.getLogger('PIL').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
-from utils import VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
+from .utils import VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
 
 # Tesseract Portable Setup (LOCAL ONLY)
 def get_tess_cmd():
@@ -48,9 +48,13 @@ def get_tess_cmd():
                 os.environ["PATH"] = tess_dir + os.pathsep + os.environ["PATH"]
             return executable_path
 
-    # 2. 檢查程式所在目錄 (用於便攜版或開發環境)
-    base_dir = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__))
-    local_tess = os.path.join(base_dir, "Tesseract-OCR", "tesseract.exe")
+    # 2. Check for local folder (for portable/dev use)
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    else:
+        # In dev mode, __file__ is src/overlay.py; go up one level to project root
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_tess = os.path.join(base_dir, "vendor", "Tesseract-OCR", "tesseract.exe")
     if os.path.exists(local_tess):
         tess_dir = os.path.dirname(local_tess)
         if tess_dir not in os.environ["PATH"]:
