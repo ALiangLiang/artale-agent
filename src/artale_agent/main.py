@@ -18,10 +18,10 @@ except ImportError:
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 # Local imports
-from .overlay import ArtaleOverlay, SettingsWindow, ConfigManager
-from .controller import ArtaleController
+from .overlay import ArtaleOverlay
+from .settings_window import SettingsWindow
+from .utils import ConfigManager, get_version
 from .platform import FocusTrackerImpl
-from .utils import get_version
 
 # 初始化日誌記錄器
 logger = logging.getLogger(__name__)
@@ -261,9 +261,9 @@ def run_app():
             logging.FileHandler(log_file, encoding="utf-8", mode="w"),
         ],
     )
-    logger = logging.getLogger("Artale")
-    logger.info("--- Artale Agent Initializing (Log: %s) ---", log_file)
-    logger.info("[System] OS: %s", platform_mod.platform())
+    app_logger = logging.getLogger("Artale")
+    app_logger.info("--- Artale Agent Initializing (Log: %s) ---", log_file)
+    app_logger.info("[System] OS: %s", platform_mod.platform())
 
     # --- 初始化 Sentry (僅在打包後的正式環境啟用) ---
     if getattr(sys, "frozen", False):

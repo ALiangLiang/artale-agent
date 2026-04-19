@@ -84,7 +84,7 @@ class RJPQSyncClient(QObject):
                     certs = QSslCertificate.fromPath(certifi.where())
                     conf.setCaCertificates(certs)
                     # 為提升封裝版穩定性，明確允許標準連線交握
-                    logger.info(f"[RJPQ] 已手動載入 CA 憑證 (數量: {len(certs)})")
+                    logger.info("[RJPQ] 已手動載入 CA 憑證 (數量: %s)", len(certs))
 
             self.ws.setSslConfiguration(conf)
             self.ws.open(QUrl(url))

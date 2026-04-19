@@ -62,7 +62,7 @@ class ArtaleController(QObject):
             self.capture_engine.set_active(True)
 
     def on_session_started(self, hwnd):
-        logger.info(f"[Controller] Capture session active for HWND {hwnd}")
+        logger.info("[Controller] Capture session active for HWND %s", hwnd)
         self.overlay.last_target_hwnd = hwnd
 
     def on_frame_ready(self, img, scale, off_x, off_y, cw, ch):
@@ -93,7 +93,7 @@ class ArtaleController(QObject):
         else:
             self.tracker.update_tick() # 即使失敗也維持時鐘跳動
             if self.overlay.show_debug:
-                logger.debug(f"[Controller] 經驗值信心度不足 ({conf}), 已忽略")
+                logger.debug("[Controller] 經驗值信心度不足 (%s), 已忽略", conf)
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""
@@ -125,7 +125,7 @@ class ArtaleController(QObject):
         
         # 3. 同步至其他引擎 (若有需要)
         self.tracker.show_debug = config.get("show_debug", False)
-        logger.info(f"[Controller] Profile '{active}' loaded successfully.")
+        logger.info("[Controller] Profile '%s' loaded successfully.", active)
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""
@@ -192,7 +192,7 @@ class ArtaleController(QObject):
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setPixmap(pixmap)
             
-            logger.info(f"[Report] Exported to {save_path}")
+            logger.info("[Report] Exported to %s", save_path)
             self.overlay.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
             try: subprocess.Popen(f'explorer /select,"{save_path}"')
             except: pass

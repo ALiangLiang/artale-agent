@@ -1,13 +1,11 @@
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
-import traceback
 import urllib.request
 import webbrowser
 from typing import override
@@ -47,11 +45,6 @@ from .utils import (
 from .data_types import LVUpdateData, ExpParsedData, ExpVisualData, StatsData
 
 # 初始化日誌記錄器
-logging.getLogger("pytesseract").setLevel(logging.WARNING)
-logging.getLogger("PIL").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-
-# Initialize logger
 logging.getLogger("pytesseract").setLevel(logging.WARNING)
 logging.getLogger("PIL").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)

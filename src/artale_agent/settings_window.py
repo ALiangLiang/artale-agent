@@ -106,12 +106,12 @@ class SettingsWindow(QWidget):
                 if self.overlay.last_confirmed_lv is not None:
                     level_diff = lv_val - self.overlay.last_confirmed_lv
                     if 0 < level_diff <= 2:
-                        logger.info(f"[ExpTracker] 確認升級！ {self.overlay.last_confirmed_lv} -> {lv_val}")
+                        logger.info("[ExpTracker] 確認升級！ %s -> %s", self.overlay.last_confirmed_lv, lv_val)
                         self.overlay.exp_initial_val = None
                         self.overlay.cumulative_gain = 0
                         self.overlay.exp_history = []
                     elif level_diff != 0:
-                        logger.debug(f"[ExpTracker] 已過濾掉不合理的等級跳變: {self.overlay.last_confirmed_lv} -> {lv_val}")
+                        logger.debug("[ExpTracker] 已過濾掉不合理的等級跳變: %s -> %s", self.overlay.last_confirmed_lv, lv_val)
                 
                 self.overlay.last_confirmed_lv = lv_val
             except:
