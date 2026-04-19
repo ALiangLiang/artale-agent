@@ -60,7 +60,6 @@ class SettingsWindow(QWidget):
         self.request_show.connect(self.safe_show)
 
     def update_debug_img(self, data):
-    def update_debug_img(self, data):
         """更新統一的批次 OCR 監控影像"""
         if not data: return
         
@@ -98,38 +97,22 @@ class SettingsWindow(QWidget):
         
         self.debug_lv_stats_lbl.setText(f"LATEST LV: {lv_text or '--'}")
 
-        self.debug_lv_conf_lbl.setText(f"Conf: {lv_conf:.0f}%")
-        conf_color = (
-            "#51cf66" if lv_conf >= 100 else ("#ffd700" if lv_conf >= 50 else "#ff6b6b")
-        )
-        self.debug_lv_conf_lbl.setStyleSheet(
-            f"color: {conf_color}; font-family: Consolas; font-weight: bold; font-size: 13px;"
-        )
-
-        if lv_text and lv_conf >= 100 and self.overlay:
+        if lv_text and lv_conf >= 100 and self.overlay: 
             try:
                 # 處理等級更新與升級偵測
                 lv_val = int(lv_text)
                 self.overlay.current_lv = f"LV.{lv_val}"
-
+                
                 if self.overlay.last_confirmed_lv is not None:
                     level_diff = lv_val - self.overlay.last_confirmed_lv
                     if 0 < level_diff <= 2:
-                        logger.info(
-                            "[ExpTracker] 確認升級！ %s -> %s",
-                            self.overlay.last_confirmed_lv,
-                            lv_val,
-                        )
+                        logger.info(f"[ExpTracker] 確認升級！ {self.overlay.last_confirmed_lv} -> {lv_val}")
                         self.overlay.exp_initial_val = None
                         self.overlay.cumulative_gain = 0
                         self.overlay.exp_history = []
                     elif level_diff != 0:
-                        logger.debug(
-                            "[ExpTracker] 已過濾掉不合理的等級跳變: %s -> %s",
-                            self.overlay.last_confirmed_lv,
-                            lv_val,
-                        )
-
+                        logger.debug(f"[ExpTracker] 已過濾掉不合理的等級跳變: {self.overlay.last_confirmed_lv} -> {lv_val}")
+                
                 self.overlay.last_confirmed_lv = lv_val
             except:
                 pass
@@ -525,8 +508,6 @@ class SettingsWindow(QWidget):
         ConfigManager.save_config(config)
         self.nickname_inp.setText(config["profiles"][p_key].get("name", ""))
         self.refresh_items()
-        if self.overlay:
-            self.overlay.load_profile_immediately()
         self.config_updated.emit()
 
     def qt_key_to_name(self, event):

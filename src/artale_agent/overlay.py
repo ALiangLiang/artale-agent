@@ -131,7 +131,6 @@ class ArtaleOverlay(QWidget):
     rjpq_cell_clicked = pyqtSignal(int)
     export_report_request = pyqtSignal()
     update_found = pyqtSignal(str, str)  # version, download_url
-    money_update_request = pyqtSignal(int)
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
@@ -196,7 +195,6 @@ class ArtaleOverlay(QWidget):
         self.stats_updated.connect(self.on_stats_updated)
         self.export_report_request.connect(self.export_exp_report)
         self.update_found.connect(self.on_update_found)
-        self.money_update_request.connect(self.on_money_update)
         
         # Instantiate SettingsWindow (now from separate module)
         self.settings_window = SettingsWindow(self)
