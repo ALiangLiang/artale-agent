@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 dev = "artale_agent.main:run_app"
+build-win = "artale_agent.cli:build_win"
 
 [tool.uv]
 package = true
