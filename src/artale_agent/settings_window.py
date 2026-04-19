@@ -20,7 +20,7 @@ try:
 except ImportError:
     sip = None
 
-from .utils import resource_path, ConfigManager, VERSION, REPO_URL
+from .utils import resource_path, ConfigManager, VERSION, REPO_URL, platform_font_family
 from .skill_timer import IconSelectorDialog, PositionHandle
 from .rjpq_tool import RJPQSyncClient, RJPQTabContent, draw_rjpq_panel
 
@@ -128,22 +128,22 @@ class SettingsWindow(QWidget):
             
         config = ConfigManager.load_config()
         self.layout = QVBoxLayout(self)
-        self.setStyleSheet("background-color: #121212; color: #e0e0e0; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;")
+        self.setStyleSheet(f"background-color: #121212; color: #e0e0e0; font-family: {platform_font_family()};")
         
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #333; background: #121212; }
-            QTabBar::tab { background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }
-            QTabBar::tab:selected { background: #333; color: #ffd700; font-weight: bold; }
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid #333; background: #121212; }}
+            QTabBar::tab {{ background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; font-family: {platform_font_family()}; }}
+            QTabBar::tab:selected {{ background: #333; color: #ffd700; font-weight: bold; }}
         """)
         self.layout.addWidget(self.tabs)
 
-        btn_common_style = """
-            QPushButton {
+        btn_common_style = f"""
+            QPushButton {{
                 background-color: #2a2a2a; color: #ccc; border: 1px solid #3d3d3d; border-radius: 4px;
-                height: 32px; font-weight: bold; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;
-            }
-            QPushButton:hover { background-color: #333; border: 1px solid #555; }
+                height: 32px; font-weight: bold; font-family: {platform_font_family()};
+            }}
+            QPushButton:hover {{ background-color: #333; border: 1px solid #555; }}
         """
 
         # 分頁 1: 計時器 (Timer)

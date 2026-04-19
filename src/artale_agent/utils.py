@@ -34,6 +34,18 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, "assets", relative_path)
 
+def platform_font_family():
+    """Return the preferred font family CSS string for the current platform."""
+    if sys.platform == "darwin":
+        return "'PingFang TC', 'Heiti TC', sans-serif"
+    return "'Microsoft JhengHei', '\u5fae\u8edf\u6b63\u9ed1\u9ad4', sans-serif"
+
+def platform_font_families():
+    """Return font families list for QFont.setFamilies()."""
+    if sys.platform == "darwin":
+        return ["PingFang TC", "Heiti TC"]
+    return ["Microsoft JhengHei", "\u5fae\u8edf\u6b63\u9ed1\u9ad4"]
+
 class ConfigManager:
     @staticmethod
     def load_config():

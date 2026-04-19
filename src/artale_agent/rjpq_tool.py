@@ -24,7 +24,9 @@ try:
 except Exception as e:
     pass
 
-# --- RJPQ 同步客戶端 ---
+from .utils import platform_font_family, platform_font_families
+
+# --- RJPQ Sync Client ---
 class RJPQSyncClient(QObject):
     sync_received = pyqtSignal(list)
     char_counts_received = pyqtSignal(list)
@@ -248,8 +250,8 @@ class RJPQTabContent(QWidget):
             btn = QPushButton(f"10{i+1}")
             btn.setCheckable(True)
             btn.setFixedSize(65, 30)
-            btn.setStyleSheet(f"QPushButton {{ background: #222; color: {char_colors[i]}; border: 1px solid #444; border-radius: 4px; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }} "
-                             f"QPushButton:checked {{ background: {char_colors[i]}; color: #fff; font-weight: bold; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; }}")
+            btn.setStyleSheet(f"QPushButton {{ background: #222; color: {char_colors[i]}; border: 1px solid #444; border-radius: 4px; font-family: {platform_font_family()}; }} "
+                             f"QPushButton:checked {{ background: {char_colors[i]}; color: #fff; font-weight: bold; font-family: {platform_font_family()}; }}")
             btn.clicked.connect(lambda checked, idx=i: self.select_char(idx))
             self.char_btns.append(btn)
             char_row.addWidget(btn)
@@ -281,7 +283,7 @@ class RJPQTabContent(QWidget):
         for row in range(10):
             row_label = QLabel(str(10 - row))
             row_label.setFixedWidth(20)
-            row_label.setStyleSheet("color: #444; font-weight: bold; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;")
+            row_label.setStyleSheet(f"color: #444; font-weight: bold; font-family: {platform_font_family()};")
             row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid_layout.addWidget(row_label, row, 0)
             for col in range(4):
@@ -494,7 +496,7 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     
     painter.setPen(QColor(0, 255, 255))
     font = QFont()
-    font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+    font.setFamilies(platform_font_families())
     font.setPointSize(11)
     font.setBold(True)
     painter.setFont(font)
@@ -508,7 +510,7 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     for row in range(10):
         painter.setPen(QColor(150, 150, 150))
         font = QFont()
-        font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
+        font.setFamilies(platform_font_families())
         font.setPointSize(8)
         painter.setFont(font)
         painter.drawText(px + 10, start_y + row*25 + 16, str(10-row))
