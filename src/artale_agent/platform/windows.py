@@ -27,7 +27,7 @@ try:
 except ImportError:
     WindowsCapture = None
 
-from .base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
+from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .utils import _project_root
+from artale_agent.utils import _project_root
 
 
 def clean() -> None:
@@ -53,13 +53,9 @@ def build_win():
         "--icon",
         "assets/app_icon.ico",
         "--add-data",
-        "assets/buff_pngs;buff_pngs",
+        "assets;assets",
         "--add-data",
         "vendor/Tesseract-OCR;Tesseract-OCR",
-        "--add-data",
-        "assets/app_icon.png;.",
-        "--add-data",
-        "assets/coin.png;.",
         "--add-data",
         "VERSION;.",
         "--paths",
@@ -115,11 +111,7 @@ def build_mac():
         "--name",
         "ArtaleAgent",
         "--add-data",
-        "assets/buff_pngs:buff_pngs",
-        "--add-data",
-        "assets/app_icon.png:.",
-        "--add-data",
-        "assets/coin.png:.",
+        "assets:assets",
         "--add-data",
         "VERSION:.",
         "--paths",

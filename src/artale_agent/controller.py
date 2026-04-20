@@ -5,10 +5,11 @@ import subprocess
 import threading
 from PyQt6.QtCore import QObject, Qt, QStandardPaths, QTimer
 from PyQt6.QtGui import QPixmap, QPainter
-from .capture_engine import ArtaleCapture
-from .ocr_engine import ArtaleOCR
-from .exp_tracker import ExpTracker
-from .data_types import LVUpdateData
+from artale_agent.capture_engine import ArtaleCapture
+from artale_agent.ocr_engine import ArtaleOCR
+from artale_agent.exp_tracker import ExpTracker
+from artale_agent.data_types import LVUpdateData
+from artale_agent.utils import resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class ArtaleController(QObject):
         self.ocr_engine = ArtaleOCR(self)
         self.tracker = ExpTracker()
         
-        self.ocr_engine.set_coin_template("coin.png")
+        self.ocr_engine.set_coin_template(resource_path("coin.png"))
         
         # 2. 連結 截圖引擎 -> OCR 處理 / 橋接
         self.capture_engine.frame_arrived.connect(self.on_frame_ready)
@@ -111,7 +112,7 @@ class ArtaleController(QObject):
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
-        from .utils import ConfigManager
+        from artale_agent.utils import ConfigManager
         
         # 1. 載入檔案
         config = ConfigManager.load_config()
@@ -129,7 +130,7 @@ class ArtaleController(QObject):
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""
-        from .utils import REPO_URL, VERSION
+        from artale_agent.utils import REPO_URL, VERSION
         
         def _check():
             try:

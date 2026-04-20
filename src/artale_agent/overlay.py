@@ -29,12 +29,12 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
-from .platform import WindowManagerImpl
-from .settings_window import SettingsWindow
-from .skill_timer import TimerManager
+from artale_agent.platform import WindowManagerImpl
+from artale_agent.settings_window import SettingsWindow
+from artale_agent.skill_timer import TimerManager
 
 # Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
-from .utils import (
+from artale_agent.utils import (
     EXP_TABLE,
     REPO_URL,
     VERSION,
@@ -42,7 +42,7 @@ from .utils import (
     _project_root,
     resource_path,
 )
-from .data_types import LVUpdateData, ExpParsedData, ExpVisualData, StatsData
+from artale_agent.data_types import LVUpdateData, ExpParsedData, ExpVisualData, StatsData
 
 # 初始化日誌記錄器
 logging.getLogger("pytesseract").setLevel(logging.WARNING)
@@ -215,8 +215,9 @@ class ArtaleOverlay(QWidget):
         
         # Load coin template for matching
         self.coin_tpl = None
-        if os.path.exists("coin.png"):
-            self.coin_tpl = cv2.imread("coin.png")
+        coin_p = resource_path("coin.png")
+        if os.path.exists(coin_p):
+            self.coin_tpl = cv2.imread(coin_p)
             if self.coin_tpl is not None:
                 logger.info(
                     "[ExpTracker] Loaded coin template: %s", self.coin_tpl.shape

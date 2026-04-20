@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .utils import platform_font_families, platform_font_family
+from artale_agent.utils import platform_font_families, platform_font_family
 
 # 在模組層級檢查 SSL 支援
 try:

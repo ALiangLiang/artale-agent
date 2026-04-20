@@ -29,9 +29,9 @@ try:
 except ImportError:
     sip = None
 
-from .rjpq_tool import RJPQSyncClient, RJPQTabContent
-from .skill_timer import IconSelectorDialog, PositionHandle
-from .utils import VERSION, ConfigManager, platform_font_family, resource_path
+from artale_agent.rjpq_tool import RJPQSyncClient, RJPQTabContent
+from artale_agent.skill_timer import IconSelectorDialog, PositionHandle
+from artale_agent.utils import VERSION, ConfigManager, platform_font_family, resource_path
 
 logger = logging.getLogger(__name__)
 

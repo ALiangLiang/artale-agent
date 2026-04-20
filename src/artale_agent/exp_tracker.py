@@ -2,9 +2,9 @@ import time
 import re
 import logging
 from PyQt6.QtCore import QObject, pyqtSignal
-from .utils import EXP_TABLE
+from artale_agent.utils import EXP_TABLE
 from typing import List, Tuple, Optional, Dict, Any
-from .data_types import StatsData
+from artale_agent.data_types import StatsData
 
 logger = logging.getLogger(__name__)
 

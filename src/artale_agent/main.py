@@ -18,10 +18,10 @@ except ImportError:
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 # Local imports
-from .overlay import ArtaleOverlay
-from .settings_window import SettingsWindow
-from .utils import ConfigManager, get_version
-from .platform import FocusTrackerImpl
+from artale_agent.overlay import ArtaleOverlay
+from artale_agent.settings_window import SettingsWindow
+from artale_agent.utils import ConfigManager, get_version
+from artale_agent.platform import FocusTrackerImpl
 
 # 初始化日誌記錄器
 logger = logging.getLogger(__name__)
@@ -306,7 +306,7 @@ def run_app():
     focus_tracker = FocusTrackerImpl()
     focus_tracker.start("msw.exe")
     # 2026/04 模組化架構：實例化控制器以管理引擎與橋接邏輯
-    from .controller import ArtaleController
+    from artale_agent.controller import ArtaleController
     app_controller = ArtaleController(main_overlay)
     main_overlay.controller = app_controller
     app_controller.start()

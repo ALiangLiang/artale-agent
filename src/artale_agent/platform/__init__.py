@@ -2,17 +2,17 @@
 
 import sys
 
-from .base import ScreenCapture, WindowManager, FocusTracker, AudioPlayer, WindowInfo
+from artale_agent.platform.base import ScreenCapture, WindowManager, FocusTracker, AudioPlayer, WindowInfo
 
 if sys.platform == "win32":
-    from .windows import (
+    from artale_agent.platform.windows import (
         WinScreenCapture as ScreenCaptureImpl,
         WinWindowManager as WindowManagerImpl,
         WinFocusTracker as FocusTrackerImpl,
         WinAudioPlayer as AudioPlayerImpl,
     )
 elif sys.platform == "darwin":
-    from .darwin import (
+    from artale_agent.platform.darwin import (
         MacScreenCapture as ScreenCaptureImpl,
         MacWindowManager as WindowManagerImpl,
         MacFocusTracker as FocusTrackerImpl,

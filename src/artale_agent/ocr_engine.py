@@ -15,7 +15,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-from .data_types import LVUpdateData, ExpParsedData, ExpVisualData
+from artale_agent.data_types import LVUpdateData, ExpParsedData, ExpVisualData
 
 class ArtaleOCR(QObject):
     """

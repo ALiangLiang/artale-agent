@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .platform import AudioPlayerImpl
-from .utils import resource_path
+from artale_agent.platform import AudioPlayerImpl
+from artale_agent.utils import resource_path
 
 logger = logging.getLogger(__name__)
 

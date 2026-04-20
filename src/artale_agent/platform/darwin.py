@@ -9,7 +9,7 @@ from typing import override
 import cv2
 import numpy as np
 
-from .base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
+from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
 
 try:
     import Quartz
