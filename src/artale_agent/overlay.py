@@ -863,7 +863,17 @@ class ArtaleOverlay(QWidget):
         font.setBold(True)
         painter.setFont(font)
         y = py + (30 if is_export else 25)
-        painter.drawText(px + 15, y, f"📊 經驗值監測報告" if is_export else "📊 經驗值監測")
+        title = "📊 經驗值監測報告" if is_export else "📊 經驗值監測"
+        painter.drawText(px + 15, y, title)
+        
+        # 如果暫停，在標題後方加上紅色的 (已暫停)
+        if self.exp_paused:
+            title_w = painter.fontMetrics().horizontalAdvance(title)
+            painter.setPen(QColor(255, 80, 80)) # 亮紅色
+            font.setPointSize(9)
+            painter.setFont(font)
+            painter.drawText(px + 15 + title_w + 10, y, "(已暫停)")
+            painter.setPen(QColor(255, 255, 255)) # 恢復白色
         
         # 2. 次要資訊 (紀錄時長與累計，整合在同一行)
         y += (28 if is_export else 25)

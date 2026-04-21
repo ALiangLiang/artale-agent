@@ -46,6 +46,7 @@ class ExpTracker(QObject):
         self.show_debug: bool = False
         self.is_paused: bool = False
         self.pause_start_time: float = 0
+        self.needs_baseline_correction: bool = False # 恢復後是否需要修正基準值
         self.last_known_lv: Optional[int] = None # 用於更精準的等級提升判斷
         self.last_exp_val_time: float = 0 # 記錄最後一次成功的 OCR 時間點
         
@@ -54,23 +55,24 @@ class ExpTracker(QObject):
         self.last_lv_ocr_conf: float = 0.0
 
         # 最後輸出的 UI 數據包
-        self.stats_data: StatsData = {
-            "text": "---",
-            "value": 0,
-            "percent": 0.0,
-            "gained_10m": 0,
-            "percent_10m": 0.0,
-            "time_to_level": -1,
-            "is_estimated": True,
-            "tracking_duration": 0,
-            "money_10m": 0,
-            "cumulative_money": 0,
-            "cumulative_gain": 0,
-            "cumulative_pct": 0.0,
-            "max_10m_exp": 0,
-            "exp_rate_history": [],
-            "money_rate_history": []
-        }
+        self.stats_data = StatsData(
+            text="---",
+            value=0,
+            percent=0.0,
+            gained_10m=0,
+            percent_10m=0.0,
+            time_to_level=-1,
+            is_estimated=True,
+            tracking_duration=0,
+            money_10m=0,
+            cumulative_money=0,
+            cumulative_gain=0,
+            cumulative_pct=0.0,
+            max_10m_exp=0,
+            exp_rate_history=[],
+            money_rate_history=[],
+            is_paused=False
+        )
 
     def parse_exp_text(self, raw_text):
         """
@@ -189,6 +191,15 @@ class ExpTracker(QObject):
             logger.info("建立初始基準值: %s (%s%%) -> 識別等級: LV.%s", val, pct, inf_lv)
             self._broadcast(raw_text, val, pct, now)
             return
+
+        # 1.5 暫停恢復後的基準值修正
+        if self.needs_baseline_correction:
+            logger.info("暫停恢復：更新基準值為 %s，忽略期間增量。", val)
+            self.last_exp_val = val
+            self.last_exp_pct = pct
+            self.current_lv = inf_lv
+            self.needs_baseline_correction = False
+            # 這裡不 return，讓它繼續執行後面的歷史紀錄與廣播
 
         # 2. 偵測等級變動
         level_up_triggered = False
@@ -343,7 +354,8 @@ class ExpTracker(QObject):
             cumulative_pct=pct - self.exp_session_start_pct,
             max_10m_exp=self.max_10m_exp,
             exp_rate_history=self.exp_rate_history,
-            money_rate_history=self.money_rate_history
+            money_rate_history=self.money_rate_history,
+            is_paused=self.is_paused
         )
 
         self.stats_updated.emit(self.stats_data)
@@ -361,11 +373,14 @@ class ExpTracker(QObject):
             # 補償計時起點
             if self.exp_session_start_time:
                 self.exp_session_start_time += shift
-            # 補償所有歷史紀錄時間戳，避免效率被稀釋
-            self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
+            # 補償所有歷史紀錄時間戳，避免效率被稀釋 (注意: exp_history 現在是 4 元組)
+            self.exp_history = [(t + shift, v, p, c) for t, v, p, c in self.exp_history]
             self.money_history = [(t + shift, g) for t, g in self.money_history]
+            self.needs_baseline_correction = True # 標記下次更新需修正基準
             logger.info("統計已恢復，補償時長: %.1f秒", shift)
-        self.stats_updated.emit(self.stats_data)
+            
+        # 立即廣播最新狀態 (包含 is_paused 旗標)
+        self._broadcast(None, self.last_exp_val, self.last_exp_pct, now)
 
     def reset_baseline(self):
         """手動重置統計"""

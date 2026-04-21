@@ -38,3 +38,4 @@ class StatsData:
     max_10m_exp: int
     exp_rate_history: List[int]
     money_rate_history: List[int]
+    is_paused: bool = False
