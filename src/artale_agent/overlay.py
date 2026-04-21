@@ -424,8 +424,18 @@ class ArtaleOverlay(QWidget):
         self.money_rate_history = stats.money_rate_history
         self.update()
 
-    def on_toggle_exp(self):
-        self.show_exp_panel = not self.show_exp_panel
+    def on_toggle_exp(self, state=None):
+        if state is None:
+            self.show_exp_panel = not self.show_exp_panel
+        else:
+            self.show_exp_panel = state
+
+        # 同步更新設定視窗中的 CheckBox 狀態
+        if hasattr(self, "settings_window") and self.settings_window:
+            self.settings_window.exp_active_cb.blockSignals(True)
+            self.settings_window.exp_active_cb.setChecked(self.show_exp_panel)
+            self.settings_window.exp_active_cb.blockSignals(False)
+
         status = "已啟用" if self.show_exp_panel else "已關閉"
         
         # Modular toggle logic via controller

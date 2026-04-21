@@ -16,7 +16,7 @@ def clean() -> None:
             shutil.rmtree(p)
 
     # Clean log & spec
-    build_log = root.joinpath("artale_agent.log")
+    build_log = root.joinpath("artale_agent_build.log")
     if build_log.exists():
         build_log.unlink()
     build_spec = root.joinpath("ArtaleAgent.spec")

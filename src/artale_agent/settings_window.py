@@ -729,7 +729,8 @@ class SettingsWindow(QWidget):
             ConfigManager.save_config(config)
 
     def on_exp_toggle_changed(self, checked):
-        if self.overlay and self.overlay.show_exp_panel != checked: self.overlay.on_toggle_exp()
+        if self.overlay and self.overlay.show_exp_panel != checked:
+            self.overlay.on_toggle_exp(checked)
 
     def on_reset_exp_clicked(self):
         if self.overlay: self.overlay.reset_exp_stats()
