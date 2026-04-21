@@ -73,7 +73,6 @@ def build_win():
         "--hidden-import",
         "sip",
         "--collect-all",
-        "PyQt6",
         "--clean",
         "--noconsole",
         "--noupx",
