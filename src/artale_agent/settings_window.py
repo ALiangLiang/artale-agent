@@ -257,7 +257,7 @@ class SettingsWindow(QWidget):
         self.exp_active_cb = QCheckBox("開啟經驗值監測面板 (Hotkey: F10)")
         self.exp_active_cb.setStyleSheet("color: #ccc; margin-top: 10px;")
         exp_tab_layout.addWidget(self.exp_active_cb)
-        self.money_active_cb = QCheckBox("開啟楓幣記錄（實驗中）")
+        self.money_active_cb = QCheckBox("開啟楓幣記錄")
         self.money_active_cb.setStyleSheet("color: #ccc; margin-top: 5px;")
         exp_tab_layout.addWidget(self.money_active_cb)
         if self.overlay:
