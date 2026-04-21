@@ -410,6 +410,8 @@ class SettingsWindow(QWidget):
         sys_layout.addWidget(update_btn)
         
         self.update_banner = QLabel("")
+        self.update_banner.setOpenExternalLinks(True)
+        self.update_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_banner.setVisible(False)
         sys_layout.addWidget(self.update_banner)
         self.tabs.addTab(sys_tab, "⚙️ 設定")
