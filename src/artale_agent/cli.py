@@ -72,7 +72,6 @@ def build_win():
         "PyQt6.QtWebSockets",
         "--hidden-import",
         "sip",
-        "--collect-all",
         "--clean",
         "--noconsole",
         "--noupx",
