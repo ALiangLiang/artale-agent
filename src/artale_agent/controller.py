@@ -83,27 +83,19 @@ class ArtaleController(QObject):
 
     def on_exp_parsed(self, data):
         """將辨識出的經驗值數據傳遞給統計器"""
-        if not data: return
-        
-        raw_text = data.text
-        conf = data.e_conf
-        
-        # 信心度過濾邏輯 (維持原狀)
-        if conf == 0 or conf >= 90:
-            self.tracker.update_exp(raw_text)
-        else:
-            self.tracker.update_tick() # 即使失敗也維持時鐘跳動
-            if self.overlay.show_debug:
-                logger.debug("[Controller] 經驗值信心度不足 (%s), 已忽略", conf)
+        self.tracker.update_exp(data.text, conf=data.e_conf)
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""
         lv_text = data.level
-        # 只有當 OCR 真的抓到有效數字時，才更新統計器
-        # 等級數字最多三位數
-        if lv_text and str(lv_text).isdigit() and len(str(lv_text)) <= 3:
-            self.tracker.current_lv = int(lv_text)
+        conf = data.conf
         
+        # 1. 只有當 OCR 真的抓到有效數字時，才更新統計器與暫存
+        if lv_text and str(lv_text).isdigit() and len(str(lv_text)) <= 3:
+            lv_val = int(lv_text)
+            self.tracker.update_lv_ocr(lv_val, conf) # 更新輔助判定暫存
+        
+        # 2. 通知 UI 更新
         self.overlay.lv_update_request.emit(data)
 
     def toggle_tracking(self, active):

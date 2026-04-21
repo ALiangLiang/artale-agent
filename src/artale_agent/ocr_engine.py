@@ -241,8 +241,8 @@ class ArtaleOCR(QObject):
             lv_crop = self._get_lv_crop(img, scale, off_x, off_y, ch_ref)
             if lv_crop.size > 0:
                 if self.show_debug: cv2.imwrite("./tmp/debug_lv_crop.png", lv_crop)
-                # 預處理
-                lv_thresh = self.preprocess_for_ocr(lv_crop, threshold=180)
+                # 預處理 (加入 scale 以還原解析度並放大)
+                lv_thresh = self.preprocess_for_ocr(lv_crop, scale, threshold=180)
                 # 新增 Padding 提升 Tesseract 辨識品質
                 lv_thresh = cv2.copyMakeBorder(lv_thresh, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=(255,255,255))
                 lv_txt, lv_conf = self._do_single_ocr(lv_thresh, "0123456789", psm=7)
@@ -254,7 +254,7 @@ class ArtaleOCR(QObject):
                 m_crop = self._get_money_crop(img, scale)
                 if m_crop is not None and m_crop.size > 0:
                     # 預處理
-                    m_thresh = self.preprocess_for_ocr(m_crop, threshold=120)
+                    m_thresh = self.preprocess_for_ocr(m_crop, scale, threshold=120)
                     m_txt, m_conf = self._do_single_ocr(m_thresh, "0123456789,", psm=7)
                     m_val_clean = "".join(filter(lambda c: c.isdigit(), m_txt))
                     if m_val_clean: self.money_update.emit(int(m_val_clean))
@@ -265,7 +265,7 @@ class ArtaleOCR(QObject):
                 exp_crop = self._get_exp_crop(img, scale, off_x, off_y, ch_ref)
                 if exp_crop.size > 0:
                     # 預處理
-                    full_thresh = self.preprocess_for_ocr(exp_crop, threshold=150)
+                    full_thresh = self.preprocess_for_ocr(exp_crop, scale, threshold=150)
                     if self.show_debug: cv2.imwrite("./tmp/debug_exp_processed.png", full_thresh)
 
                     # 切分經驗值與百分比，有可能拆壞
@@ -370,14 +370,14 @@ class ArtaleOCR(QObject):
             logger.debug("[OCR] Masked Split failed: %s", e)
         return None, None
 
-    def preprocess_for_ocr(self, img: np.ndarray, threshold: Optional[int] = 150) -> Optional[np.ndarray]:
+    def preprocess_for_ocr(self, img: np.ndarray, scale: float, threshold: Optional[int] = 150) -> Optional[np.ndarray]:
         """二值化處理並加入平滑化邏輯"""
         if img is None or img.size == 0: return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # 1. 放大影格
-        r = 60 / gray.shape[0] if gray.shape[0] > 0 else 3
-        gray = cv2.resize(gray, None, fx=r, fy=r, interpolation=cv2.INTER_CUBIC)
+        # 1. 放大影格：先根據 scale 還原回 1080p 基準，再放大 3 倍以利辨識
+        upscale = (1.0 / scale) * 3.0
+        gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
         
         # 2. 邊緣平滑化：在二值化前進行高斯模糊
         gray = cv2.GaussianBlur(gray, (3, 3), 0)

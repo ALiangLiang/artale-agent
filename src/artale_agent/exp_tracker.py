@@ -44,6 +44,10 @@ class ExpTracker(QObject):
         self.pause_start_time: float = 0
         self.last_known_lv: Optional[int] = None # 用於更精準的等級提升判斷
         self.last_exp_val_time: float = 0 # 記錄最後一次成功的 OCR 時間點
+        
+        # 等級 OCR 暫存 (用於輔助推論)
+        self.last_lv_ocr_val: Optional[int] = None
+        self.last_lv_ocr_conf: float = 0.0
 
         # 最後輸出的 UI 數據包
         self.stats_data: StatsData = {
@@ -101,28 +105,68 @@ class ExpTracker(QObject):
                     min_diff = diff
                     best_lv = lv
         
-        # 判斷推斷品質
+        # 判斷推斷品質：必須唯一才能採納
+        if len(possible_levels) == 1:
+            return possible_levels[0]
+        
         if len(possible_levels) > 1:
-            # 如果可能等級太多 (例如超過 3 個)，代表數據極度模糊 (通常是 0.00%)
-            logger.debug("等級推斷存在模糊性: 共有 %s 個可能等級 %s... 目前選擇偏差最小的 LV.%s", len(possible_levels), possible_levels[:5], best_lv)
+            logger.debug("等級推斷存在模糊性: 共有 %s 個可能等級 %s，視為推論失敗。", len(possible_levels), possible_levels[:5])
         elif len(possible_levels) == 0:
-            logger.debug("等級推斷失敗: 經驗值 %s 與百分比 %s%% 在所有等級中皆不符合一致性檢查。", current_exp, current_pct)
+            logger.debug("等級推斷失敗: 經驗值 %s 與百分比 %s%% 無法匹配任何等級。", current_exp, current_pct)
 
-        return best_lv
+        return None
 
-    def update_exp(self, raw_text, timestamp=None):
+    def update_lv_ocr(self, level: int, conf: float):
+        """更新最後一次看到的等級 OCR 結果"""
+        self.last_lv_ocr_val = level
+        self.last_lv_ocr_conf = conf
+
+    def validate_exp(self, raw_text, conf):
+        """
+        驗證經驗值 OCR 結果是否可採納。
+        回傳: (val, pct, inf_lv) 或 (None, None, None)
+        """
+        # 1. 信心度過濾 (僅採納 0 或 >= 90)
+        if 0 < conf < 90:
+            logger.debug("[OCR] 經驗值信心度不足: %s", conf)
+            return None, None, None
+
+        # 2. 解析文字
+        val, pct = self.parse_exp_text(raw_text)
+        if val is None:
+            logger.debug("[OCR] 經驗值解析失敗: %s", raw_text)
+            return None, None, None
+
+        # 3. 數據一致性校驗
+        inf_lv = self.infer_level(val, pct)
+        
+        # 若推論無結果 (通常是 0.00%)，但等級 OCR 信心度高，則採納等級 OCR 結果
+        if inf_lv is None and self.last_lv_ocr_conf >= 90:
+            inf_lv = self.last_lv_ocr_val
+            logger.debug("[OCR] 經驗值推論無效，使用等級 OCR 結果: %s", inf_lv)
+            
+        if inf_lv is None:
+            logger.debug("[OCR] 經驗值與百分比無法匹配任何等級: %s", raw_text)
+            return None, None, None
+
+        # 4. 等級變動合理性檢查 (僅在正式計時開始後執行)
+        if self.exp_session_start_time is not None:
+            # 允許等級不變，或剛好 +1
+            if inf_lv != self.current_lv and inf_lv != (self.current_lv or 0) + 1:
+                logger.debug("[OCR] 等級變動合理性檢查失敗: %s -> %s", self.current_lv, inf_lv)
+                return None, None, None
+
+        return val, pct, inf_lv
+
+    def update_exp(self, raw_text, conf=100, timestamp=None):
         """處理經驗值數據更新"""
         now = timestamp or time.time()
-        val, pct = self.parse_exp_text(raw_text)
-        if val is None: return
 
-        # --- 數據一致性校驗 (Data Consistency Check) ---
-        # 每次都推斷一次等級，確保這組 [經驗值 + 百分比] 是合法的
-        inf_lv = self.infer_level(val, pct)
-        if inf_lv is None:
-            if self.show_debug:
-                logger.debug("跳過不一致數據: 數值 %s 與百分比 %s%% 無法匹配任何等級。", val, pct)
-            # 廣播舊的經驗值，維持介面更新
+        # 執行獨立校驗函式
+        val, pct, inf_lv = self.validate_exp(raw_text, conf)
+
+        # 處理不採納的情況：維持舊數據，但時間與統計照常計算
+        if val is None:
             self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
             return
 
@@ -142,27 +186,20 @@ class ExpTracker(QObject):
             self._broadcast(raw_text, val, pct, now)
             return
 
-        # 2. 偵測等級變動 (由推斷結果決定)
+        # 2. 偵測等級變動
         level_up_triggered = False
         if inf_lv != self.current_lv:
-            # A. 正常升級：等級上升 1 等
+            # A. 正常升級
             if inf_lv == (self.current_lv or 0) + 1:
                 logger.info("偵測到等級提升 (自動推斷): %s -> %s", self.current_lv, inf_lv)
                 level_up_triggered = True
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
-            # B. 初始修正：如果尚未開始正式計時，且推斷等級與 OCR 等級不符，則以推斷為準
+            # B. 初始修正
             elif self.exp_session_start_time is None:
                 logger.info("修正初始等級辨識: %s -> %s", self.current_lv, inf_lv)
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
-                # 修正後繼續往下執行，不跳出
-            else:
-                # C. 異常跳變：如果已經在計時中，卻發生非 +1 的跳變，則忽略 (避免 OCR 誤判導致數據重置)
-                if self.show_debug:
-                    logger.debug("忽略異常等級跳變: %s -> %s", self.current_lv, inf_lv)
-                self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
-                return
 
         if level_up_triggered:
             # 獲取前一等級所需的總經驗值以計算跨級增量
@@ -202,13 +239,15 @@ class ExpTracker(QObject):
         self.last_exp_pct = pct
         self.last_exp_val_time = now
         
+        logger.debug("經驗值持續累計: %s exp", v_diff)
         self._broadcast(raw_text, val, pct, now)
 
-    def update_tick(self):
+    def update_tick(self, timestamp=None):
         """僅更新時間與效率廣播 (用於辨識失敗時維持 UI 時鐘運作)"""
+        now = timestamp or time.time()
         # 只要計時已經開始，就持續廣播當前狀態以更新 Duration
         if self.exp_session_start_time:
-            self._broadcast(None, self.last_exp_val, self.last_exp_pct, time.time())
+            self._broadcast(None, self.last_exp_val, self.last_exp_pct, now)
 
     def update_money(self, total_val, timestamp=None):
         """處理楓幣數據更新"""
