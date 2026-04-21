@@ -401,3 +401,4 @@ tmp/
 artale_agent.log
 docs/superpowers
 config.json
+file_version_info.txt
