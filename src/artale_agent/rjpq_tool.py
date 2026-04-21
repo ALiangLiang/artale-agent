@@ -174,6 +174,7 @@ class RJPQTabContent(QWidget):
         self.client = client
         self.selected_color = -1
         self.current_data = [4] * 40
+        self.auto_mark_enabled = False # 自動標記功能開關
         self.init_ui()
 
         self.client.status_changed.connect(self.update_status)
@@ -256,7 +257,16 @@ class RJPQTabContent(QWidget):
             "color: #00ffff; font-size: 11px; font-weight: bold;"
         )
         self.overlay_cb.toggled.connect(self.client.overlay_toggle_request.emit)
+        
+        self.auto_mark_cb = QCheckBox("自動標記該層最後一個平台")
+        self.auto_mark_cb.setStyleSheet(
+            "color: #ffaa00; font-size: 11px; font-weight: bold;"
+        )
+        self.auto_mark_cb.toggled.connect(self.on_auto_mark_toggled)
+        
         ctrl_layout.addWidget(self.overlay_cb)
+        ctrl_layout.addSpacing(20)
+        ctrl_layout.addWidget(self.auto_mark_cb)
         self.main_layout.addWidget(self.overlay_ctrl)
 
         # 2. 角色選擇小工具 (連線後顯示)
@@ -481,6 +491,12 @@ class RJPQTabContent(QWidget):
                 {"type": "mark", "index": index, "color": self.selected_color}
             )
 
+    def on_auto_mark_toggled(self, checked):
+        self.auto_mark_enabled = checked
+        if checked:
+            # 啟動時立刻檢查一次
+            self.update_grid(self.current_data)
+
     def update_grid(self, data):
         try:
             if not data or len(data) < 40:
@@ -490,6 +506,30 @@ class RJPQTabContent(QWidget):
             self.current_data = data
             char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
             target_row = self.find_target_row()
+
+            # --- 自動標記邏輯 ---
+            if self.auto_mark_enabled and self.selected_color != -1:
+                for row in range(10):
+                    marked_cols = []
+                    my_mark_found = False
+                    for col in range(4):
+                        idx = row * 4 + col
+                        val = data[idx]
+                        if val < 4:
+                            marked_cols.append(col)
+                            if val == self.selected_color:
+                                my_mark_found = True
+                    
+                    # 如果該層已有 3 個標記且沒有我的標記，則幫我補上第 4 個
+                    if len(marked_cols) == 3 and not my_mark_found:
+                        remaining_col = [c for c in range(4) if c not in marked_cols][0]
+                        target_idx = row * 4 + remaining_col
+                        # 發送標記請求
+                        self.client.send_action(
+                            {"type": "mark", "index": target_idx, "color": self.selected_color}
+                        )
+                        # 避免一幀內發送過多請求，這裡補完一層後跳出，下一次 update 會補下一層
+                        break
 
             for i in range(40):
                 val = data[i]
@@ -602,14 +642,18 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
 
     # --- 新增: 平台數字序列顯示 (底部) ---
     seq_parts = []
+    # 從第 1 層 (row 9) 到第 10 層 (row 0)，符合 1-10 樓的順序
     for row in range(9, -1, -1):
         found_col = "-"
-        for col in range(4):
-            if data[row * 4 + col] < 4:
-                found_col = str(col + 1)
-                break
+        # 只顯示使用者自己標記的平台
+        if selected_color != -1:
+            for col in range(4):
+                if data[row * 4 + col] == selected_color:
+                    found_col = str(col + 1)
+                    break
         seq_parts.append(found_col)
     
+    # 格式化: F1-F5 [空格] F6-F10
     seq_str = "".join(seq_parts[:5]) + " " + "".join(seq_parts[5:])
     
     # 繪製底座裝飾區塊
