@@ -1,0 +1,77 @@
+[project]
+name = "artale-agent"
+version = "0.3.1"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyqt6==6.11.0",
+    "opencv-python==4.13.0.92",
+    "numpy==2.2.6",
+    "psutil==7.2.2",
+    "pynput==1.8.1",
+    "pytesseract==0.3.13",
+    "windows-capture==1.5.0; sys_platform == 'win32'",
+    "pywin32==311; sys_platform == 'win32'",
+    "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
+    "sentry-sdk==2.57.0",
+    "sip",
+    "certifi==2026.2.25",
+    "packaging==26.0",
+    "pillow==12.2.0",
+    "pyqt6-qt6==6.11.0",
+    "pyqt6-sip==13.11.1",
+    "six==1.17.0",
+    "urllib3==2.6.3",
+    "semver>=3.0.4",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller",
+]
+lint = [
+    "ruff>=0.14.3",
+]
+
+[project.scripts]
+dev = "artale_agent.dev_entry:run_app"
+clean = "artale_agent.cli:clean"
+build-win = "artale_agent.cli:build_win"
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+indent-width = 4
+include = ["pyproject.toml", "src/**/*.py"]
+exclude = [
+    ".venv",
+]
+target-version = "py312"
+src=["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "N", "I", "UP", "YTT", "PT", "FAST", "LOG", "G"]
+ignore = ["E203"]
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# Exclude __init__.py
+exclude = ["__init__.py"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 250

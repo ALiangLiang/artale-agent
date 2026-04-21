@@ -2,11 +2,11 @@ import time
 import re
 import logging
 from PyQt6.QtCore import QObject, pyqtSignal
-from utils import EXP_TABLE
+from artale_agent.utils import EXP_TABLE
 from typing import List, Tuple, Optional, Dict, Any
-from data_types import StatsData
+from artale_agent.data_types import StatsData
 
-logger = logging.getLogger("ExpTracker")
+logger = logging.getLogger(__name__)
 
 class ExpTracker(QObject):
     """
@@ -77,7 +77,7 @@ class ExpTracker(QObject):
                 return val, pct
         except Exception as e:
             if self.show_debug:
-                logger.debug(f"解析錯誤: {e} | 原始文字: {raw_text}")
+                logger.debug("解析錯誤: %s | 原始文字: %s", e, raw_text)
         return None, None
 
     def infer_level(self, current_exp, current_pct):
@@ -104,9 +104,9 @@ class ExpTracker(QObject):
         # 判斷推斷品質
         if len(possible_levels) > 1:
             # 如果可能等級太多 (例如超過 3 個)，代表數據極度模糊 (通常是 0.00%)
-            logger.debug(f"等級推斷存在模糊性: 共有 {len(possible_levels)} 個可能等級 {possible_levels[:5]}... 目前選擇偏差最小的 LV.{best_lv}")
+            logger.debug("等級推斷存在模糊性: 共有 %s 個可能等級 %s... 目前選擇偏差最小的 LV.%s", len(possible_levels), possible_levels[:5], best_lv)
         elif len(possible_levels) == 0:
-            logger.debug(f"等級推斷失敗: 經驗值 {current_exp} 與百分比 {current_pct}% 在所有等級中皆不符合一致性檢查。")
+            logger.debug("等級推斷失敗: 經驗值 %s 與百分比 %s%% 在所有等級中皆不符合一致性檢查。", current_exp, current_pct)
 
         return best_lv
 
@@ -121,7 +121,7 @@ class ExpTracker(QObject):
         inf_lv = self.infer_level(val, pct)
         if inf_lv is None:
             if self.show_debug:
-                logger.debug(f"跳過不一致數據: 數值 {val:,} 與百分比 {pct}% 無法匹配任何等級。")
+                logger.debug("跳過不一致數據: 數值 %s 與百分比 %s%% 無法匹配任何等級。", val, pct)
             # 廣播舊的經驗值，維持介面更新
             self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
             return
@@ -138,7 +138,7 @@ class ExpTracker(QObject):
             self.lv_inferred.emit(self.current_lv)
             self.last_exp_val_time = now
                 
-            logger.info(f"建立初始基準值: {val:,} ({pct}%) -> 識別等級: LV.{inf_lv}")
+            logger.info("建立初始基準值: %s (%s%%) -> 識別等級: LV.%s", val, pct, inf_lv)
             self._broadcast(raw_text, val, pct, now)
             return
 
@@ -147,20 +147,20 @@ class ExpTracker(QObject):
         if inf_lv != self.current_lv:
             # A. 正常升級：等級上升 1 等
             if inf_lv == (self.current_lv or 0) + 1:
-                logger.info(f"偵測到等級提升 (自動推斷): {self.current_lv} -> {inf_lv}")
+                logger.info("偵測到等級提升 (自動推斷): %s -> %s", self.current_lv, inf_lv)
                 level_up_triggered = True
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
             # B. 初始修正：如果尚未開始正式計時，且推斷等級與 OCR 等級不符，則以推斷為準
             elif self.exp_session_start_time is None:
-                logger.info(f"修正初始等級辨識: {self.current_lv} -> {inf_lv}")
+                logger.info("修正初始等級辨識: %s -> %s", self.current_lv, inf_lv)
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
                 # 修正後繼續往下執行，不跳出
             else:
                 # C. 異常跳變：如果已經在計時中，卻發生非 +1 的跳變，則忽略 (避免 OCR 誤判導致數據重置)
                 if self.show_debug:
-                    logger.debug(f"忽略異常等級跳變: {self.current_lv} -> {inf_lv}")
+                    logger.debug("忽略異常等級跳變: %s -> %s", self.current_lv, inf_lv)
                 self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
                 return
 
@@ -183,7 +183,7 @@ class ExpTracker(QObject):
             self.last_exp_pct = pct
             self.last_exp_val_time = now
             
-            logger.info(f"升級持續累計: 跨級增益 {v_diff:,} exp")
+            logger.info("升級持續累計: 跨級增益 %s exp", v_diff)
             self._broadcast(raw_text, val, pct, now)
             return
 
@@ -217,7 +217,7 @@ class ExpTracker(QObject):
         if self.money_initial_val is None:
             self.money_initial_val = total_val
             self.last_total_money = total_val
-            logger.info(f"建立楓幣基準值: {total_val:,}")
+            logger.info("建立楓幣基準值: %s", total_val)
             return
 
         gain = total_val - self.last_total_money
@@ -315,7 +315,7 @@ class ExpTracker(QObject):
             # 補償所有歷史紀錄時間戳，避免效率被稀釋
             self.exp_history = [(t + shift, v, p) for t, v, p in self.exp_history]
             self.money_history = [(t + shift, g) for t, g in self.money_history]
-            logger.info(f"統計已恢復，補償時長: {shift:.1f}秒")
+            logger.info("統計已恢復，補償時長: %.1f秒", shift)
         self.stats_updated.emit(self.stats_data)
 
     def reset_baseline(self):

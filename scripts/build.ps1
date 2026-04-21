@@ -10,28 +10,7 @@ if (Test-Path "./build") { Remove-Item -Path "./build" -Recurse -Force }
 # 2. Run PyInstaller
 Write-Host "Starting PyInstaller build..." -ForegroundColor Green
 
-python -m PyInstaller `
-    --onefile `
-    --name "ArtaleAgent" `
-    --icon "app_icon.ico" `
-    --add-data "buff_pngs;buff_pngs" `
-    --add-data "Tesseract-OCR;Tesseract-OCR" `
-    --add-data "app_icon.png;." `
-    --add-data "VERSION;." `
-    --hidden-import "psutil" `
-    --hidden-import "pynput.keyboard._win32" `
-    --hidden-import "win32process" `
-    --hidden-import "win32file" `
-    --hidden-import "PyQt6.QtCore" `
-    --hidden-import "PyQt6.QtGui" `
-    --hidden-import "PyQt6.QtWidgets" `
-    --hidden-import "PyQt6.QtNetwork" `
-    --hidden-import "PyQt6.QtWebSockets" `
-    --hidden-import "sip" `
-    --clean `
-    --noconsole `
-    --noupx `
-    main.py
+uv run build-win
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`nSuccessfully built dist/ArtaleAgent.exe!" -ForegroundColor Green
