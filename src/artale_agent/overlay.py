@@ -978,17 +978,22 @@ class ArtaleOverlay(QWidget):
             
             # 繪製專用走勢線的輔助函式
             def draw_line(history, color, alpha_fill):
-                if not history:
+                if not history or len(history) < 2:
                     return
-                max_v = max(history)
+                
+                # 限制顯示點數，確保與 ExpTracker 的 60 點同步
+                display_history = history[-60:]
+                num_pts = len(display_history)
+                
+                max_v = max(display_history)
                 if max_v <= 0:
                     max_v = 1
 
                 path = QPainterPath()
-                max_points = 40
-                step_x = gw / (max_points - 1)
+                # 使用實際點數計算間距，確保剛好填滿 gw
+                step_x = gw / (num_pts - 1)
 
-                for i, v in enumerate(history):
+                for i, v in enumerate(display_history):
                     vx = gx + i * step_x
                     vy = gy + gh - (v / max_v * (gh - 4)) - 2
                     if i == 0:
@@ -998,7 +1003,7 @@ class ArtaleOverlay(QWidget):
 
                 # 區域平滑填充 (透明漸層)
                 fill_path = QPainterPath(path)
-                fill_path.lineTo(gx + (len(history) - 1) * step_x, gy + gh)
+                fill_path.lineTo(gx + (num_pts - 1) * step_x, gy + gh)
                 fill_path.lineTo(gx, gy + gh)
                 fill_path.closeSubpath()
 
