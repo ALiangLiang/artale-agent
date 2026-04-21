@@ -23,7 +23,11 @@ class ExpTracker(QObject):
         self.last_exp_pct: float = 0.0
         self.cumulative_gain: int = 0
         self.cumulative_pct: float = 0.0
-        self.exp_history: List[Tuple[float, int, float]] = []  # [(timestamp, value, percent)]
+        
+        # 經驗值歷史紀錄：用於計算滑動視窗效率 (10分鐘)
+        # 格式: [(時間戳記, 當前等級經驗值, 當前等級百分比, 總累積獲得經驗值)]
+        # 註：儲存「總累積獲得經驗值」是為了在跨等級(Level Up)時仍能精準計算增量。
+        self.exp_history: List[Tuple[float, int, float, int]] = []
         self.exp_session_start_time: Optional[float] = None
         self.max_10m_exp: int = 0
         self.exp_rate_history: List[int] = [] # 趨勢圖數據
@@ -175,7 +179,7 @@ class ExpTracker(QObject):
             self.exp_initial_val = val
             self.last_exp_val = val
             self.last_exp_pct = pct
-            self.exp_history = [(now, val, pct)]
+            self.exp_history = [(now, val, pct, 0)] # (time, val, pct, cumulative_gain)
             self.exp_session_start_time = None
             self.exp_session_start_pct = pct
             self.current_lv = inf_lv
@@ -215,7 +219,7 @@ class ExpTracker(QObject):
                 # 基於使用者要求「baseline 改成 0」，調整百分比起點以持續累加
                 self.exp_session_start_pct -= 100.0
                 
-            self.exp_history.append((now, val, pct))
+            self.exp_history.append((now, val, pct, self.cumulative_gain))
             self.last_exp_val = val
             self.last_exp_pct = pct
             self.last_exp_val_time = now
@@ -233,7 +237,7 @@ class ExpTracker(QObject):
             self.cumulative_gain += v_diff
             
         # 4. 更新歷史紀錄 (Sliding Window: 1小時)
-        self.exp_history.append((now, val, pct))
+        self.exp_history.append((now, val, pct, self.cumulative_gain))
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         self.last_exp_val = val
         self.last_exp_pct = pct
@@ -279,8 +283,14 @@ class ExpTracker(QObject):
         if len(recent) >= 2:
             dt = recent[-1][0] - recent[0][0]
             if dt > 3:
-                dv = recent[-1][1] - recent[0][1]
-                dp = recent[-1][2] - recent[0][2]
+                # 使用第 4 個元素 (cumulative_gain) 計算增量
+                dv = recent[-1][3] - recent[0][3]
+                
+                # 計算百分比增量 (透過總獲得量推算，以支援跨級)
+                # 如果有推斷等級，用當前等級的總量來估算百分比增益
+                total_for_cur_lv = EXP_TABLE.get(self.current_lv, 1)
+                dp = (dv / total_for_cur_lv) * 100.0
+                
                 gain_10m = int(dv * 600 / dt)
                 pct_10m = dp * 600 / dt
                 is_est = (dt < 580)
