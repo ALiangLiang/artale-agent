@@ -83,6 +83,16 @@ class SettingsWindow(QWidget):
             if not l_pixmap.isNull():
                 self.debug_lv_img_lbl.setPixmap(l_pixmap.scaled(self.debug_lv_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
+        # 1.6 更新楓幣裁切畫布
+        coin_img = data.coin
+        if coin_img is not None and coin_img.size > 0:
+            ch, cw = coin_img.shape
+            c_bytes = np.ascontiguousarray(coin_img).tobytes()
+            qc_img = QImage(c_bytes, cw, ch, cw, QImage.Format.Format_Grayscale8).copy()
+            c_pixmap = QPixmap.fromImage(qc_img)
+            if not c_pixmap.isNull():
+                self.debug_coin_img_lbl.setPixmap(c_pixmap.scaled(self.debug_coin_img_lbl.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
         # 2. 更新信心度指標
         conf = data.conf
         self.debug_global_conf_lbl.setText(f"OCR Confidence: {conf:.0f}%")
@@ -295,13 +305,18 @@ class SettingsWindow(QWidget):
         self.debug_layout = QVBoxLayout(self.debug_group)
         self.debug_layout.setContentsMargins(0, 5, 0, 0)
         
-        self.debug_info_lbl = QLabel("🔍 全域 OCR 監控 (頂部: LV | 底部: EXP)")
+        self.debug_info_lbl = QLabel("🔍 全域 OCR 監控 (LV | COIN | EXP)")
         self.debug_info_lbl.setStyleSheet("color: #888; font-size: 10px; font-weight: bold;")
         
         self.debug_lv_img_lbl = QLabel()
         self.debug_lv_img_lbl.setFixedHeight(40)
         self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #222; padding: 2px;")
         self.debug_lv_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.debug_coin_img_lbl = QLabel()
+        self.debug_coin_img_lbl.setFixedHeight(40)
+        self.debug_coin_img_lbl.setStyleSheet("border: 1px solid #444; background: #222; padding: 2px;")
+        self.debug_coin_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.debug_batch_img_lbl = QLabel()
         self.debug_batch_img_lbl.setFixedSize(380, 110)
@@ -320,6 +335,7 @@ class SettingsWindow(QWidget):
         
         self.debug_layout.addWidget(self.debug_info_lbl)
         self.debug_layout.addWidget(self.debug_lv_img_lbl)
+        self.debug_layout.addWidget(self.debug_coin_img_lbl)
         self.debug_layout.addWidget(self.debug_batch_img_lbl)
         self.debug_layout.addLayout(status_row)
         

@@ -34,8 +34,8 @@ class ArtaleController(QObject):
         self.capture_engine.session_started.connect(self.on_session_started)
         
         # 3. 連結 OCR 引擎 -> 統計器
-        self.ocr_engine.money_update.connect(self.tracker.update_money)
-        self.ocr_engine.exp_parsed_update.connect(self.on_exp_parsed)
+        self.ocr_engine.money_update.connect(self.on_money_parsed)
+        self.ocr_engine.exp_update.connect(self.on_exp_parsed)
         self.ocr_engine.lv_update.connect(self.on_lv_parsed)
         
         # 4. 連結 統計器 -> 介面更新
@@ -83,7 +83,10 @@ class ArtaleController(QObject):
 
     def on_exp_parsed(self, data):
         """將辨識出的經驗值數據傳遞給統計器"""
-        self.tracker.update_exp(data.text, conf=data.e_conf)
+        self.tracker.update_exp(data.text, conf=data.conf)
+
+    def on_money_parsed(self, data):
+        self.tracker.update_money(data.text, conf=data.conf)
 
     def on_lv_parsed(self, data):
         """處理等級辨識結果"""

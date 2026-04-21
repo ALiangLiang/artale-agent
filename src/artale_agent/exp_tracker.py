@@ -21,8 +21,8 @@ class ExpTracker(QObject):
         self.exp_initial_val: Optional[int] = None 
         self.last_exp_val: int = 0
         self.last_exp_pct: float = 0.0
-        self.cumulative_gain: int = 0
-        self.cumulative_pct: float = 0.0
+        self.cumulative_exp_gain: int = 0
+        self.cumulative_exp_pct: float = 0.0
         
         # 經驗值歷史紀錄：用於計算滑動視窗效率 (10分鐘)
         # 格式: [(時間戳記, 當前等級經驗值, 當前等級百分比, 總累積獲得經驗值)]
@@ -34,7 +34,7 @@ class ExpTracker(QObject):
         
         # 楓幣相關狀態
         self.money_initial_val: Optional[int] = None
-        self.last_total_money: int = 0
+        self.last_money_val: int = 0
         self.cumulative_money: int = 0
         self.money_history: List[Tuple[float, int]] = [] # [(timestamp, gain)]
         self.money_rate_history: List[int] = []
@@ -66,8 +66,8 @@ class ExpTracker(QObject):
             tracking_duration=0,
             money_10m=0,
             cumulative_money=0,
-            cumulative_gain=0,
-            cumulative_pct=0.0,
+            cumulative_exp_gain=0,
+            cumulative_exp_pct=0.0,
             max_10m_exp=0,
             exp_rate_history=[],
             money_rate_history=[],
@@ -181,7 +181,7 @@ class ExpTracker(QObject):
             self.exp_initial_val = val
             self.last_exp_val = val
             self.last_exp_pct = pct
-            self.exp_history = [(now, val, pct, 0)] # (time, val, pct, cumulative_gain)
+            self.exp_history = [(now, val, pct, 0)] # (time, val, pct, cumulative_exp_gain)
             self.exp_session_start_time = None
             self.exp_session_start_pct = pct
             self.current_lv = inf_lv
@@ -226,11 +226,11 @@ class ExpTracker(QObject):
             if v_diff > 0:
                 if self.exp_session_start_time is None:
                     self.exp_session_start_time = now
-                self.cumulative_gain += v_diff
+                self.cumulative_exp_gain += v_diff
                 # 基於使用者要求「baseline 改成 0」，調整百分比起點以持續累加
                 self.exp_session_start_pct -= 100.0
                 
-            self.exp_history.append((now, val, pct, self.cumulative_gain))
+            self.exp_history.append((now, val, pct, self.cumulative_exp_gain))
             self.last_exp_val = val
             self.last_exp_pct = pct
             self.last_exp_val_time = now
@@ -245,10 +245,10 @@ class ExpTracker(QObject):
             if self.exp_session_start_time is None:
                 self.exp_session_start_time = now
                 logger.info("偵測到經驗值增加，正式啟動計時。")
-            self.cumulative_gain += v_diff
+            self.cumulative_exp_gain += v_diff
             
         # 4. 更新歷史紀錄 (Sliding Window: 1小時)
-        self.exp_history.append((now, val, pct, self.cumulative_gain))
+        self.exp_history.append((now, val, pct, self.cumulative_exp_gain))
         self.exp_history = [h for h in self.exp_history if h[0] >= now - 3600]
         self.last_exp_val = val
         self.last_exp_pct = pct
@@ -264,25 +264,31 @@ class ExpTracker(QObject):
         if self.exp_session_start_time:
             self._broadcast(None, self.last_exp_val, self.last_exp_pct, now)
 
-    def update_money(self, total_val, timestamp=None):
+    def update_money(self, text, conf=100, timestamp=None):
         """處理楓幣數據更新"""
         now = timestamp or time.time()
+
+        # 信心度過濾 (僅採納 0 或 >= 90)
+        if 0 < conf < 90:
+            logger.debug("[OCR] 楓幣信心度不足: %s", conf)
+            return
         
         if self.money_initial_val is None:
-            self.money_initial_val = total_val
-            self.last_total_money = total_val
-            logger.info("建立楓幣基準值: %s", total_val)
+            self.money_initial_val = int(text)
+            self.last_money_val = int(text)
+            logger.info("建立楓幣基準值: %s", text)
             return
 
-        gain = total_val - self.last_total_money
+        gain = int(text) - self.last_money_val
         if gain != 0:
             self.cumulative_money += gain
-            self.money_history.append((now, gain))
-        
-        self.last_total_money = total_val
+            self.last_money_val = int(text) # 更新基準值
+            
+        # 紀錄歷史總量 (Sliding Window: 1小時)
+        self.money_history.append((now, int(text)))
         self.money_history = [h for h in self.money_history if h[0] >= now - 3600]
         
-        # 楓幣不需要頻繁廣播，隨經驗值更新一起發送即可
+        logger.debug("楓幣持續累計: %s 楓幣", gain)
 
     def _broadcast(self, raw_text, val, pct, now):
         """計算統計結果並發送給 UI"""
@@ -294,7 +300,7 @@ class ExpTracker(QObject):
         if len(recent) >= 2:
             dt = recent[-1][0] - recent[0][0]
             if dt > 3:
-                # 使用第 4 個元素 (cumulative_gain) 計算增量
+                # 使用第 4 個元素 (cumulative_exp_gain) 計算增量
                 dv = recent[-1][3] - recent[0][3]
                 
                 # 計算百分比增量 (透過總獲得量推算，以支援跨級)
@@ -312,14 +318,16 @@ class ExpTracker(QObject):
                 if p_per_sec > 0:
                     time_to_lv = int(rem_p / p_per_sec)
 
-        # B. 楓幣效率計算
+        # B. 楓幣效率計算 (參考經驗值邏輯：取基準點差值)
         m_history_10m = [h for h in self.money_history if h[0] >= h_ago_10m]
         m_gain_10m = 0
-        if len(m_history_10m) >= 1:
-            m_sum = sum(h[1] for h in m_history_10m)
-            m_dt = now - m_history_10m[0][0]
+        if len(m_history_10m) >= 2:
+            m_h_base = m_history_10m[0]
+            m_dt = now - m_h_base[0]
             if m_dt > 10:
-                m_gain_10m = int(m_sum * 600 / m_dt)
+                # 使用總量差值計算
+                m_dv = self.last_money_val - m_h_base[1]
+                m_gain_10m = int(m_dv * 600 / m_dt)
 
         # C. 更新歷史最高與圖表數據
         if not is_est and gain_10m > self.max_10m_exp:
@@ -350,8 +358,8 @@ class ExpTracker(QObject):
             tracking_duration=int(duration),
             money_10m=max(0, m_gain_10m),
             cumulative_money=self.cumulative_money,
-            cumulative_gain=self.cumulative_gain,
-            cumulative_pct=pct - self.exp_session_start_pct,
+            cumulative_exp_gain=self.cumulative_exp_gain,
+            cumulative_exp_pct=pct - self.exp_session_start_pct,
             max_10m_exp=self.max_10m_exp,
             exp_rate_history=self.exp_rate_history,
             money_rate_history=self.money_rate_history,
@@ -389,7 +397,7 @@ class ExpTracker(QObject):
         self.last_exp_val = None
         self.last_exp_pct = 0.0
         self.current_lv = None
-        self.cumulative_gain = 0
+        self.cumulative_exp_gain = 0
         self.cumulative_money = 0
         self.exp_history = []
         self.money_history = []
@@ -402,8 +410,8 @@ class ExpTracker(QObject):
         self.stats_data = StatsData(
             text="---", value=0, percent=0.0, gained_10m=0, percent_10m=0.0,
             time_to_level=-1, is_estimated=True, tracking_duration=0,
-            money_10m=0, cumulative_money=0, cumulative_gain=0,
-            cumulative_pct=0.0, max_10m_exp=0,
+            money_10m=0, cumulative_money=0, cumulative_exp_gain=0,
+            cumulative_exp_pct=0.0, max_10m_exp=0,
             exp_rate_history=[], money_rate_history=[]
         )
         self.stats_updated.emit(self.stats_data)

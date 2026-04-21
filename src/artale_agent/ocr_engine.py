@@ -15,7 +15,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-from artale_agent.data_types import LVUpdateData, ExpParsedData, ExpVisualData
+from artale_agent.data_types import LVUpdateData, MoneyUpdateData, ExpUpdateData, ExpVisualData
 
 class ArtaleOCR(QObject):
     """
@@ -24,9 +24,9 @@ class ArtaleOCR(QObject):
     """
     # 用於 UI 更新的訊號 (由 ArtaleOverlay 連接)
     lv_update = pyqtSignal(LVUpdateData)
-    money_update = pyqtSignal(int)
+    money_update = pyqtSignal(MoneyUpdateData)
+    exp_update = pyqtSignal(ExpUpdateData)
     exp_visual_update = pyqtSignal(ExpVisualData)
-    exp_parsed_update = pyqtSignal(ExpParsedData) # 用於呼叫 overlay 中的 parse_and_update_exp
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -217,7 +217,7 @@ class ArtaleOCR(QObject):
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
         
         if max_val > 0.7:
-            info_w, info_h = int(280 * scale), int(31 * scale)
+            info_w, info_h = int(300 * scale), int(31 * scale)
             m_ix = max_loc[0] + st_w + int(20 * scale)
             m_iy = max_loc[1] + (st_h // 2) - (info_h // 2) + int(1 * scale)
             return img[max(0, m_iy):min(h, m_iy+info_h), max(0, m_ix):min(w, m_ix+info_w)]
@@ -253,11 +253,14 @@ class ArtaleOCR(QObject):
             if self.show_money_log:
                 m_crop = self._get_money_crop(img, scale)
                 if m_crop is not None and m_crop.size > 0:
-                    # 預處理
-                    m_thresh = self.preprocess_for_ocr(m_crop, scale, threshold=120)
+                    # 預處理 (楓幣通常是白底黑字，不需反相)
+                    m_thresh = self.preprocess_for_ocr(m_crop, scale, threshold=120, invert=False)
                     m_txt, m_conf = self._do_single_ocr(m_thresh, "0123456789,", psm=7)
                     m_val_clean = "".join(filter(lambda c: c.isdigit(), m_txt))
-                    if m_val_clean: self.money_update.emit(int(m_val_clean))
+                    if m_val_clean: self.money_update.emit(MoneyUpdateData(
+                        text=m_val_clean,
+                        conf=m_conf
+                    ))
                     results["money_conf"] = m_conf
 
             # --- 3. 經驗值辨識 ---
@@ -266,7 +269,6 @@ class ArtaleOCR(QObject):
                 if exp_crop.size > 0:
                     # 預處理
                     full_thresh = self.preprocess_for_ocr(exp_crop, scale, threshold=150)
-                    if self.show_debug: cv2.imwrite("./tmp/debug_exp_processed.png", full_thresh)
 
                     # 切分經驗值與百分比，有可能拆壞
                     ev, ep = self.split_already_threshed(full_thresh, scale)
@@ -282,11 +284,9 @@ class ArtaleOCR(QObject):
                         exp_stack[pad+h_v+spacing : pad+h_v+spacing+h_p, pad : pad+w_p] = ep
                         
                         exp_txt, exp_conf = self._do_single_ocr(exp_stack, "0123456789.%", psm=6)
-                        self.exp_parsed_update.emit(ExpParsedData(
+                        self.exp_update.emit(ExpUpdateData(
                             text=exp_txt, 
-                            e_conf=exp_conf,
-                            thresh=exp_stack,
-                            scale=scale
+                            conf=exp_conf
                         ))
                         results["exp_conf"] = exp_conf
 
@@ -370,7 +370,7 @@ class ArtaleOCR(QObject):
             logger.debug("[OCR] Masked Split failed: %s", e)
         return None, None
 
-    def preprocess_for_ocr(self, img: np.ndarray, scale: float, threshold: Optional[int] = 150) -> Optional[np.ndarray]:
+    def preprocess_for_ocr(self, img: np.ndarray, scale: float, threshold: Optional[int] = 150, invert: bool = True) -> Optional[np.ndarray]:
         """二值化處理並加入平滑化邏輯"""
         if img is None or img.size == 0: return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -388,4 +388,6 @@ class ArtaleOCR(QObject):
         # 4. 中值濾波：去除噪點並稍微平滑二值化後的邊緣
         thresh = cv2.medianBlur(thresh, 3)
         
-        return cv2.bitwise_not(thresh)
+        if invert:
+            return cv2.bitwise_not(thresh)
+        return thresh

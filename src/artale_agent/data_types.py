@@ -3,16 +3,22 @@ from typing import Optional, List
 import numpy as np
 
 @dataclass
+class UpdateData:
+    text: str
+    conf: float
+
+@dataclass
 class LVUpdateData:
     level: str
     conf: float
 
 @dataclass
-class ExpParsedData:
-    text: str
-    e_conf: float
-    thresh: Optional[np.ndarray]
-    scale: float
+class MoneyUpdateData(UpdateData):
+    pass
+
+@dataclass
+class ExpUpdateData(UpdateData):
+    pass
 
 @dataclass
 class ExpVisualData:
@@ -33,8 +39,8 @@ class StatsData:
     tracking_duration: int
     money_10m: int
     cumulative_money: int
-    cumulative_gain: int
-    cumulative_pct: float
+    cumulative_exp_gain: int
+    cumulative_exp_pct: float
     max_10m_exp: int
     exp_rate_history: List[int]
     money_rate_history: List[int]

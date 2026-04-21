@@ -157,8 +157,8 @@ class ArtaleOverlay(QWidget):
             text="---", value=0, percent=0.0, 
             gained_10m=0, percent_10m=0.0, time_to_level=-1,
             is_estimated=True, tracking_duration=0,
-            money_10m=0, cumulative_money=0, cumulative_gain=0,
-            cumulative_pct=0.0, max_10m_exp=0,
+            money_10m=0, cumulative_money=0, cumulative_exp_gain=0,
+            cumulative_exp_pct=0.0, max_10m_exp=0,
             exp_rate_history=[], money_rate_history=[]
         )
         self.exp_rate_history = [] 
@@ -414,8 +414,8 @@ class ArtaleOverlay(QWidget):
     def on_stats_updated(self, stats: StatsData):
         """接收來自 ExpTracker 的完整數據包並同步至 UI 顯示層"""
         self.current_exp_data = stats
-        self.cumulative_gain = stats.cumulative_gain
-        self.cumulative_pct = stats.cumulative_pct
+        self.cumulative_gain = stats.cumulative_exp_gain
+        self.cumulative_pct = stats.cumulative_exp_pct
         self.cumulative_money = stats.cumulative_money
         self.max_10m_exp = stats.max_10m_exp
         self.exp_rate_history = stats.exp_rate_history
