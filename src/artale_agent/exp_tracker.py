@@ -386,6 +386,9 @@ class ExpTracker(QObject):
         """手動重置統計"""
         self.exp_initial_val = None
         self.money_initial_val = None
+        self.last_exp_val = None
+        self.last_exp_pct = 0.0
+        self.current_lv = None
         self.cumulative_gain = 0
         self.cumulative_money = 0
         self.exp_history = []

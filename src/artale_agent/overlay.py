@@ -440,7 +440,7 @@ class ArtaleOverlay(QWidget):
         if self.controller:
             self.controller.toggle_tracking(self.show_exp_panel)
             
-        # 使用者要求：開啟面板（F10）時重置數據，以便開始新的紀錄
+        # 開啟面板（F10）時重置數據，以便開始新的紀錄
         if self.show_exp_panel:
             self.reset_exp_stats(silent=True)
             

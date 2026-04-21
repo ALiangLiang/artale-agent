@@ -162,8 +162,13 @@ class ArtaleCapture(QObject):
                 @capture.event
                 def on_frame_arrived(frame, control):
                     nonlocal last_processed_time
-                    if not self._active or not self._is_running:
-                        control.stop(); return
+                    if not self._active:
+                        logger.debug("[Capture] Callback requesting stop.")
+                        control.stop()
+                        self._session_running = False
+                        return
+                    
+                    self._session_running = True
                         
                     now = time.time()
                     if now - last_processed_time < 1.0: return
@@ -188,20 +193,19 @@ class ArtaleCapture(QObject):
                 @capture.event
                 def on_closed():
                     self.session_closed.emit()
+                    self._session_running = False
 
                 self.session_started.emit(self.target_hwnd)
+                self._session_running = True
                 capture.start_free_threaded()
                 
-                # 健康狀況監控
-                while self._active and self._is_running:
+                # 內層循環：保持 Session 運作，直到被停用或視窗消失
+                while self._active and self._is_running and self._session_running:
                     if not win32gui.IsWindow(self.target_hwnd): 
                         self.target_hwnd = None # 視窗消失，重置句柄
                         break
                     time.sleep(1.0)
                 
-                # 停止 Session：windows-capture 1.5.0+ 並不建議直接在 capture 物件呼叫 stop()
-                # 而是透過 callback 中的 control.stop()。這裡我們只需等待 callback 收到下一張影格並自行停止。
-                # 或者如果視窗已關閉，Session 會自動結束。
                 pass
             except Exception as e:
                 logger.error("[Capture] Session Error: %s", e)
