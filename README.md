@@ -1,6 +1,16 @@
 # 🍁 Artale 瑞士刀 - Artale 全方位冒險助手
 
 這是一個專為 MapleStory Worlds - Artale 設計的非侵入式遊戲輔助工具。它不僅提供精準的 Buff 計時提醒，更整合了高效率的經驗值監測系統與團隊路徑同步工具，助您在冒險中如虎添翼。
+<br>
+
+## 📥 快速下載
+
+> [!IMPORTANT]
+> **[🚀 點此前往 GitHub Releases 下載最新版本 (.exe)](https://github.com/ALiangLiang/artale-agent/releases/latest)**
+>
+> 下載後執行 `ArtaleAgent.exe` 即可開始使用。**無需安裝 Python 環境或 OCR 引擎**，本工具已內含所有必要組件。
+
+<br>
 
 ## ✨ 核心功能
 
