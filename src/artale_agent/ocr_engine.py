@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import logging
 import os
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Tuple
 from PyQt6.QtCore import QObject, pyqtSignal
 from dataclasses import dataclass
 

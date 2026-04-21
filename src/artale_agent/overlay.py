@@ -11,7 +11,6 @@ import webbrowser
 from typing import override
 
 import cv2
-import psutil
 import pytesseract
 import semver
 from PyQt6 import sip
@@ -33,16 +32,15 @@ from artale_agent.platform import WindowManagerImpl
 from artale_agent.settings_window import SettingsWindow
 from artale_agent.skill_timer import TimerManager
 
-# Using utils.py for VERSION, REPO_URL, resource_path, ConfigManager, EXP_TABLE
 from artale_agent.utils import (
-    EXP_TABLE,
     REPO_URL,
     VERSION,
     ConfigManager,
     _project_root,
     resource_path,
 )
-from artale_agent.data_types import LVUpdateData, ExpParsedData, ExpVisualData, StatsData
+from artale_agent.data_types import LVUpdateData, ExpVisualData, StatsData
+from artale_agent.rjpq_tool import draw_rjpq_panel
 
 # 初始化日誌記錄器
 logging.getLogger("pytesseract").setLevel(logging.WARNING)
@@ -542,7 +540,6 @@ class ArtaleOverlay(QWidget):
                 data = getattr(self, "rjpq_data", [4]*40)
                 sel_color = getattr(self, "selected_color", -1)
 
-                from rjpq_tool import draw_rjpq_panel
                 # draw_rjpq_panel 使用左上角作為起點，因此 start_x = ax - pw
                 draw_rjpq_panel(painter, ax - pw, ay, pw, ph, self.base_opacity, data, sel_color)
             except Exception as e:
