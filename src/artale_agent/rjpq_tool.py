@@ -6,7 +6,7 @@ import traceback
 import urllib.parse
 import urllib.request
 
-from PyQt6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QRect, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QSslConfiguration
 from PyQt6.QtWebSockets import QWebSocket
@@ -583,7 +583,6 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
 
     # 繪製目標排的高亮框 (金色外框)
     if selected_color != -1:
-        # 針對繪製邏輯尋找目標排 (複寫邏輯)
         target_row = -1
         for row in range(9, -1, -1):
             row_marked_by_me = False
@@ -600,3 +599,31 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
             painter.setPen(QPen(QColor(255, 215, 0, 180), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(start_x - 5, row_y - 2, cell_w * 4 + 15, cell_h + 4, 4, 4)
+
+    # --- 新增: 平台數字序列顯示 (底部) ---
+    seq_parts = []
+    for row in range(9, -1, -1):
+        found_col = "-"
+        for col in range(4):
+            if data[row * 4 + col] < 4:
+                found_col = str(col + 1)
+                break
+        seq_parts.append(found_col)
+    
+    seq_str = "".join(seq_parts[:5]) + " " + "".join(seq_parts[5:])
+    
+    # 繪製底座裝飾區塊
+    seq_y = py + ph - 25
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(0, 255, 255, 30))
+    painter.drawRect(px + 2, seq_y, pw - 4, 20)
+    
+    # 繪製文字
+    painter.setPen(QColor(0, 255, 255))
+    font = QFont()
+    font.setFamilies(platform_font_families())
+    font.setPointSize(11)
+    font.setBold(True)
+    font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
+    painter.setFont(font)
+    painter.drawText(QRect(px, seq_y, pw, 20), Qt.AlignmentFlag.AlignCenter, seq_str)
