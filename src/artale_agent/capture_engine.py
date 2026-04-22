@@ -88,7 +88,8 @@ class ArtaleCapture(QObject):
             # X 軸經測試不需要偏移 (WGC 影格左側即為內容區起點)
             return scale, 0, self._session_fixed_off_y, cw_ref, ch_ref
         except Exception as e:
-            logger.error("Error getting window metrics: %s", e)
+            if win32gui.IsWindow(target_hwnd):
+                logger.error("Error getting window metrics: %s", e)
             return None
 
     def _find_target_window(self):
@@ -132,7 +133,8 @@ class ArtaleCapture(QObject):
                 if not self._active: continue
 
             self.target_hwnd = self.target_hwnd or self._find_target_window()
-            if not self.target_hwnd:
+            if not self.target_hwnd or not win32gui.IsWindow(self.target_hwnd):
+                self.target_hwnd = None
                 time.sleep(2.0); continue
 
             try:
@@ -142,6 +144,10 @@ class ArtaleCapture(QObject):
                 if hasattr(self, '_session_start_maximized'): delattr(self, '_session_start_maximized')
                 if hasattr(self, '_session_fixed_off_y'): delattr(self, '_session_fixed_off_y')
                 
+                if not win32gui.IsWindow(self.target_hwnd):
+                    self.target_hwnd = None
+                    continue
+                    
                 placement = win32gui.GetWindowPlacement(self.target_hwnd)
                 self._session_start_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
                 logger.info("[Capture] Starting Session. Initial Maximized: %s", self._session_start_maximized)
@@ -208,7 +214,10 @@ class ArtaleCapture(QObject):
                 
                 pass
             except Exception as e:
-                logger.error("[Capture] Session Error: %s", e)
+                if self.target_hwnd and not win32gui.IsWindow(self.target_hwnd):
+                    self.target_hwnd = None
+                else:
+                    logger.error("[Capture] Session Error: %s", e)
                 time.sleep(2.0)
 
     def set_active(self, active):
