@@ -251,9 +251,6 @@ class SettingsWindow(QWidget):
         # 分頁 2: 經驗值/楓幣
         exp_tab = QWidget()
         exp_tab_layout = QVBoxLayout(exp_tab)
-        exp_info = QLabel("📊 經驗值/楓幣設定")
-        exp_info.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; margin-top: 10px;")
-        exp_tab_layout.addWidget(exp_info)
         
         self.exp_active_cb = QCheckBox("開啟經驗值監測面板 (Hotkey: F10)")
         self.exp_active_cb.setStyleSheet("color: #ccc; margin-top: 10px;")
