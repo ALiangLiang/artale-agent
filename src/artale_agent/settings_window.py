@@ -31,6 +31,7 @@ except ImportError:
 
 from artale_agent.rjpq_tool import RJPQSyncClient, RJPQTabContent
 from artale_agent.skill_timer import IconSelectorDialog, PositionHandle
+from artale_agent.awesome_tab import AwesomeTabContent
 from artale_agent.utils import VERSION, ConfigManager, platform_font_family, resource_path
 
 logger = logging.getLogger(__name__)
@@ -416,6 +417,12 @@ class SettingsWindow(QWidget):
         sys_layout.addWidget(self.update_banner)
         self.tabs.addTab(sys_tab, "⚙️ 設定")
 
+        # 分頁 5: 精選工具
+        self.awesome_tab = AwesomeTabContent()
+        self.tabs.addTab(self.awesome_tab, "📚 精選工具")
+
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
         # 配置切換器 / 暱稱輸入
         self.update_profile_dropdown()
 
@@ -764,6 +771,11 @@ class SettingsWindow(QWidget):
         if self.overlay:
             self.overlay.base_opacity = v / 100.0
             self.overlay.update()
+
+    def on_tab_changed(self, index):
+        widget = self.tabs.widget(index)
+        if isinstance(widget, AwesomeTabContent):
+            widget.trigger_load()
 
 
 
