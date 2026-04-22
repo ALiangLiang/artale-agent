@@ -147,6 +147,7 @@ class ArtaleOverlay(QWidget):
         self.show_rjpq_panel = False # 羅茱面板預設關閉
         self.show_debug = config.get("show_debug", False)
         self.base_opacity = config.get("opacity", 0.5)
+        self.ui_scale = config.get("ui_scale", 1.0)
         
         self.msg_text = ""; self.msg_opacity = 0
         self.x_offset = 0; self.y_offset = 0
@@ -530,14 +531,15 @@ class ArtaleOverlay(QWidget):
 
         if getattr(self, "show_rjpq_panel", False):
             try:
+                s = getattr(self, "ui_scale", 1.0)
                 # 配置檢查：如果尚未重新載入，使用目前的 Session 偏移量
-                pw, ph = 180, 320
+                pw, ph = int(180 * s), int(320 * s)
                 # 錨點 (ax, ay) 為右上角
                 ax = self.rect().center().x() + self.rjpq_x_offset
                 ay = self.rect().center().y() + self.rjpq_y_offset
                 
                 # 若可用，從 RJPQ 客戶端獲取數據，否則使用本地快取
-                data = getattr(self, "rjpq_data", [4]*40)
+                data = getattr(self, "rjpq_data", [4] * 40)
                 sel_color = getattr(self, "selected_color", -1)
 
                 # draw_rjpq_panel 使用左上角作為起點，因此 start_x = ax - pw
@@ -547,14 +549,14 @@ class ArtaleOverlay(QWidget):
             
             # --- 更新點擊區域 ---
             self.rjpq_click_zones = {}
-            start_x = ax - pw + 35
-            start_y = ay + 45
-            cell_w, cell_h = 32, 22
+            start_x = ax - pw + int(35 * s)
+            start_y = ay + int(45 * s)
+            cell_w, cell_h = int(32 * s), int(22 * s)
             for row in range(10):
                 for col in range(4):
                     idx = row * 4 + col
-                    cx = start_x + col * 35
-                    cy = start_y + row * 25
+                    cx = start_x + col * int(35 * s)
+                    cy = start_y + row * int(25 * s)
                     local_rect = QRect(int(cx), int(cy), cell_w, cell_h)
                     # 轉換為全域座標供 main.py 監聽器使用
                     global_topleft = self.mapToGlobal(local_rect.topLeft())
@@ -635,22 +637,25 @@ class ArtaleOverlay(QWidget):
         # Base coordinates
         base_x = self.rect().center().x() + self.x_offset
         base_y = self.rect().center().y() + self.y_offset
+        
+        s = getattr(self, "ui_scale", 1.0)
+        def _sc(v): return int(v * s)
 
         # 1. 配置/操作通知 (置中顯示於錨點上方)
         if self.msg_opacity > 0:
             font = QFont()
             font.setFamilies(_font_families())
-            font.setPointSize(18)
+            font.setPointSize(_sc(18))
             font.setBold(True)
             painter.setFont(font)
             tw = painter.fontMetrics().horizontalAdvance(self.msg_text)
             # 在計時器方塊上方清晰地靠右對齊繪製通知
-            bg_rect = QRect(base_x - (tw+40), base_y - 70, tw+40, 45)
+            bg_rect = QRect(base_x - (tw + _sc(40)), base_y - _sc(70), tw + _sc(40), _sc(45))
             # 通知背景受淡出效果與設定透明度共同影響
             bg_alpha = int(min(200, self.msg_opacity) * (self.base_opacity / 1.0))
             painter.setBrush(QColor(0, 0, 0, bg_alpha))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(bg_rect, 8, 8)
+            painter.drawRoundedRect(bg_rect, _sc(8), _sc(8))
             color = (
                 QColor(255, 100, 100, self.msg_opacity)
                 if "F12" in self.msg_text
@@ -680,16 +685,16 @@ class ArtaleOverlay(QWidget):
                 ("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png")))
             )
 
-        new_click_zones = {}; spacing = 56; total_width = len(timers_to_draw) * spacing
+        new_click_zones = {}; spacing = _sc(56); total_width = len(timers_to_draw) * spacing
         # 右對齊：錨點 base_x 是計時器群組的 右邊界
         block_start_x = base_x - total_width
-        block_center_y = base_y + 60
+        block_center_y = base_y + _sc(60)
 
         for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
             x_pos = block_start_x + idx * spacing + (spacing // 2)
             block_center = QPoint(x_pos, block_center_y)
-            icon_rect = QRect(block_center.x() - 20, block_center.y() - 45, 40, 40)
-            text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
+            icon_rect = QRect(block_center.x() - _sc(20), block_center.y() - _sc(45), _sc(40), _sc(40))
+            text_rect = QRect(block_center.x() - _sc(50), block_center.y() - _sc(13), _sc(100), _sc(50))
             
             # 點擊區域：優先使用圖示區域，否則使用文字區域
             if key != "preview":
@@ -701,13 +706,13 @@ class ArtaleOverlay(QWidget):
             if pixmap:
                 if self.icon_frame:
                     painter.drawPixmap(
-                        icon_rect.adjusted(-2, -2, 2, 2), self.icon_frame
+                        icon_rect.adjusted(_sc(-2), _sc(-2), _sc(2), _sc(2)), self.icon_frame
                     )
                 painter.drawPixmap(
                     icon_rect,
                     pixmap.scaled(
-                        40,
-                        40,
+                        _sc(40),
+                        _sc(40),
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,
                     ),
@@ -719,13 +724,13 @@ class ArtaleOverlay(QWidget):
                 color = QColor(255, 255, 255, 150)
             font = QFont()
             font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-            font.setPointSize(15 if display_seconds >= 1000 else (22 if seconds > 3 else 26))
+            font.setPointSize(_sc(15) if display_seconds >= 1000 else (_sc(22) if seconds > 3 else _sc(26)))
             font.setBold(True)
             painter.setFont(font)
-            text_rect = QRect(block_center.x() - 50, block_center.y() - 13, 100, 50)
-            painter.setPen(QPen(QColor(0, 0, 0, 200), 4))
+            text_rect = QRect(block_center.x() - _sc(50), block_center.y() - _sc(13), _sc(100), _sc(50))
+            painter.setPen(QPen(QColor(0, 0, 0, 200), _sc(4)))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
-            painter.setPen(QPen(color, 2))
+            painter.setPen(QPen(color, _sc(2)))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
 
@@ -853,131 +858,135 @@ class ArtaleOverlay(QWidget):
     def _draw_exp_content(self, painter, px, py, pw, ph, is_export=False):
         now = time.time()
         if not self.current_exp_data: return
+        
+        s = 1.0 if is_export else getattr(self, "ui_scale", 1.0)
+        def _sc(v): return int(v * s)
+
         # 1. 標題與標籤
         painter.setPen(QColor(255, 255, 255))
         font = QFont(_font_families()[0])
-        font.setPointSize(12 if is_export else 11)
+        font.setPointSize(_sc(12 if is_export else 11))
         font.setBold(True)
         painter.setFont(font)
-        y = py + (30 if is_export else 25)
+        y = py + _sc(30 if is_export else 25)
         title = "📊 經驗值監測報告" if is_export else "📊 經驗值監測"
-        painter.drawText(px + 15, y, title)
+        painter.drawText(px + _sc(15), y, title)
         
         # 如果暫停，在標題後方加上紅色的 (已暫停)
         if self.exp_paused:
             title_w = painter.fontMetrics().horizontalAdvance(title)
             painter.setPen(QColor(255, 80, 80)) # 亮紅色
-            font.setPointSize(9)
+            font.setPointSize(_sc(9))
             painter.setFont(font)
-            painter.drawText(px + 15 + title_w + 10, y, "(已暫停)")
+            painter.drawText(px + _sc(15) + title_w + _sc(10), y, "(已暫停)")
             painter.setPen(QColor(255, 255, 255)) # 恢復白色
         
         # 2. 次要資訊 (紀錄時長與累計，整合在同一行)
-        y += (28 if is_export else 25)
+        y += _sc(28 if is_export else 25)
         duration_sec = self.current_exp_data.tracking_duration
         h_dur = duration_sec // 3600; m_dur = (duration_sec % 3600) // 60; s_dur = duration_sec % 60
         val_dur = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}" if h_dur > 0 else f"{m_dur:02d}:{s_dur:02d}"
         
         # 時長部分 (Duration)
         painter.setPen(QColor(100, 255, 100))
-        font.setPointSize(9)
+        font.setPointSize(_sc(9))
         font.setBold(True)
         painter.setFont(font)
         fm_small = painter.fontMetrics()
         lbl_dur = "紀錄時長:"
-        painter.drawText(px + 15, y, lbl_dur)
+        painter.drawText(px + _sc(15), y, lbl_dur)
         painter.setPen(QColor(255, 255, 255))
-        painter.drawText(px + 15 + fm_small.horizontalAdvance(lbl_dur) + 5, y, val_dur)
+        painter.drawText(px + _sc(15) + fm_small.horizontalAdvance(lbl_dur) + _sc(5), y, val_dur)
         
         # 累計部分 (靠右對齊)
         painter.setPen(QColor(100, 255, 100))
         lbl_total = "總累積:"
         # 基於寬度或中間位置來定位標籤
-        total_start_x = px + 145
+        total_start_x = px + _sc(145)
         painter.drawText(total_start_x, y, lbl_total)
         painter.setPen(QColor(255, 255, 255))
         val_total = f"+{self.cumulative_gain:,} ({self.cumulative_pct:+.2f}%)"
         painter.drawText(
-            QRect(px + 15, y - 18, pw - 30, 24),
+            QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             val_total,
         )
 
         # 3. 升級預計時長
-        y += (32 if is_export else 28)
+        y += _sc(32 if is_export else 28)
         painter.setPen(QColor(100, 255, 100))
-        font.setPointSize(12 if is_export else 11)
+        font.setPointSize(_sc(12 if is_export else 11))
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
 
         lbl_ttl = "升級預計還需: "
-        painter.drawText(px + 15, y, lbl_ttl)
+        painter.drawText(px + _sc(15), y, lbl_ttl)
         
         ttl_sec = self.current_exp_data.time_to_level
         val_ttl = f"{ttl_sec // 3600}小時 {(ttl_sec % 3600) // 60}分" if ttl_sec > 0 else "計算速率中..."
         painter.setPen(QColor(255, 255, 255))
-        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_ttl)
+        painter.drawText(QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_ttl)
         
         # 4. 十分鍾效率 (Sliding Window)
-        y += (32 if is_export else 28)
+        y += _sc(32 if is_export else 28)
         gain_val = self.current_exp_data.gained_10m
         gain_pct = self.current_exp_data.percent_10m
         is_est = self.current_exp_data.is_estimated
         
         lbl_eff = f"{'（預估）' if is_est else ''}10分鐘效率: "
         painter.setPen(QColor(100, 255, 100))
-        painter.drawText(px + 15, y, lbl_eff)
+        painter.drawText(px + _sc(15), y, lbl_eff)
 
         val_eff = f"+{gain_val:,} ({gain_pct:+.2f}%)"
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(
-            QRect(px + 15, y - 18, pw - 30, 24),
+            QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             val_eff,
         )
 
         # 5. 十分鍾歷史最高紀錄 (Record)
-        y += (32 if is_export else 28)
+        y += _sc(32 if is_export else 28)
         lbl_max = "十分鐘最高經驗: "
         painter.setPen(QColor(100, 255, 100))
-        painter.drawText(px + 15, y, lbl_max)
+        painter.drawText(px + _sc(15), y, lbl_max)
         
         duration_sec = self.current_exp_data.tracking_duration
         val_max = f"{self.max_10m_exp:,}" if duration_sec >= 600 else "(未滿十分鐘)"
         painter.setPen(QColor(255, 255, 255))
-        painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_max)
+        painter.drawText(QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_max)
         
         # 6. 楓幣效率與累計 (僅在啟用或匯出時顯示)
         if self.show_money_log or is_export:
             # 6a. 十分鍾效率
-            y += (32 if is_export else 28)
+            y += _sc(32 if is_export else 28)
             lbl_money_10m = "十分鐘楓幣效率: "
             painter.setPen(QColor(255, 215, 0)) # 黃金色
-            painter.drawText(px + 15, y, lbl_money_10m)
+            painter.drawText(px + _sc(15), y, lbl_money_10m)
             money_10m = self.current_exp_data.money_10m
             val_money_10m = f"+{money_10m:,}"
             painter.setPen(QColor(255, 255, 255))
-            painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_money_10m)
+            painter.drawText(QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_money_10m)
             
             # 6b. 累計獲取楓幣 (Total)
-            y += (28 if is_export else 25)
+            y += _sc(28 if is_export else 25)
             lbl_money_total = "累計獲取楓幣: "
             painter.setPen(QColor(255, 215, 0))
-            font.setPointSize(9)
+            font.setPointSize(_sc(9))
             painter.setFont(font)
-            painter.drawText(px + 15, y, lbl_money_total)
+            painter.drawText(px + _sc(15), y, lbl_money_total)
             val_total_money = f"{self.cumulative_money:+,}"
             painter.setPen(QColor(255, 255, 255))
-            painter.drawText(QRect(px + 15, y - 18, pw - 30, 24), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_total_money)
+            painter.drawText(QRect(px + _sc(15), y - _sc(18), pw - _sc(30), _sc(24)), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_total_money)
         
         last_y = y # 用於圖表定位參考
 
         # 5. 趨勢走勢圖 (雙線: 綠色為經驗值, 黃色為楓幣)
         if len(self.exp_rate_history) > 1:
-            gh = 50 if is_export else 40
-            gw = pw - 30
-            gx = px + 15
-            gy = last_y + (15 if is_export else 10)
+            gh = _sc(50 if is_export else 40)
+            gw = pw - _sc(30)
+            gx = px + _sc(15)
+            gy = last_y + _sc(15 if is_export else 10)
 
             painter.setPen(QColor(255, 255, 255, 20))
             painter.setBrush(QColor(255, 255, 255, 5))
@@ -1002,7 +1011,7 @@ class ArtaleOverlay(QWidget):
 
                 for i, v in enumerate(display_history):
                     vx = gx + i * step_x
-                    vy = gy + gh - (v / max_v * (gh - 4)) - 2
+                    vy = gy + gh - (v / max_v * (gh - _sc(4))) - _sc(2)
                     if i == 0:
                         path.moveTo(vx, vy)
                     else:
@@ -1025,7 +1034,7 @@ class ArtaleOverlay(QWidget):
                 painter.drawPath(path)
 
             # 先繪製楓幣線 (黃色)，使其位於經驗值線後方
-            if self.show_money_log and len(self.money_rate_history) > 1:
+            if (self.show_money_log or is_export) and len(self.money_rate_history) > 1:
                 draw_line(self.money_rate_history, QColor(255, 215, 0), 40)
 
             # 最上方繪製經驗值線 (綠色)
@@ -1038,13 +1047,16 @@ class ArtaleOverlay(QWidget):
         # 面板幾何佈局邏輯
         bx = self.rect().center().x() + self.exp_x_offset
         by = self.rect().center().y() + self.exp_y_offset
+        
+        s = getattr(self, "ui_scale", 1.0)
+        def _sc(v): return int(v * s)
 
         # 根據是否顯示楓幣動態調整高度 (兩行約增加 55px)
-        ph = 250 if self.show_money_log else 195
-        pw = 330
+        ph = _sc(250 if self.show_money_log else 195)
+        pw = _sc(330)
 
         # 靠右對齊：bx 代表右邊界
-        panel_rect = QRect(bx - pw, by - 130 - ph // 2, pw, ph)
+        panel_rect = QRect(bx - pw, by - _sc(130) - ph // 2, pw, ph)
         px, py = panel_rect.x(), panel_rect.y()
 
         # 1. Background

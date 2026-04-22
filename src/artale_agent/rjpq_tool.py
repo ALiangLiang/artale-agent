@@ -563,9 +563,16 @@ class RJPQTabContent(QWidget):
 
 # --- Overlay 影像繪製邏輯 ---
 def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
+    # 根據寬度推算縮放比例 (基準寬度為 180)
+    s = pw / 180.0
+    
+    def _sc(val):
+        """內部比例縮放輔助函式"""
+        return int(val * s)
+
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     path = QPainterPath()
-    path.addRoundedRect(px, py, pw, ph, 12, 12)
+    path.addRoundedRect(px, py, pw, ph, _sc(12), _sc(12))
     painter.setPen(QPen(QColor(0, 255, 255, 200), 2))
     painter.setBrush(QColor(10, 15, 20, int(opacity * 255)))
     painter.drawPath(path)
@@ -573,14 +580,14 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     painter.setPen(QColor(0, 255, 255))
     font = QFont()
     font.setFamilies(platform_font_families())
-    font.setPointSize(11)
+    font.setPointSize(_sc(11))
     font.setBold(True)
     painter.setFont(font)
-    painter.drawText(px + 10, py + 25, "羅茱平台標記")
+    painter.drawText(px + _sc(10), py + _sc(25), "羅茱平台標記")
 
-    cell_w, cell_h = 32, 22
-    start_x = px + 35
-    start_y = py + 45
+    cell_w, cell_h = _sc(32), _sc(22)
+    start_x = px + _sc(35)
+    start_y = py + _sc(45)
     char_colors = [
         QColor("#ff6b6b"),
         QColor("#51cf66"),
@@ -592,19 +599,19 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
         painter.setPen(QColor(150, 150, 150))
         font = QFont()
         font.setFamilies(platform_font_families())
-        font.setPointSize(8)
+        font.setPointSize(_sc(8))
         painter.setFont(font)
-        painter.drawText(px + 10, start_y + row * 25 + 16, str(10 - row))
+        painter.drawText(px + _sc(10), start_y + row * _sc(25) + _sc(16), str(10 - row))
 
         for col in range(4):
             idx = row * 4 + col
-            cx = start_x + col * 35
-            cy = start_y + row * 25
+            cx = start_x + col * _sc(35)
+            cy = start_y + row * _sc(25)
             val = data[idx]
 
             painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(cx, cy, cell_w, cell_h, 2, 2)
+            painter.drawRoundedRect(cx, cy, cell_w, cell_h, _sc(2), _sc(2))
 
             if val < 4:
                 color = QColor(char_colors[val])
@@ -613,12 +620,12 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(color)
                 painter.drawEllipse(
-                    QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), 7, 7
+                    QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), _sc(7), _sc(7)
                 )
                 if alpha == 255:
                     painter.setBrush(QColor(255, 255, 255, 150))
                     painter.drawEllipse(
-                        QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), 3, 3
+                        QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), _sc(3), _sc(3)
                     )
 
     # 繪製目標排的高亮框 (金色外框)
@@ -635,10 +642,10 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
                 break
 
         if target_row != -1:
-            row_y = start_y + target_row * 25
+            row_y = start_y + target_row * _sc(25)
             painter.setPen(QPen(QColor(255, 215, 0, 180), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(start_x - 5, row_y - 2, cell_w * 4 + 15, cell_h + 4, 4, 4)
+            painter.drawRoundedRect(start_x - _sc(5), row_y - _sc(2), cell_w * 4 + _sc(15), cell_h + _sc(4), _sc(4), _sc(4))
 
     # --- 新增: 平台數字序列顯示 (底部) ---
     seq_parts = []
@@ -657,17 +664,17 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     seq_str = "".join(seq_parts[:5]) + " " + "".join(seq_parts[5:])
     
     # 繪製底座裝飾區塊
-    seq_y = py + ph - 25
+    seq_y = py + ph - _sc(25)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(0, 255, 255, 30))
-    painter.drawRect(px + 2, seq_y, pw - 4, 20)
+    painter.drawRect(px + _sc(2), seq_y, pw - _sc(4), _sc(20))
     
     # 繪製文字
     painter.setPen(QColor(0, 255, 255))
     font = QFont()
     font.setFamilies(platform_font_families())
-    font.setPointSize(11)
+    font.setPointSize(_sc(11))
     font.setBold(True)
-    font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
+    font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, _sc(2))
     painter.setFont(font)
-    painter.drawText(QRect(px, seq_y, pw, 20), Qt.AlignmentFlag.AlignCenter, seq_str)
+    painter.drawText(QRect(px, seq_y, pw, _sc(20)), Qt.AlignmentFlag.AlignCenter, seq_str)

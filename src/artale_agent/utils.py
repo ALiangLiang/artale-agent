@@ -142,6 +142,9 @@ class ConfigManager:
                             if k not in config["hotkeys"]:
                                 config["hotkeys"][k] = v
 
+                    if "ui_scale" not in config:
+                        config["ui_scale"] = 1.0
+
                     return config
             except Exception as e:
                 logger.error("Error loading config: %s", e)
@@ -154,6 +157,7 @@ class ConfigManager:
             "active_profile": "F1",
             "offset": [0, 0],
             "opacity": 0.5,
+            "ui_scale": 1.0,
             "profiles": default_profiles,
             "hotkeys": {
                 "exp_toggle": "f10",

@@ -287,6 +287,7 @@ class SettingsWindow(QWidget):
         opacity_row.addWidget(self.opacity_slider)
         opacity_row.addWidget(self.opacity_val_lbl)
         exp_tab_layout.addLayout(opacity_row)
+
         
         exp_pos_btn = QPushButton("📊 調整經驗值面板位置")
         exp_pos_btn.setStyleSheet(btn_common_style)
@@ -398,6 +399,22 @@ class SettingsWindow(QWidget):
             hk_grid.addWidget(btn, idx, 1)
             self.global_hk_buttons[hk_id] = btn
         sys_layout.addLayout(hk_grid)
+
+        sys_layout.addSpacing(10)
+        ui_scale_info = QLabel("📐 介面顯示比例 (UI Scale)")
+        ui_scale_info.setStyleSheet("color: #aaa; font-size: 11px; margin-top: 10px;")
+        sys_layout.addWidget(ui_scale_info)
+        ui_scale_row = QHBoxLayout()
+        self.ui_scale_val_lbl = QLabel(f"{int(config.get('ui_scale', 1.0) * 100)}%")
+        self.ui_scale_val_lbl.setStyleSheet("color: #ffd700; font-weight: bold;")
+        self.ui_scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self.ui_scale_slider.setRange(50, 250) # 50% to 250%
+        self.ui_scale_slider.setValue(int(config.get("ui_scale", 1.0) * 100))
+        self.ui_scale_slider.valueChanged.connect(self.on_ui_scale_changed)
+        ui_scale_row.addWidget(self.ui_scale_slider)
+        ui_scale_row.addWidget(self.ui_scale_val_lbl)
+        sys_layout.addLayout(ui_scale_row)
+
         sys_layout.addStretch()
         
         # 底部資訊與檢查更新
@@ -772,6 +789,12 @@ class SettingsWindow(QWidget):
             self.overlay.base_opacity = v / 100.0
             self.overlay.update()
 
+    def on_ui_scale_changed(self, v):
+        self.ui_scale_val_lbl.setText(f"{v}%")
+        if self.overlay:
+            self.overlay.ui_scale = v / 100.0
+            self.overlay.update()
+
     def on_tab_changed(self, index):
         widget = self.tabs.widget(index)
         if isinstance(widget, AwesomeTabContent):
@@ -795,6 +818,7 @@ class SettingsWindow(QWidget):
             config["show_money_log"] = self.overlay.show_money_log
             config["show_debug"] = self.overlay.show_debug
             config["opacity"] = self.overlay.base_opacity
+            config["ui_scale"] = getattr(self.overlay, "ui_scale", 1.0)
             config["rjpq_offset"] = [
                 self.overlay.rjpq_x_offset,
                 self.overlay.rjpq_y_offset,
