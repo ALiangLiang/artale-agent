@@ -2,17 +2,20 @@ import logging
 import threading
 import urllib.request
 import re
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextBrowser
 from artale_agent.utils import platform_font_family
 
 logger = logging.getLogger(__name__)
 
 class AwesomeTabContent(QWidget):
+    content_ready = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self._loaded = False
         self.init_ui()
+        self.content_ready.connect(self._update_ui)
 
     def init_ui(self):
         self.layout = QVBoxLayout(self)
@@ -34,10 +37,11 @@ class AwesomeTabContent(QWidget):
                 with urllib.request.urlopen(req, timeout=10) as response:
                     content = response.read().decode('utf-8')
                     html = self._md_to_html(content)
-                    QTimer.singleShot(0, lambda: self._update_ui(html))
+                    self.content_ready.emit(html)
             except Exception as e:
                 logger.error(f"[Awesome] Fetch failed: {e}")
-                QTimer.singleShot(0, lambda: self._update_ui(f"<p style='color: #ff6b6b; text-align: center;'>載入失敗: {e}<br>請檢查網路連線後重試。</p>"))
+                error_html = f"<p style='color: #ff6b6b; text-align: center;'>載入失敗: {e}<br>請檢查網路連線後重試。</p>"
+                self.content_ready.emit(error_html)
         
         threading.Thread(target=_run, daemon=True).start()
 
@@ -46,38 +50,38 @@ class AwesomeTabContent(QWidget):
         self._loaded = True
 
     def _md_to_html(self, md_text):
+        import markdown2
+        
         # 移除不支援的 HTML 標籤
-        html = re.sub(r'</?details>', '', md_text)
-        html = re.sub(r'</?summary>', '', html)
+        md_text = re.sub(r'</?details>', '', md_text)
+        md_text = re.sub(r'</?summary>', '', md_text)
         
         # 處理 GitHub 特有的 [!TIP]
-        html = re.sub(r'> \[!TIP\]', '> 💡 提示：', html)
+        md_text = re.sub(r'> \[!TIP\]', '> 💡 提示：', md_text)
 
-        # Headers
-        html = re.sub(r'^### (.*)$', r'<h3 style="color: #ffd700; border-bottom: 1px solid #333; padding-bottom: 5px;">\1</h3>', html, flags=re.M)
-        html = re.sub(r'^## (.*)$', r'<h2 style="color: #ffd700; border-bottom: 1px solid #444;">\1</h2>', html, flags=re.M)
-        
-        # Bold
-        html = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', html)
-        
-        # Links
-        html = re.sub(r'\[(.*?)\]\((.*?)\)', r'<a href="\2" style="color: #4dabf7; text-decoration: none;">\1</a>', html)
-        
-        # Lists (簡單處理)
-        html = re.sub(r'^- (.*)$', r'<li>\1</li>', html, flags=re.M)
-        
-        # Blockquotes
-        html = re.sub(r'^> (.*)$', r'<blockquote style="border-left: 4px solid #ffd700; background: #1e1e1e; padding: 10px; color: #aaa; margin: 10px 0;">\1</blockquote>', html, flags=re.M)
+        # 使用 markdown2 轉換，開啟一些常見擴展功能
+        body_html = markdown2.markdown(md_text, extras=[
+            "fenced-code-blocks", 
+            "tables", 
+            "task_list", 
+            "break-on-newline",
+            "header-ids"
+        ])
         
         style = f"""
         <style>
-            body {{ color: #e0e0e0; font-family: {platform_font_family()}; line-height: 1.5; font-size: 13px; }}
-            a {{ color: #4dabf7; }}
-            li {{ margin-bottom: 5px; }}
+            body {{ color: #e0e0e0; font-family: {platform_font_family()}; line-height: 1.6; font-size: 13px; padding: 10px; }}
+            a {{ color: #4dabf7; text-decoration: none; }}
+            a:hover {{ text-decoration: underline; }}
+            h1, h2, h3 {{ color: #ffd700; margin-top: 20px; border-bottom: 1px solid #333; padding-bottom: 5px; }}
+            li {{ margin-bottom: 8px; }}
             ul {{ padding-left: 20px; }}
-            h3 {{ margin-top: 20px; }}
+            blockquote {{ border-left: 4px solid #ffd700; background: #1e1e1e; padding: 10px; color: #aaa; margin: 15px 0; }}
+            code {{ background: #222; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace; }}
+            pre {{ background: #222; padding: 10px; border-radius: 5px; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+            th, td {{ border: 1px solid #444; padding: 8px; text-align: left; }}
+            th {{ background: #2a2a2a; color: #ffd700; }}
         </style>
         """
-        # 將換行轉為 <br>，但避免在已經有標籤的地方重複
-        html = html.replace('\n', '<br>')
-        return f"<html><head>{style}</head><body>{html}</body></html>"
+        return f"<html><head>{style}</head><body>{body_html}</body></html>"
