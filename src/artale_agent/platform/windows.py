@@ -206,6 +206,40 @@ class WinWindowManager(WindowManager):
             logger.debug("[WinWindowManager] client_to_screen failed: %s", e)
             return (x, y)
 
+    @override
+    def set_topmost(self, window_id: int, topmost: bool) -> None:
+        """Set whether the window stays on top of others."""
+        if not win32gui or not win32con:
+            return
+        try:
+            flag = win32con.HWND_TOPMOST if topmost else win32con.HWND_NOTOPMOST
+            # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE ensures we don't move or resize the window
+            win32gui.SetWindowPos(
+                window_id,
+                flag,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+            )
+        except Exception as e:
+            logger.debug("[WinWindowManager] set_topmost failed: %s", e)
+
+    @override
+    def get_foreground_process_id(self) -> int:
+        """Get the PID of the process that owns the foreground window."""
+        if not win32gui or not win32process:
+            return 0
+        try:
+            hwnd = win32gui.GetForegroundWindow()
+            if not hwnd:
+                return 0
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            return pid
+        except Exception:
+            return 0
+
 
 class WinScreenCapture(ScreenCapture):
     """Windows screen capture using the windows_capture library."""

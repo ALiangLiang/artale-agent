@@ -150,6 +150,16 @@ class MacWindowManager(WindowManager):
         by = int(bounds.get("Y", 0))
         return (bx + x, by + y)
 
+    @override
+    def set_topmost(self, window_id: int, topmost: bool) -> None:
+        # macOS implementation (TODO if needed)
+        pass
+
+    @override
+    def get_foreground_process_id(self) -> int:
+        # macOS implementation (TODO if needed)
+        return 0
+
 
 # ---------------------------------------------------------------------------
 # ScreenCapture

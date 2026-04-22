@@ -71,6 +71,14 @@ class WindowManager(ABC):
     def client_to_screen(self, window_id: int, x: int, y: int) -> tuple[int, int]:
         """Convert client-area coordinates to screen coordinates."""
 
+    @abstractmethod
+    def set_topmost(self, window_id: int, topmost: bool) -> None:
+        """Set whether the window stays on top of others."""
+
+    @abstractmethod
+    def get_foreground_process_id(self) -> int:
+        """Get the PID of the process that owns the foreground window."""
+
 
 class FocusTracker(ABC):
     """Tracks whether the target game window is focused."""

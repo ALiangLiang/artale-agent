@@ -8,6 +8,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+import psutil
 from typing import override
 
 import cv2
@@ -202,7 +203,12 @@ class ArtaleOverlay(QWidget):
         # 控制器將從外部賦予，用以協調模組運行
         self.controller = None
         
-        self.tracking_timer = QTimer(self); self.tracking_timer.timeout.connect(self.sync_with_game_window); self.tracking_timer.start(1000)
+        self.tracking_timer = QTimer(self)
+        self.tracking_timer.timeout.connect(self.sync_with_game_window)
+        self.tracking_timer.start(500) # 提高頻率以更即時反應視窗切換
+        
+        self._my_pid = os.getpid()
+        self._last_topmost_state = True # 初始為 True (由 init_ui 設定)
         self.world_timers = {} 
         
         frame_p = resource_path("buff_pngs/skill_frame.png")
@@ -353,6 +359,7 @@ class ArtaleOverlay(QWidget):
 
         if info:
             try:
+                self.game_hwnd = info.window_id # 儲存遊戲視窗控制代碼
                 dpr = self.screen().devicePixelRatio()
                 sx, sy = self._wm.client_to_screen(info.window_id, 0, info.height)
                 logical_pt = QPoint(int(sx / dpr), int(sy / dpr))
@@ -360,10 +367,58 @@ class ArtaleOverlay(QWidget):
                 self.bx, self.by = local_bl.x(), local_bl.y()
             except Exception as e:
                 logger.debug("[Overlay] Window mapping failed: %s", e)
+        else:
+            self.game_hwnd = None
+
+        # --- 動置頂邏輯 (Dynamic Stay-on-Top) ---
+        self._update_topmost_status()
 
         if not self.isVisible():
             self.show()
         self.raise_()
+
+    def _update_topmost_status(self):
+        """根據當前焦點視窗動態調整置頂狀態"""
+        try:
+            fg_pid = self._wm.get_foreground_process_id()
+            
+            # 取得遊戲進程 PID (如果已知)
+            game_pid = 0
+            if hasattr(self, "game_hwnd") and self.game_hwnd:
+                # 這裡我們可以嘗試從 game_hwnd 取得 PID，或者使用 focus tracker
+                # 為了簡單起見，我們直接檢查進程名稱 (透過 FocusTracker 的邏輯或直接比對)
+                # 但 WinFocusTracker 已經在 windows.py 實現了進程名稱檢查
+                # 這裡我們使用一個更直接的方法：檢查 fg_pid 是否為我們自己或遊戲
+                pass
+            
+            # 檢查是否為遊戲進程 (msw.exe)
+            is_game_focused = False
+            if fg_pid > 0:
+                try:
+                    proc = psutil.Process(fg_pid)
+                    if proc.name().lower() == "msw.exe":
+                        is_game_focused = True
+                except: pass
+            
+            is_our_app_focused = (fg_pid == self._my_pid)
+            
+            # 只要是遊戲或我們的 App (如設定視窗) 在最前面，就維持置頂
+            should_be_topmost = is_game_focused or is_our_app_focused
+            
+            if should_be_topmost != self._last_topmost_state:
+                self._last_topmost_state = should_be_topmost
+                
+                # 更新 Overlay 自身
+                self._wm.set_topmost(int(self.winId()), should_be_topmost)
+                
+                # 更新設定視窗 (如果存在且可見)
+                if hasattr(self, "settings_window") and self.settings_window and self.settings_window.isVisible():
+                    self._wm.set_topmost(int(self.settings_window.winId()), should_be_topmost)
+                    
+                logger.debug("[Overlay] Topmost status changed: %s (FG PID: %s, Our PID: %s, Game: %s)", 
+                             should_be_topmost, fg_pid, self._my_pid, is_game_focused)
+        except Exception as e:
+            logger.debug("[Overlay] Update topmost failed: %s", e)
 
     def update_offset(self, gx, gy):
         local = self.mapFromGlobal(QPoint(gx, gy))
