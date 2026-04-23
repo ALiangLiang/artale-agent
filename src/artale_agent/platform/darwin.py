@@ -8,8 +8,11 @@ from typing import override
 
 import cv2
 import numpy as np
+import logging
 
-from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
+logger = logging.getLogger(__name__)
+
+from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, SystemUtils, WindowInfo, WindowManager
 
 try:
     import Quartz
@@ -345,3 +348,19 @@ class MacAudioPlayer(AudioPlayer):
             )
         except FileNotFoundError:
             pass
+
+class MacSystemUtils(SystemUtils):
+    """macOS implementation of system utilities."""
+
+    @override
+    def open_file_manager(self, path: str, select: bool = True) -> None:
+        """Open Finder at the given path."""
+        import subprocess
+        try:
+            if select:
+                # Use open -R to highlight the file in Finder
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["open", path])
+        except Exception as e:
+            logger.debug("[MacSystemUtils] open_file_manager failed: %s", e)

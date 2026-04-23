@@ -103,3 +103,11 @@ class AudioPlayer(ABC):
     @abstractmethod
     def beep(self, frequency: int, duration_ms: int) -> None:
         """Play a beep tone."""
+
+
+class SystemUtils(ABC):
+    """General system utilities."""
+
+    @abstractmethod
+    def open_file_manager(self, path: str, select: bool = True) -> None:
+        """Open the file manager at the given path, optionally selecting the file."""

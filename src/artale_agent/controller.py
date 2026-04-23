@@ -1,15 +1,20 @@
 import logging
 import time
 import os
+import sys
 import subprocess
 import threading
+import csv
+from datetime import datetime
 from PyQt6.QtCore import QObject, Qt, QStandardPaths, QTimer
 from PyQt6.QtGui import QPixmap, QPainter
+from PyQt6.QtWidgets import QApplication
 from artale_agent.capture_engine import ArtaleCapture
 from artale_agent.ocr_engine import ArtaleOCR
 from artale_agent.exp_tracker import ExpTracker
 from artale_agent.data_types import LVUpdateData
-from artale_agent.utils import resource_path
+from artale_agent.utils import resource_path, _project_root
+from artale_agent.platform import SystemUtilsImpl
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +26,7 @@ class ArtaleController(QObject):
     def __init__(self, overlay):
         super().__init__()
         self.overlay = overlay # 控制器對應的 View (介面)
+        self.system_utils = SystemUtilsImpl()
         
         # 1. 初始化引擎與統計器
         self.capture_engine = ArtaleCapture()
@@ -185,7 +191,6 @@ class ArtaleController(QObject):
         
         if pixmap.save(save_path, "PNG"):
             # 複製到剪貼簿
-            from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setPixmap(pixmap)
             
             logger.info("[Report] Exported to %s", save_path)
@@ -194,3 +199,57 @@ class ArtaleController(QObject):
             except: pass
         else:
             self.overlay.show_notification("❌ 產出失敗，請檢查權限")
+    def export_csv_report(self):
+        """
+        將累積的歷史紀錄匯出為 CSV 檔案。
+        儲存於執行檔 (.exe) 所在的目錄。
+        """
+        # 確定儲存目錄 (與 EXE 同目錄)
+        if hasattr(sys, "_MEIPASS"):
+            # 如果是 PyInstaller 打包環境，sys.executable 是 exe 路徑
+            save_dir = os.path.dirname(sys.executable)
+        else:
+            # 開發環境
+            save_dir = _project_root()
+            
+        # 建立 logs 子目錄
+        logs_dir = os.path.join(save_dir, "logs")
+        if not os.path.exists(logs_dir):
+            try:
+                os.makedirs(logs_dir)
+            except Exception as e:
+                logger.error("Failed to create logs directory: %s", e)
+                # 如果建立失敗，就退回到原本的目錄
+                logs_dir = save_dir
+                
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"Artale紀錄_{timestamp}.csv"
+        save_path = os.path.join(logs_dir, filename)
+        
+        history = self.tracker.csv_history
+        if not history:
+            self.overlay.show_notification("⚠️ 目前尚無紀錄資料可匯出")
+            return
+            
+        headers = [
+            "時間", "EXP數值", "EXP百分比", "取得EXP", "EXP/分", "預估10分", 
+            "準確度", "統計時間", "升級預估剩餘時間", "累積經驗(10分)", 
+            "累積經驗(60分)", "累積經驗(全部)", "預計60分經驗量", 
+            "預計百分比(1|10|60分)", "辨識文字(前)", "辨識文字(後)", "OCR準確率", "等級"
+        ]
+        
+        try:
+            # 使用 utf-8-sig 以便 Excel 正確識別 BOM (中文字碼)
+            with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(history)
+            
+            self.overlay.show_notification(f"✅ CSV 紀錄已儲存至執行檔目錄")
+            logger.info("[Report] CSV Exported to %s", save_path)
+            
+            # 開啟檔案所在資料夾
+            self.system_utils.open_file_manager(save_path, select=True)
+        except Exception as e:
+            logger.error("CSV Export failed: %s", e)
+            self.overlay.show_notification(f"❌ 匯出失敗: {e}")

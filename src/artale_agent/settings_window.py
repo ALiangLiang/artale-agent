@@ -295,6 +295,11 @@ class SettingsWindow(QWidget):
         export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None)
         exp_tab_layout.addWidget(export_btn)
         
+        export_csv_btn = QPushButton("📊 匯出 CSV 紀錄檔案")
+        export_csv_btn.setStyleSheet(btn_common_style)
+        export_csv_btn.clicked.connect(self.on_export_csv_clicked)
+        exp_tab_layout.addWidget(export_csv_btn)
+        
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
         exp_tab_layout.addWidget(self.debug_mode_cb)
@@ -772,7 +777,16 @@ class SettingsWindow(QWidget):
             self.overlay.on_toggle_exp(checked)
 
     def on_reset_exp_clicked(self):
-        if self.overlay: self.overlay.reset_exp_stats()
+        if self.overlay:
+            self.overlay.reset_exp_stats()
+
+    def on_export_csv_clicked(self):
+        """代理匯出 CSV 請求給控制器"""
+        if self.overlay and self.overlay.controller:
+            self.overlay.controller.export_csv_report()
+        else:
+            if self.overlay:
+                self.overlay.show_notification("⚠️ 控制器尚未就緒")
 
     def on_debug_mode_changed(self, checked):
         if self.overlay:

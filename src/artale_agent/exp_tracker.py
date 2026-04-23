@@ -1,6 +1,7 @@
 import time
 import re
 import logging
+import datetime
 from PyQt6.QtCore import QObject, pyqtSignal
 from artale_agent.utils import EXP_TABLE
 from typing import List, Tuple, Optional, Dict, Any
@@ -73,6 +74,10 @@ class ExpTracker(QObject):
             money_rate_history=[],
             is_paused=False
         )
+        
+        # 完整的 CSV 歷史紀錄
+        self.csv_history: List[Dict[str, Any]] = []
+        self.last_cumulative_exp: int = 0
 
     def parse_exp_text(self, raw_text):
         """
@@ -80,7 +85,8 @@ class ExpTracker(QObject):
         支援格式如: "45013389 [98.85%]"
         """
         try:
-            match = re.search(r'(\d+)[\s]*(\d+\.?\d*)%', raw_text)
+            # 支援 "45013389 [98.85%]" 或 "45013389 98.85%"
+            match = re.search(r'(\d+)[\s\[]*(\d+\.?\d*)%', raw_text)
             if match:
                 val = int(match.group(1))
                 pct = float(match.group(2))
@@ -173,7 +179,7 @@ class ExpTracker(QObject):
 
         # 處理不採納的情況：維持舊數據，但時間與統計照常計算
         if val is None:
-            self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now)
+            self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now, conf)
             return
 
         # 1. 初始化基準值
@@ -189,7 +195,7 @@ class ExpTracker(QObject):
             self.last_exp_val_time = now
                 
             logger.info("建立初始基準值: %s (%s%%) -> 識別等級: LV.%s", val, pct, inf_lv)
-            self._broadcast(raw_text, val, pct, now)
+            self._broadcast(raw_text, val, pct, now, conf)
             return
 
         # 1.5 暫停恢復後的基準值修正
@@ -236,7 +242,7 @@ class ExpTracker(QObject):
             self.last_exp_val_time = now
             
             logger.info("升級持續累計: 跨級增益 %s exp", v_diff)
-            self._broadcast(raw_text, val, pct, now)
+            self._broadcast(raw_text, val, pct, now, conf)
             return
 
         # 3. 計算增量與計時啟動
@@ -255,14 +261,14 @@ class ExpTracker(QObject):
         self.last_exp_val_time = now
         
         logger.debug("經驗值持續累計: %s exp", v_diff)
-        self._broadcast(raw_text, val, pct, now)
+        self._broadcast(raw_text, val, pct, now, conf)
 
     def update_tick(self, timestamp=None):
         """僅更新時間與效率廣播 (用於辨識失敗時維持 UI 時鐘運作)"""
         now = timestamp or time.time()
         # 只要計時已經開始，就持續廣播當前狀態以更新 Duration
         if self.exp_session_start_time:
-            self._broadcast(None, self.last_exp_val, self.last_exp_pct, now)
+            self._broadcast(None, self.last_exp_val, self.last_exp_pct, now, 0)
 
     def update_money(self, text, conf=100, timestamp=None):
         """處理楓幣數據更新"""
@@ -290,7 +296,7 @@ class ExpTracker(QObject):
         
         logger.debug("楓幣持續累計: %s 楓幣", gain)
 
-    def _broadcast(self, raw_text, val, pct, now):
+    def _broadcast(self, raw_text, val, pct, now, conf):
         """計算統計結果並發送給 UI"""
         # A. 效率計算 (10分鐘滑動視窗)
         h_ago_10m = now - 600
@@ -366,6 +372,45 @@ class ExpTracker(QObject):
             is_paused=self.is_paused
         )
 
+        # E. 記錄 CSV 歷史 (僅在有原始文字辨識成功時記錄)
+        if raw_text is not None:
+            try:
+                h_dur = int(duration) // 3600
+                m_dur = (int(duration) % 3600) // 60
+                s_dur = int(duration) % 60
+                dur_str = f"{h_dur:02d}:{m_dur:02d}:{s_dur:02d}"
+                
+                ttl_str = f"{time_to_lv // 3600}小時 {(time_to_lv % 3600) // 60}分" if time_to_lv > 0 else ""
+                
+                # 計算 10分/60分 累積
+                gain_all_10m = sum([h[3] - self.exp_history[i-1][3] for i, h in enumerate(self.exp_history) if h[0] >= now - 600 and i > 0])
+                gain_all_60m = sum([h[3] - self.exp_history[i-1][3] for i, h in enumerate(self.exp_history) if h[0] >= now - 3600 and i > 0])
+                
+                entry = {
+                    "時間": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "EXP數值": val,
+                    "EXP百分比": f"{pct:.2f}%",
+                    "取得EXP": self.cumulative_exp_gain - self.last_cumulative_exp,
+                    "EXP/分": int(gain_10m / 10),
+                    "預估10分": gain_10m,
+                    "準確度": f"{conf:.1f}%",
+                    "統計時間": dur_str,
+                    "升級預估剩餘時間": ttl_str,
+                    "累積經驗(10分)": gain_all_10m,
+                    "累積經驗(60分)": gain_all_60m,
+                    "累積經驗(全部)": self.cumulative_exp_gain,
+                    "預計60分經驗量": gain_10m * 6,
+                    "預計百分比(1|10|60分)": f"{pct_10m/10:.3f}% | {pct_10m:.2f}% | {pct_10m*6:.2f}%",
+                    "辨識文字(前)": raw_text,
+                    "辨識文字(後)": f"{val}[{pct}%]",
+                    "OCR準確率": f"{conf:.1f}%",
+                    "等級": self.current_lv if self.current_lv else ""
+                }
+                self.csv_history.append(entry)
+                self.last_cumulative_exp = self.cumulative_exp_gain
+            except Exception as e:
+                logger.error("Failed to record CSV history: %s", e)
+
         self.stats_updated.emit(self.stats_data)
 
     def toggle_pause(self):
@@ -405,6 +450,8 @@ class ExpTracker(QObject):
         self.money_rate_history = []
         self.exp_session_start_time = None
         self.max_10m_exp = 0
+        self.csv_history = []
+        self.last_cumulative_exp = 0
         
         # 重置最後輸出的數據包
         self.stats_data = StatsData(

@@ -189,6 +189,9 @@ class ArtaleOverlay(QWidget):
         self.export_report_request.connect(self.export_exp_report)
         self.update_found.connect(self.on_update_found)
         
+        # 控制器將從外部賦予，用以協調模組運行
+        self.controller = None
+        
         # Instantiate SettingsWindow (now from separate module)
         self.settings_window = SettingsWindow(self)
         self.settings_show_request.connect(self.settings_window.request_show.emit)
@@ -199,9 +202,6 @@ class ArtaleOverlay(QWidget):
         self.exp_visual_request.connect(self.settings_window.update_debug_img, Qt.ConnectionType.QueuedConnection)
         self.lv_update_request.connect(self.settings_window.update_lv_debug_img, Qt.ConnectionType.QueuedConnection)
         self.update_found.connect(self.settings_window.show_update_banner, Qt.ConnectionType.QueuedConnection)
-        
-        # 控制器將從外部賦予，用以協調模組運行
-        self.controller = None
         
         self.tracking_timer = QTimer(self)
         self.tracking_timer.timeout.connect(self.sync_with_game_window)
@@ -891,8 +891,6 @@ class ArtaleOverlay(QWidget):
 
         if pixmap.save(save_path, "PNG"):
             # Copy to clipboard
-            from PyQt6.QtWidgets import QApplication
-
             QApplication.clipboard().setPixmap(pixmap)
 
             logger.info(
@@ -900,13 +898,8 @@ class ArtaleOverlay(QWidget):
             )
             self.show_notification("✅ 成果圖已儲存並複製到剪貼簿！")
             # Try to open the file
-            try:
-                if sys.platform == "darwin":
-                    subprocess.Popen(["open", "-R", save_path])
-                else:
-                    subprocess.Popen(f'explorer /select,"{save_path}"')
-            except:
-                pass
+            if self.controller and hasattr(self.controller, "system_utils"):
+                self.controller.system_utils.open_file_manager(save_path, select=True)
         else:
             self.show_notification("❌ 產出失敗，請檢查權限")
 

@@ -27,7 +27,7 @@ try:
 except ImportError:
     WindowsCapture = None
 
-from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, WindowInfo, WindowManager
+from artale_agent.platform.base import AudioPlayer, FocusTracker, ScreenCapture, SystemUtils, WindowInfo, WindowManager
 
 logger = logging.getLogger(__name__)
 
@@ -419,3 +419,19 @@ class WinAudioPlayer(AudioPlayer):
             winsound.Beep(frequency, duration_ms)
         except Exception as e:
             logger.debug("[WinAudioPlayer] Beep failed: %s", e)
+
+class WinSystemUtils(SystemUtils):
+    """Windows implementation of system utilities."""
+
+    @override
+    def open_file_manager(self, path: str, select: bool = True) -> None:
+        """Open Windows Explorer at the given path."""
+        import subprocess
+        try:
+            if select:
+                # Use /select to highlight the file
+                subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
+            else:
+                subprocess.Popen(f'explorer "{os.path.normpath(path)}"')
+        except Exception as e:
+            logger.debug("[WinSystemUtils] open_file_manager failed: %s", e)
