@@ -111,7 +111,6 @@ class ArtaleOverlay(QWidget):
     timer_request = pyqtSignal(str, int, str, bool)
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
-    profile_switch_request = pyqtSignal()
 
     exp_update_request = pyqtSignal(dict)  # 用於統計數據
     exp_visual_request = pyqtSignal(ExpVisualData)  # 用於除錯影像: exp, lv, coin
@@ -121,10 +120,6 @@ class ArtaleOverlay(QWidget):
     toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     rjpq_cell_clicked = pyqtSignal(int)
-    export_report_request = pyqtSignal() # 圖片報表
-    export_csv_request = pyqtSignal()    # CSV 報表
-    import_csv_request = pyqtSignal()    # 匯入 CSV
-    open_dashboard_request = pyqtSignal() # 數據儀表板
     update_found = pyqtSignal(str, str)  # version, download_url
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()
@@ -197,8 +192,8 @@ class ArtaleOverlay(QWidget):
         # Instantiate SettingsWindow (now from separate module)
         self.settings_window = SettingsWindow(self)
         self.settings_show_request.connect(self.settings_window.request_show.emit)
-        self.settings_window.timer_request.connect(self.timer_manager.start_timer)
-        self.settings_window.notification_request.connect(self.show_notification)
+        self.settings_window.timer_requested.connect(self.timer_manager.start_timer)
+        self.settings_window.notification_requested.connect(self.show_notification)
         
         # 明確地將追蹤更新連結到設定視窗 (使用 QueuedConnection 確保執行緒安全)
         self.exp_visual_request.connect(self.settings_window.update_debug_img, Qt.ConnectionType.QueuedConnection)

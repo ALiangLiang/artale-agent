@@ -40,8 +40,15 @@ logger = logging.getLogger(__name__)
 class SettingsWindow(QWidget):
     config_updated = pyqtSignal()
     request_show = pyqtSignal()
-    timer_request = pyqtSignal(str, int, str, bool)
-    notification_request = pyqtSignal(str)
+    timer_requested = pyqtSignal(str, int, str, bool)
+    notification_requested = pyqtSignal(str) # 改為 Requested 命法
+    
+    # 報表與系統相關訊號 (解耦自 Overlay)
+    export_report_requested = pyqtSignal()
+    export_csv_requested = pyqtSignal()
+    import_csv_requested = pyqtSignal()
+    open_dashboard_requested = pyqtSignal()
+    profile_switch_requested = pyqtSignal()
 
     def __init__(self, overlay=None):
         super().__init__()
@@ -388,7 +395,7 @@ class SettingsWindow(QWidget):
             self.rjpq_tab.color_selected.connect(self.overlay.set_rjpq_color)
             self.rjpq_client.sync_received.connect(self.overlay.update_rjpq_data)
             self.rjpq_client.error_received.connect(
-                lambda msg: self.overlay.show_notification(f"❌ YZY: {msg}")
+                lambda msg: self.notification_requested.emit(f"❌ YZY: {msg}")
             )
             self.rjpq_client.overlay_toggle_request.connect(
                 self.overlay.set_rjpq_overlay_visible
@@ -693,10 +700,9 @@ class SettingsWindow(QWidget):
         total_sec = (rem_min * 60) - now.second
         if total_sec <= 0:
             total_sec = 600
-        if self.overlay:
-            self.overlay.timer_request.emit(
-                "Ship", total_sec, "buff_pngs/Others/ship_icon.png", True
-            )
+        self.timer_requested.emit(
+            "Ship", total_sec, "buff_pngs/Others/ship_icon.png", True
+        )
 
     def start_elevator_timer(self, dir):
         now = datetime.datetime.now()
@@ -706,10 +712,9 @@ class SettingsWindow(QWidget):
             total_sec = (120 - ((now.minute % 4) * 60 + now.second)) % 240
         if total_sec <= 0:
             total_sec = 240
-        if self.overlay:
-            icon = resource_path(f"buff_pngs/Others/elevator_{dir}.png")
-            name = f"電梯({'下' if dir == 'down' else '上'})"
-            self.overlay.timer_request.emit(name, total_sec, icon, True)
+        icon = resource_path(f"buff_pngs/Others/elevator_{dir}.png")
+        name = f"電梯({'下' if dir == 'down' else '上'})"
+        self.timer_requested.emit(name, total_sec, icon, True)
 
     def refresh_items(self):
         while self.scroll_layout.count():
@@ -809,28 +814,24 @@ class SettingsWindow(QWidget):
 
     def on_export_report_clicked(self):
         """發送產出圖片成果圖請求訊號"""
-        if self.overlay:
-            self.overlay.export_report_request.emit()
+        self.export_report_requested.emit()
 
     def on_open_dashboard_clicked(self):
         """發送開啟數據儀表板請求訊號"""
-        if self.overlay:
-            self.overlay.open_dashboard_request.emit()
+        self.open_dashboard_requested.emit()
 
     def on_export_csv_clicked(self):
         """發送匯出 CSV 請求訊號"""
-        if self.overlay:
-            self.overlay.export_csv_request.emit()
+        self.export_csv_requested.emit()
 
     def on_import_csv_clicked(self):
         """發送匯入 CSV 請求訊號"""
-        if self.overlay:
-            self.overlay.import_csv_request.emit()
+        self.import_csv_requested.emit()
 
     def on_debug_mode_changed(self, checked):
         if self.overlay:
             self.overlay.show_debug = checked
-            self.overlay.show_notification(f"除錯模式: {'開啟' if checked else '關閉'}")
+            self.notification_requested.emit(f"除錯模式: {'開啟' if checked else '關閉'}")
         self.debug_group.setVisible(checked)
 
     def on_opacity_changed(self, v):
