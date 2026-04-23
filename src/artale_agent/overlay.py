@@ -121,7 +121,9 @@ class ArtaleOverlay(QWidget):
     toggle_rjpq_request = pyqtSignal()
     settings_show_request = pyqtSignal()
     rjpq_cell_clicked = pyqtSignal(int)
-    export_report_request = pyqtSignal()
+    export_report_request = pyqtSignal() # 圖片報表
+    export_csv_request = pyqtSignal()    # CSV 報表
+    import_csv_request = pyqtSignal()    # 匯入 CSV
     update_found = pyqtSignal(str, str)  # version, download_url
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()
@@ -186,7 +188,6 @@ class ArtaleOverlay(QWidget):
         self.toggle_pause_request.connect(self.on_toggle_pause)
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         self.stats_updated.connect(self.on_stats_updated)
-        self.export_report_request.connect(self.export_exp_report)
         self.update_found.connect(self.on_update_found)
         
         # 控制器將從外部賦予，用以協調模組運行
@@ -848,60 +849,6 @@ class ArtaleOverlay(QWidget):
                 except:
                     pass
 
-    def export_exp_report(self):
-        """
-        將經驗值面板渲染為靜態圖片並直接儲存（此處保留與 Controller 重複的邏輯以維持原狀）。
-        """
-        pw, ph = 330, 220 # 報告圖略高一些以容納更多細節
-        pixmap = QPixmap(pw, ph)
-        pixmap.fill(Qt.GlobalColor.transparent)
-
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 1. 繪製背景
-        rect = QRect(0, 0, pw, ph)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(rect).adjusted(2, 2, -2, -2), 15, 15)
-        painter.setPen(QPen(QColor(255, 215, 0), 2))
-        painter.setBrush(QColor(10, 10, 15, 240)) # 報告圖使用較不透明的背景
-        painter.drawPath(path)
-        
-        # 加上浮水印與版權宣告
-        painter.setPen(QPen(QColor(255, 255, 255, 80)))
-        font = QFont("Microsoft JhengHei", 9)
-        font.setItalic(True)
-        painter.setFont(font)
-        painter.drawText(
-            rect.adjusted(0, 0, -15, -10),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
-            "使用 Artale 瑞士刀記錄",
-        )
-
-        # 呼叫共用的繪圖邏輯（座標設為相對原點）
-        self._draw_exp_content(painter, 0, 0, pw, ph, is_export=True)
-        painter.end()
-        
-        # 儲存至圖片資料夾
-        filename = f"Artale瑞士刀_{int(time.time())}.png"
-        pictures_dir = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.PicturesLocation
-        )
-        save_path = os.path.join(pictures_dir, filename)
-
-        if pixmap.save(save_path, "PNG"):
-            # Copy to clipboard
-            QApplication.clipboard().setPixmap(pixmap)
-
-            logger.info(
-                "[ExpTracker] Report exported to %s and copied to clipboard", save_path
-            )
-            self.show_notification("✅ 成果圖已儲存並複製到剪貼簿！")
-            # Try to open the file
-            if self.controller and hasattr(self.controller, "system_utils"):
-                self.controller.system_utils.open_file_manager(save_path, select=True)
-        else:
-            self.show_notification("❌ 產出失敗，請檢查權限")
 
     def _draw_exp_content(self, painter, px, py, pw, ph, is_export=False):
         now = time.time()

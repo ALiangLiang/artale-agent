@@ -290,15 +290,37 @@ class SettingsWindow(QWidget):
         exp_pos_btn.setStyleSheet(btn_common_style)
         exp_pos_btn.clicked.connect(self.toggle_exp_handle)
         exp_tab_layout.addWidget(exp_pos_btn)
-        export_btn = QPushButton("📸 產出成果圖 (截圖分享)")
-        export_btn.setStyleSheet(btn_common_style)
-        export_btn.clicked.connect(self.overlay.export_exp_report if self.overlay else lambda: None)
-        exp_tab_layout.addWidget(export_btn)
+        # 歷史數據管理區塊 (標題與提示並排)
+        header_row = QHBoxLayout()
+        csv_label = QLabel("📂 歷史數據管理")
+        csv_label.setStyleSheet("color: #aaa; font-size: 11px; font-weight: bold;")
         
-        export_csv_btn = QPushButton("📊 匯出 CSV 紀錄檔案")
+        desc_label = QLabel("💡 支援匯入伊伊經驗秒傷小幫手記錄檔")
+        desc_label.setStyleSheet("color: #777; font-size: 10px;")
+        desc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        header_row.addWidget(csv_label)
+        header_row.addWidget(desc_label)
+        header_row.setContentsMargins(0, 10, 0, 2)
+        exp_tab_layout.addLayout(header_row)
+
+        csv_row = QHBoxLayout()
+        export_csv_btn = QPushButton("➡️ 匯出 CSV")
         export_csv_btn.setStyleSheet(btn_common_style)
         export_csv_btn.clicked.connect(self.on_export_csv_clicked)
-        exp_tab_layout.addWidget(export_csv_btn)
+        
+        import_csv_btn = QPushButton("⬅️ 匯入 CSV")
+        import_csv_btn.setStyleSheet(btn_common_style)
+        import_csv_btn.clicked.connect(self.on_import_csv_clicked)
+        
+        csv_row.addWidget(export_csv_btn)
+        csv_row.addWidget(import_csv_btn)
+        exp_tab_layout.addLayout(csv_row)
+
+        export_btn = QPushButton("📸 產出成果圖 (截圖分享)")
+        export_btn.setStyleSheet(btn_common_style)
+        export_btn.clicked.connect(self.on_export_report_clicked)
+        exp_tab_layout.addWidget(export_btn)
         
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
@@ -780,13 +802,20 @@ class SettingsWindow(QWidget):
         if self.overlay:
             self.overlay.reset_exp_stats()
 
+    def on_export_report_clicked(self):
+        """發送產出圖片成果圖請求訊號"""
+        if self.overlay:
+            self.overlay.export_report_request.emit()
+
     def on_export_csv_clicked(self):
-        """代理匯出 CSV 請求給控制器"""
-        if self.overlay and self.overlay.controller:
-            self.overlay.controller.export_csv_report()
-        else:
-            if self.overlay:
-                self.overlay.show_notification("⚠️ 控制器尚未就緒")
+        """發送匯出 CSV 請求訊號"""
+        if self.overlay:
+            self.overlay.export_csv_request.emit()
+
+    def on_import_csv_clicked(self):
+        """發送匯入 CSV 請求訊號"""
+        if self.overlay:
+            self.overlay.import_csv_request.emit()
 
     def on_debug_mode_changed(self, checked):
         if self.overlay:

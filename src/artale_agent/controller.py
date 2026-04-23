@@ -1,20 +1,15 @@
 import logging
-import time
-import os
-import sys
-import subprocess
 import threading
-import csv
-from datetime import datetime
-from PyQt6.QtCore import QObject, Qt, QStandardPaths, QTimer
-from PyQt6.QtGui import QPixmap, QPainter
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QObject, QTimer
 from artale_agent.capture_engine import ArtaleCapture
 from artale_agent.ocr_engine import ArtaleOCR
 from artale_agent.exp_tracker import ExpTracker
 from artale_agent.data_types import LVUpdateData
-from artale_agent.utils import resource_path, _project_root
+from artale_agent.utils import resource_path, ConfigManager, REPO_URL, VERSION
 from artale_agent.platform import SystemUtilsImpl
+from artale_agent.report_manager import ReportManager
+import urllib.request
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +27,7 @@ class ArtaleController(QObject):
         self.capture_engine = ArtaleCapture()
         self.ocr_engine = ArtaleOCR(self)
         self.tracker = ExpTracker()
+        self.report_manager = ReportManager(self)
         
         self.ocr_engine.set_coin_template(resource_path("coin.png"))
         
@@ -51,8 +47,10 @@ class ArtaleController(QObject):
         # 5. 連結 OCR 視覺輔助 -> 介面
         self.ocr_engine.exp_visual_update.connect(self.overlay.exp_visual_request)
         
-        # 6. 連結 介面訊號 -> 控制器動作
-        self.overlay.export_report_request.connect(self.export_exp_report)
+        # 6. 連結 介面訊號 -> 報表管理員動作
+        self.overlay.export_report_request.connect(self.report_manager.export_exp_report)
+        self.overlay.export_csv_request.connect(self.report_manager.export_csv_report)
+        self.overlay.import_csv_request.connect(self.report_manager.import_csv_report)
         self.overlay.profile_switch_request.connect(self.load_profile)
         self.overlay.settings_window.config_updated.connect(self.load_profile)
         
@@ -113,8 +111,6 @@ class ArtaleController(QObject):
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
-        from artale_agent.utils import ConfigManager
-        
         # 1. 載入檔案
         config = ConfigManager.load_config()
         active = config.get("active_profile", "F1")
@@ -131,11 +127,8 @@ class ArtaleController(QObject):
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""
-        from artale_agent.utils import REPO_URL, VERSION
-        
         def _check():
             try:
-                import urllib.request, json, webbrowser
                 url = f"https://api.github.com/repos/{REPO_URL}/releases"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
@@ -159,97 +152,8 @@ class ArtaleController(QObject):
                         html_url = latest_release.get("html_url", f"https://github.com/{REPO_URL}/releases")
                         # 透過 Overlay 的訊號同步 UI 狀態
                         self.overlay.update_found.emit(latest_tag, html_url)
-                        msg = f"✨ 發現新版本: {latest_tag}！請下載更新"
-                        self.overlay.notification_request.emit(msg)
-                        if not auto: webbrowser.open(html_url)
-                    else:
-                        if not auto: self.overlay.notification_request.emit("✅ 目前已是最新版本")
             except Exception as e:
                 logger.debug("[Update] Check failed: %s", e)
-                if not auto: self.overlay.notification_request.emit(f"❌ 檢查失敗: {e}")
         
         threading.Thread(target=_check, daemon=True).start()
 
-    def export_exp_report(self):
-        """
-        產生成果報告圖並儲存。
-        集中在此處處理以避免 UI 類別中出現文件 I/O 操作。
-        """
-        pw, ph = 330, 220
-        pixmap = QPixmap(pw, ph)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        
-        painter = QPainter(pixmap)
-        # 授權 Overlay 的專用方法進行實際繪製
-        self.overlay._draw_exp_content(painter, 0, 0, pw, ph, is_export=True)
-        painter.end()
-        
-        # 系統檔案與剪貼簿操作
-        filename = f"Artale瑞士刀_{int(time.time())}.png"
-        pictures_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
-        save_path = os.path.join(pictures_dir, filename)
-        
-        if pixmap.save(save_path, "PNG"):
-            # 複製到剪貼簿
-            QApplication.clipboard().setPixmap(pixmap)
-            
-            logger.info("[Report] Exported to %s", save_path)
-            self.overlay.show_notification(f"✅ 成果圖已儲存並複製到剪貼簿！")
-            try: subprocess.Popen(f'explorer /select,"{save_path}"')
-            except: pass
-        else:
-            self.overlay.show_notification("❌ 產出失敗，請檢查權限")
-    def export_csv_report(self):
-        """
-        將累積的歷史紀錄匯出為 CSV 檔案。
-        儲存於執行檔 (.exe) 所在的目錄。
-        """
-        # 確定儲存目錄 (與 EXE 同目錄)
-        if hasattr(sys, "_MEIPASS"):
-            # 如果是 PyInstaller 打包環境，sys.executable 是 exe 路徑
-            save_dir = os.path.dirname(sys.executable)
-        else:
-            # 開發環境
-            save_dir = _project_root()
-            
-        # 建立 logs 子目錄
-        logs_dir = os.path.join(save_dir, "logs")
-        if not os.path.exists(logs_dir):
-            try:
-                os.makedirs(logs_dir)
-            except Exception as e:
-                logger.error("Failed to create logs directory: %s", e)
-                # 如果建立失敗，就退回到原本的目錄
-                logs_dir = save_dir
-                
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Artale紀錄_{timestamp}.csv"
-        save_path = os.path.join(logs_dir, filename)
-        
-        history = self.tracker.csv_history
-        if not history:
-            self.overlay.show_notification("⚠️ 目前尚無紀錄資料可匯出")
-            return
-            
-        headers = [
-            "時間", "EXP數值", "EXP百分比", "取得EXP", "EXP/分", "預估10分", 
-            "準確度", "統計時間", "升級預估剩餘時間", "累積經驗(10分)", 
-            "累積經驗(60分)", "累積經驗(全部)", "預計60分經驗量", 
-            "預計百分比(1|10|60分)", "辨識文字(前)", "辨識文字(後)", "OCR準確率", "等級"
-        ]
-        
-        try:
-            # 使用 utf-8-sig 以便 Excel 正確識別 BOM (中文字碼)
-            with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
-                writer = csv.DictWriter(f, fieldnames=headers)
-                writer.writeheader()
-                writer.writerows(history)
-            
-            self.overlay.show_notification(f"✅ CSV 紀錄已儲存至執行檔目錄")
-            logger.info("[Report] CSV Exported to %s", save_path)
-            
-            # 開啟檔案所在資料夾
-            self.system_utils.open_file_manager(save_path, select=True)
-        except Exception as e:
-            logger.error("CSV Export failed: %s", e)
-            self.overlay.show_notification(f"❌ 匯出失敗: {e}")
