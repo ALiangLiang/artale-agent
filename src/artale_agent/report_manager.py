@@ -2,13 +2,15 @@ import csv
 import logging
 import os
 import re
+import shutil
 import sys
 import time
+import webbrowser
 from datetime import datetime
 from PyQt6.QtCore import QObject, QStandardPaths, Qt, QRect, QRectF
 from PyQt6.QtWidgets import QFileDialog, QApplication
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
-from artale_agent.utils import _project_root
+from artale_agent.utils import resource_path, _project_root, get_version
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,41 @@ class ReportManager(QObject):
             self.system_utils.open_file_manager(save_path, select=True)
         else:
             self.overlay.show_notification("❌ 產出失敗，請檢查權限")
+
+    def open_analytics_dashboard(self):
+        """開啟數據儀表板 HTML，若不存在則自動從內建資源產生"""
+        if hasattr(sys, "_MEIPASS"):
+            deploy_dir = os.path.dirname(sys.executable)
+        else:
+            deploy_dir = _project_root()
+
+        target_path = os.path.join(deploy_dir, "analytics.html")
+
+        # 每次開啟都嘗試部署最新版本的 HTML (確保 UI 更新能套用)
+        source_path = resource_path("analytics.html")
+        if os.path.exists(source_path):
+            try:
+                # 讀取並注入版本號
+                with open(source_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                version = get_version()
+                content = content.replace("{{VERSION}}", version)
+                
+                with open(target_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                logger.info("[Report] Analytics dashboard updated to %s at %s", version, target_path)
+            except Exception as e:
+                logger.error("[Report] Failed to update analytics.html: %s", e)
+                # 如果失敗 (例如檔案被瀏覽器佔用)，則繼續開啟舊有的檔案而不中斷
+        
+        if not os.path.exists(target_path):
+            self.overlay.show_notification("❌ 找不到儀表板檔案")
+            return
+
+        webbrowser.open(target_path)
+        self.overlay.show_notification("📈 已開啟數據儀表板")
 
     def export_csv_report(self):
         """

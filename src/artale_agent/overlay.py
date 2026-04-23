@@ -124,6 +124,7 @@ class ArtaleOverlay(QWidget):
     export_report_request = pyqtSignal() # 圖片報表
     export_csv_request = pyqtSignal()    # CSV 報表
     import_csv_request = pyqtSignal()    # 匯入 CSV
+    open_dashboard_request = pyqtSignal() # 數據儀表板
     update_found = pyqtSignal(str, str)  # version, download_url
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()

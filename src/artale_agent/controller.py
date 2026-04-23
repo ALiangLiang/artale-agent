@@ -51,6 +51,7 @@ class ArtaleController(QObject):
         self.overlay.export_report_request.connect(self.report_manager.export_exp_report)
         self.overlay.export_csv_request.connect(self.report_manager.export_csv_report)
         self.overlay.import_csv_request.connect(self.report_manager.import_csv_report)
+        self.overlay.open_dashboard_request.connect(self.report_manager.open_analytics_dashboard)
         self.overlay.profile_switch_request.connect(self.load_profile)
         self.overlay.settings_window.config_updated.connect(self.load_profile)
         

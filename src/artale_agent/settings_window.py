@@ -321,6 +321,11 @@ class SettingsWindow(QWidget):
         export_btn.setStyleSheet(btn_common_style)
         export_btn.clicked.connect(self.on_export_report_clicked)
         exp_tab_layout.addWidget(export_btn)
+
+        dashboard_btn = QPushButton("📈 開啟數據儀表板")
+        dashboard_btn.setStyleSheet(btn_common_style)
+        dashboard_btn.clicked.connect(self.on_open_dashboard_clicked)
+        exp_tab_layout.addWidget(dashboard_btn)
         
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
@@ -806,6 +811,11 @@ class SettingsWindow(QWidget):
         """發送產出圖片成果圖請求訊號"""
         if self.overlay:
             self.overlay.export_report_request.emit()
+
+    def on_open_dashboard_clicked(self):
+        """發送開啟數據儀表板請求訊號"""
+        if self.overlay:
+            self.overlay.open_dashboard_request.emit()
 
     def on_export_csv_clicked(self):
         """發送匯出 CSV 請求訊號"""
