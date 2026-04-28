@@ -5,6 +5,7 @@ import os
 import traceback
 import urllib.parse
 import urllib.request
+import time
 
 from PyQt6.QtCore import QObject, QPoint, QRect, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
@@ -168,6 +169,7 @@ class RJPQSyncClient(QObject):
 # --- RJPQ UI 元件 ---
 class RJPQTabContent(QWidget):
     color_selected = pyqtSignal(int)
+    auto_mark_triggered = pyqtSignal(int)
 
     def __init__(self, client):
         super().__init__()
@@ -379,6 +381,18 @@ class RJPQTabContent(QWidget):
             return True
         return False
 
+    def unmark_topmost_by_hotkey(self):
+        if not self.client.is_connected or self.selected_color == -1:
+            return False
+        # 從第 10 排 (最頂部, row=0) 往下掃描至第 1 排 (底部, row=9)
+        for row in range(10):
+            for col in range(4):
+                idx = row * 4 + col
+                if self.current_data[idx] == self.selected_color:
+                    self.platform_clicked(idx)
+                    return True
+        return False
+
     def on_create_clicked(self):
         pwd = self.pwd_inp.text()
         if not pwd:
@@ -528,6 +542,7 @@ class RJPQTabContent(QWidget):
                         self.client.send_action(
                             {"type": "mark", "index": target_idx, "color": self.selected_color}
                         )
+                        self.auto_mark_triggered.emit(target_idx)
                         # 避免一幀內發送過多請求，這裡補完一層後跳出，下一次 update 會補下一層
                         break
 
@@ -562,9 +577,10 @@ class RJPQTabContent(QWidget):
             self.client.send_action({"type": "reset"})
 
 # --- Overlay 影像繪製邏輯 ---
-def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
+def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color, auto_mark_animations=None):
     # 根據寬度推算縮放比例 (基準寬度為 180)
     s = pw / 180.0
+    curr_time = time.time()
     
     def _sc(val):
         """內部比例縮放輔助函式"""
@@ -627,6 +643,33 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
                     painter.drawEllipse(
                         QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), _sc(3), _sc(3)
                     )
+                
+                # --- 自動標記顯眼動畫 ---
+                if auto_mark_animations and idx in auto_mark_animations:
+                    start_t = auto_mark_animations[idx]
+                    elapsed = curr_time - start_t
+                    if elapsed < 1.5:
+                        # 擴散光圈動畫
+                        for i in range(2):
+                            # 每個圈圈延遲一點點
+                            p_elapsed = max(0, elapsed - i * 0.4)
+                            if p_elapsed > 1.0: continue
+                            
+                            # 半徑從 7 擴散到 25
+                            radius = _sc(7 + p_elapsed * 18)
+                            # 透明度隨擴散消失
+                            alpha_anim = int(200 * (1.0 - p_elapsed))
+                            
+                            painter.setPen(QPen(QColor(255, 255, 255, alpha_anim), _sc(2)))
+                            painter.setBrush(Qt.BrushStyle.NoBrush)
+                            painter.drawEllipse(
+                                QPoint(int(cx + cell_w // 2), int(cy + cell_h // 2)), radius, radius
+                            )
+                        
+                        # 額外的金色邊框閃爍
+                        if int(elapsed * 10) % 2 == 0:
+                            painter.setPen(QPen(QColor(255, 215, 0, 200), _sc(2)))
+                            painter.drawRoundedRect(cx - _sc(2), cy - _sc(2), cell_w + _sc(4), cell_h + _sc(4), _sc(3), _sc(3))
 
     # 繪製目標排的高亮框 (金色外框)
     if selected_color != -1:

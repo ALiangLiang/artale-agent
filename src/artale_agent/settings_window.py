@@ -401,6 +401,7 @@ class SettingsWindow(QWidget):
                 self.overlay.set_rjpq_overlay_visible
             )
             self.overlay.rjpq_cell_clicked.connect(self.rjpq_tab.platform_clicked)
+            self.rjpq_tab.auto_mark_triggered.connect(self.overlay.on_auto_mark_triggered)
 
         move_rjpq_btn = QPushButton("🔱 調整羅茱面板位置")
         move_rjpq_btn.setStyleSheet(btn_common_style)

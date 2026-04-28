@@ -182,6 +182,14 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                     if settings_window.rjpq_tab.mark_by_hotkey(col_idx):
                         return  # 如果按鍵用於 RJPQ，則攔截它
 
+            if k_name == hks.get("rjpq_cancel", "num_0"):
+                if (
+                    hasattr(settings_window, "rjpq_tab")
+                    and settings_window.rjpq_tab.client.is_connected
+                ):
+                    if settings_window.rjpq_tab.unmark_topmost_by_hotkey():
+                        return  # 如果按鍵用於取消 RJPQ 標記，則攔截它
+
             # 3. 配置切換 (連按兩下 F1-F8)
             now = time.time()
             if k_name and k_name.startswith("f") and len(k_name) <= 3:

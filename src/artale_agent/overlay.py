@@ -176,6 +176,7 @@ class ArtaleOverlay(QWidget):
         self.current_lv = None 
         self.last_confirmed_lv = None # 用於升級偵測
         self.last_crop_info = None
+        self.auto_mark_animations = {} # {index: start_time}
         
         self.timer_request.connect(self.timer_manager.start_timer)
         self.clear_request.connect(self.timer_manager.clear_all)
@@ -530,6 +531,11 @@ class ArtaleOverlay(QWidget):
         self.show_rjpq_panel = visible
         self.update()
 
+    def on_auto_mark_triggered(self, index):
+        """處理來自 RJPQ 的自動標記動畫觸發"""
+        self.auto_mark_animations[index] = time.time()
+        self.update()
+
     # --- EXP Tracker Logic ---
     @override
     def closeEvent(self, event):
@@ -594,8 +600,16 @@ class ArtaleOverlay(QWidget):
                 data = getattr(self, "rjpq_data", [4] * 40)
                 sel_color = getattr(self, "selected_color", -1)
 
+                # 清理過期的動畫 (超過 2 秒)
+                now = time.time()
+                self.auto_mark_animations = {idx: t for idx, t in self.auto_mark_animations.items() if now - t < 2.0}
+
                 # draw_rjpq_panel 使用左上角作為起點，因此 start_x = ax - pw
-                draw_rjpq_panel(painter, ax - pw, ay, pw, ph, self.base_opacity, data, sel_color)
+                draw_rjpq_panel(painter, ax - pw, ay, pw, ph, self.base_opacity, data, sel_color, self.auto_mark_animations)
+                
+                # 如果還有動畫在進行，則請求重繪以維持流暢
+                if self.auto_mark_animations:
+                    QTimer.singleShot(50, self.update)
             except Exception as e:
                 logger.debug("[Overlay] RJPQ Panel draw failed: %s", e)
             
