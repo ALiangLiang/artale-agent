@@ -119,8 +119,9 @@ class ArtaleController(QObject):
         p_data = config["profiles"].get(active, {})
         nickname = p_data.get("name", active)
         
-        # 2. 通知介面清理與更新
-        self.overlay.clear_all_timers(show_msg=False)
+        # 2. 通知介面清理與更新 (僅在切換配置時清理計時器)
+        if getattr(self.overlay, "active_profile_name", None) != active:
+            self.overlay.clear_all_timers(show_msg=False)
         self.overlay.apply_profile_config(active, nickname, config)
         
         # 3. 同步至其他引擎 (若有需要)
