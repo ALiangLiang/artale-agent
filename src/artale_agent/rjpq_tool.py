@@ -183,6 +183,7 @@ class RJPQTabContent(QWidget):
         self.client.sync_received.connect(self.update_grid)
         self.client.error_received.connect(self.on_error_message)
         self.client.room_created.connect(self.on_room_created)
+        self.client.char_counts_received.connect(self.update_char_status)
 
     def on_error_message(self, error):
         logging.error("[RJPQ 同步錯誤] %s", error)
@@ -487,6 +488,39 @@ class RJPQTabContent(QWidget):
         # 顯示網格儀表板
         self.grid_widget.setVisible(True)
         self.update_grid(self.current_data)
+
+    def update_char_status(self, counts):
+        if not counts or len(counts) < 4:
+            return
+        
+        char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
+        for i, btn in enumerate(self.char_btns):
+            count = counts[i]
+            # 獲取基礎樣式
+            base_style = f"QPushButton {{ border-radius: 4px; font-family: {platform_font_family()}; "
+            checked_style = f"QPushButton:checked {{ background: {char_colors[i]}; color: #fff; font-weight: bold; font-family: {platform_font_family()}; }}"
+            
+            if count > 0:
+                # 顯示人數
+                btn.setText(f"10{i + 1} ({count})")
+                if i == self.selected_color:
+                    # 我選的 (且有人選，那個人就是我或包含我)
+                    btn.setStyleSheet(
+                        base_style + f"background: #333; color: {char_colors[i]}; border: 1.5px solid {char_colors[i]}; }}" +
+                        f"QPushButton:checked {{ background: {char_colors[i]}; color: #fff; border: 2px solid #fff; font-weight: bold; }}"
+                    )
+                else:
+                    # 別人選的 (我沒選，但有人選了)
+                    btn.setStyleSheet(
+                        base_style + f"background: #151515; color: {char_colors[i]}; border: 1px dashed {char_colors[i]}; opacity: 0.7; }}" +
+                        checked_style
+                    )
+            else:
+                btn.setText(f"10{i + 1}")
+                btn.setStyleSheet(
+                    base_style + f"background: #222; color: {char_colors[i]}; border: 1px solid #444; }}" +
+                    checked_style
+                )
 
     def platform_clicked(self, index):
         if not self.client.is_connected:
