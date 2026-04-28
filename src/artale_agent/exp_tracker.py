@@ -296,7 +296,7 @@ class ExpTracker(QObject):
         
         logger.debug("楓幣持續累計: %s 楓幣", gain)
 
-    def _broadcast(self, raw_text, val, pct, now, conf):
+    def _broadcast(self, raw_text, val, pct, now, conf=100):
         """計算統計結果並發送給 UI"""
         # A. 效率計算 (10分鐘滑動視窗)
         h_ago_10m = now - 600
@@ -433,7 +433,7 @@ class ExpTracker(QObject):
             logger.info("統計已恢復，補償時長: %.1f秒", shift)
             
         # 立即廣播最新狀態 (包含 is_paused 旗標)
-        self._broadcast(None, self.last_exp_val, self.last_exp_pct, now)
+        self._broadcast(None, self.last_exp_val, self.last_exp_pct, now, 100)
 
     def reset_baseline(self):
         """手動重置統計"""

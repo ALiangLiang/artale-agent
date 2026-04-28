@@ -167,7 +167,7 @@ class SettingsWindow(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(f"""
-            QTabWidget::pane {{ border: 1px solid #333; background: #121212; }}
+            QTabWidget::pane {{ border: none; background: #121212; }}
             QTabBar::tab {{ background: #222; color: #888; padding: 10px 4px; min-width: 85px; font-size: 11px; font-family: {platform_font_family()}; }}
             QTabBar::tab:selected {{ background: #333; color: #ffd700; font-weight: bold; }}
         """)
@@ -228,7 +228,7 @@ class SettingsWindow(QWidget):
 
         ship_group = QGroupBox("🚢 特殊提醒")
         ship_group.setStyleSheet(
-            "QGroupBox { color: #aaa; font-weight: bold; border: 1px solid #333; border-radius: 8px; margin-top: 15px; padding-top: 10px; }"
+            "QGroupBox { color: #aaa; font-weight: bold; border: none; margin-top: 15px; padding-top: 10px; }"
         )
         ship_layout = QVBoxLayout()
         ship_btn = QPushButton("🚢 開始下班船班倒數")
@@ -348,17 +348,17 @@ class SettingsWindow(QWidget):
         
         self.debug_lv_img_lbl = QLabel()
         self.debug_lv_img_lbl.setFixedHeight(40)
-        self.debug_lv_img_lbl.setStyleSheet("border: 1px solid #444; background: #222; padding: 2px;")
+        self.debug_lv_img_lbl.setStyleSheet("border: none; background: #222; padding: 2px;")
         self.debug_lv_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.debug_coin_img_lbl = QLabel()
         self.debug_coin_img_lbl.setFixedHeight(40)
-        self.debug_coin_img_lbl.setStyleSheet("border: 1px solid #444; background: #222; padding: 2px;")
+        self.debug_coin_img_lbl.setStyleSheet("border: none; background: #222; padding: 2px;")
         self.debug_coin_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.debug_batch_img_lbl = QLabel()
         self.debug_batch_img_lbl.setFixedSize(380, 110)
-        self.debug_batch_img_lbl.setStyleSheet("border: 1px solid #444; background: #000; padding: 5px;")
+        self.debug_batch_img_lbl.setStyleSheet("border: none; background: #000; padding: 5px;")
         self.debug_batch_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         status_row = QHBoxLayout()

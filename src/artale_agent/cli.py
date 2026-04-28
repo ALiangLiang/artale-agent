@@ -2,6 +2,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import PyQt6
 
 from artale_agent.utils import _project_root
 
@@ -115,6 +116,12 @@ def build_win():
     # 2. Clean
     clean()
 
+    # 1.1 偵測 PyQt6 插件路徑以實現精確打包 (減肥 50MB+)
+    pyqt6_dir = Path(PyQt6.__file__).parent
+    qt6_plugins_dir = pyqt6_dir / "Qt6" / "plugins"
+    if not qt6_plugins_dir.exists():
+        qt6_plugins_dir = pyqt6_dir / "Qt" / "plugins" # 備用路徑
+    
     # 3. PyInstaller command
     cmd = [
         sys.executable,
@@ -126,26 +133,26 @@ def build_win():
         "--icon",
         "assets/app_icon.ico",
         f"--version-file={version_info_path}",
-        "--add-data",
-        "assets;assets",
-        "--add-data",
-        "vendor/Tesseract-OCR;Tesseract-OCR",
-        "--add-data",
-        "VERSION;.",
-        "--paths",
-        "src",
-        "--hidden-import",
-        "psutil",
-        "--hidden-import",
-        "pynput.keyboard._win32",
-        "--hidden-import",
-        "win32process",
-        "--hidden-import",
-        "win32file",
-        "--hidden-import",
-        "PyQt6.QtWebSockets",
-        "--hidden-import",
-        "sip",
+        "--add-data", "assets;assets",
+        "--add-data", "vendor/Tesseract-OCR;Tesseract-OCR",
+        "--add-data", "VERSION;.",
+        # 精確加入 PyQt6 插件，不使用 collect-all
+        "--add-data", f"{qt6_plugins_dir / 'platforms'};PyQt6/Qt6/plugins/platforms",
+        "--add-data", f"{qt6_plugins_dir / 'imageformats'};PyQt6/Qt6/plugins/imageformats",
+        "--add-data", f"{qt6_plugins_dir / 'tls'};PyQt6/Qt6/plugins/tls",
+        "--add-data", f"{qt6_plugins_dir / 'networkinformation'};PyQt6/Qt6/plugins/networkinformation",
+        "--add-data", f"{qt6_plugins_dir / 'styles'};PyQt6/Qt6/plugins/styles",
+        "--paths", "src",
+        "--hidden-import", "psutil",
+        "--hidden-import", "pynput.keyboard._win32",
+        "--hidden-import", "win32process",
+        "--hidden-import", "win32file",
+        "--hidden-import", "PyQt6.QtCore",
+        "--hidden-import", "PyQt6.QtGui",
+        "--hidden-import", "PyQt6.QtWidgets",
+        "--hidden-import", "PyQt6.QtNetwork",
+        "--hidden-import", "PyQt6.QtWebSockets",
+        "--hidden-import", "sip",
         "--clean",
         "--noconsole",
         "--noupx",

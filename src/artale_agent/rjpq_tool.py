@@ -294,7 +294,7 @@ class RJPQTabContent(QWidget):
         self.grid_widget.setStyleSheet("""
             QFrame#Dashboard {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a1a, stop:1 #121212);
-                border: 1px solid #333;
+                border: none;
                 border-radius: 12px;
                 padding: 10px;
             }
@@ -573,7 +573,7 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     path = QPainterPath()
     path.addRoundedRect(px, py, pw, ph, _sc(12), _sc(12))
-    painter.setPen(QPen(QColor(0, 255, 255, 200), 2))
+    painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(10, 15, 20, int(opacity * 255)))
     painter.drawPath(path)
 

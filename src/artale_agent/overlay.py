@@ -979,7 +979,7 @@ class ArtaleOverlay(QWidget):
             gx = px + _sc(15)
             gy = last_y + _sc(15 if is_export else 10)
 
-            painter.setPen(QColor(255, 255, 255, 20))
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(255, 255, 255, 5))
             painter.drawRoundedRect(gx, gy, gw, gh, 4, 4)
             
@@ -1053,7 +1053,7 @@ class ArtaleOverlay(QWidget):
         # 1. Background
         path = QPainterPath()
         path.addRoundedRect(QRectF(panel_rect), 12, 12)
-        painter.setPen(QPen(QColor(255, 215, 0, 255), 2))
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(10, 10, 15, int(self.base_opacity * 255)))
         painter.drawPath(path)
 
