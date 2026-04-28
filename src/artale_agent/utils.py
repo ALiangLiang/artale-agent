@@ -122,7 +122,7 @@ class ConfigManager:
                                 p["triggers"][k]["sound"] = True
 
                     if "opacity" not in config:
-                        config["opacity"] = 0.5
+                        config["opacity"] = 0.75
 
                     default_hks = {
                         "exp_toggle": "f10",
@@ -156,7 +156,7 @@ class ConfigManager:
         return {
             "active_profile": "F1",
             "offset": [0, 0],
-            "opacity": 0.5,
+            "opacity": 0.75,
             "ui_scale": 1.0,
             "profiles": default_profiles,
             "hotkeys": {

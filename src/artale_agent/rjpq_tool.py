@@ -574,7 +574,7 @@ def draw_rjpq_panel(painter, px, py, pw, ph, opacity, data, selected_color):
     path = QPainterPath()
     path.addRoundedRect(px, py, pw, ph, _sc(12), _sc(12))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(10, 15, 20, int(opacity * 255)))
+    painter.setBrush(QColor(35, 48, 48, int(opacity * 255)))
     painter.drawPath(path)
 
     painter.setPen(QColor(0, 255, 255))

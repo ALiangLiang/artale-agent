@@ -145,7 +145,7 @@ class ArtaleOverlay(QWidget):
         self.needs_calibration = False # 恢復後校準旗標
         self.show_rjpq_panel = False # 羅茱面板預設關閉
         self.show_debug = config.get("show_debug", False)
-        self.base_opacity = config.get("opacity", 0.5)
+        self.base_opacity = config.get("opacity", 0.75)
         self.ui_scale = config.get("ui_scale", 1.0)
         
         self.msg_text = ""; self.msg_opacity = 0
@@ -1054,7 +1054,7 @@ class ArtaleOverlay(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(panel_rect), 12, 12)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(10, 10, 15, int(self.base_opacity * 255)))
+        painter.setBrush(QColor(35, 48, 48, int(self.base_opacity * 255)))
         painter.drawPath(path)
 
         # 呼叫結構化繪圖邏輯
