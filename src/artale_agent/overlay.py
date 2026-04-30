@@ -123,6 +123,7 @@ class ArtaleOverlay(QWidget):
     update_found = pyqtSignal(str, str)  # version, download_url
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()
+    profile_switch_request = pyqtSignal()
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
         self.target_window_title = target_window_title
@@ -186,6 +187,7 @@ class ArtaleOverlay(QWidget):
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
         self.stats_updated.connect(self.on_stats_updated)
         self.update_found.connect(self.on_update_found)
+        self.profile_switch_request.connect(self.on_profile_switched)
         
         # 控制器將從外部賦予，用以協調模組運行
         self.controller = None
@@ -195,6 +197,7 @@ class ArtaleOverlay(QWidget):
         self.settings_show_request.connect(self.settings_window.request_show.emit)
         self.settings_window.timer_requested.connect(self.timer_manager.start_timer)
         self.settings_window.notification_requested.connect(self.show_notification)
+        self.settings_window.config_updated.connect(self.on_profile_switched)
         
         # 明確地將追蹤更新連結到設定視窗 (使用 QueuedConnection 確保執行緒安全)
         self.exp_visual_request.connect(self.settings_window.update_debug_img, Qt.ConnectionType.QueuedConnection)
@@ -541,6 +544,21 @@ class ArtaleOverlay(QWidget):
     def closeEvent(self, event):
         self._is_running = False
         super().closeEvent(event)
+
+    def on_profile_switched(self):
+        """處理來自熱鍵或外部的配置切換請求"""
+        config = ConfigManager.load_config()
+        active = config.get("active_profile", "F1")
+        p_data = config["profiles"].get(active, {})
+        nickname = p_data.get("name", "未命名")
+        
+        # 1. 更新 Overlay 自身的座標偏移量與狀態
+        self.apply_profile_config(active, nickname, config)
+        
+        # 2. 如果設定視窗開啟中，同步更新其 UI
+        if hasattr(self, "settings_window") and self.settings_window:
+            self.settings_window.update_profile_dropdown()
+            self.settings_window.refresh_items()
 
     def apply_profile_config(self, active, nickname, offsets):
         """僅更新 UI 層級的配置狀態"""
