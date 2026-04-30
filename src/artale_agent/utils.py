@@ -118,6 +118,16 @@ class ConfigManager:
                                     "icon": "",
                                     "sound": True,
                                 }
+                            
+                            # Migration: Convert absolute asset paths to relative
+                            # This ensures that icons still work when moving the app or running as EXE
+                            if isinstance(p["triggers"][k], dict) and p["triggers"][k].get("icon"):
+                                icon_path = p["triggers"][k]["icon"]
+                                if os.path.isabs(icon_path) and "assets" in icon_path:
+                                    norm_p = icon_path.replace("\\", "/")
+                                    if "/assets/" in norm_p:
+                                        p["triggers"][k]["icon"] = norm_p.split("/assets/")[-1]
+
                             if "sound" not in p["triggers"][k]:
                                 p["triggers"][k]["sound"] = True
 

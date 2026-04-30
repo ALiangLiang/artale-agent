@@ -128,21 +128,25 @@ class IconSelectorDialog(QDialog):
         layout.addWidget(cancel_btn)
 
     def select_icon(self, path):
+        # 獲取資源根目錄 (assets 資料夾)
+        assets_dir = resource_path("")
+        
         abs_path = os.path.abspath(path)
-        base_dir = os.path.abspath(".")
+        abs_assets = os.path.abspath(assets_dir)
 
         try:
-            if abs_path.lower().startswith(base_dir.lower()):
-                rel = os.path.relpath(abs_path, base_dir)
+            # 檢查所選圖示是否在 assets 目錄內
+            if abs_path.lower().startswith(abs_assets.lower()):
+                rel = os.path.relpath(abs_path, abs_assets)
                 rel = rel.replace("\\", "/")
-                # Normalize: strip "assets/" prefix so stored paths match PyInstaller bundle layout
-                if rel.startswith("assets/"):
-                    rel = rel[len("assets/") :]
                 self.selected_icon = rel
             else:
+                # 如果不在 assets 內 (自定義外部圖示)，才存絕對路徑
                 self.selected_icon = abs_path
-        except:
+        except Exception as e:
+            logger.debug("[IconSelector] Relative path calculation failed: %s", e)
             self.selected_icon = abs_path
+            
         self.accept()
 
 

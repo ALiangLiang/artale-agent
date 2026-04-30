@@ -713,7 +713,7 @@ class SettingsWindow(QWidget):
             total_sec = (120 - ((now.minute % 4) * 60 + now.second)) % 240
         if total_sec <= 0:
             total_sec = 240
-        icon = resource_path(f"buff_pngs/Others/elevator_{dir}.png")
+        icon = f"buff_pngs/Others/elevator_{dir}.png"
         name = f"電梯({'下' if dir == 'down' else '上'})"
         self.timer_requested.emit(name, total_sec, icon, True)
 
