@@ -885,6 +885,13 @@ class ArtaleOverlay(QWidget):
             painter.setFont(font)
             painter.drawText(px + _sc(15) + title_w + _sc(10), y, "(已暫停)")
             painter.setPen(QColor(255, 255, 255)) # 恢復白色
+        elif self.current_exp_data.tracking_duration == 0 and not is_export:
+            title_w = painter.fontMetrics().horizontalAdvance(title)
+            painter.setPen(QColor(200, 200, 200)) # 淺灰色
+            font.setPointSize(_sc(8))
+            painter.setFont(font)
+            painter.drawText(px + _sc(15) + title_w + _sc(10), y, "(經驗值增減後才開始記錄)")
+            painter.setPen(QColor(255, 255, 255)) # 恢復白色
         
         # 2. 次要資訊 (紀錄時長與累計，整合在同一行)
         y += _sc(28 if is_export else 25)
