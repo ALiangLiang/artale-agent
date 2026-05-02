@@ -802,13 +802,19 @@ class ArtaleOverlay(QWidget):
                     ),
                 )
             display_seconds = max(0, seconds)
-            text = str(display_seconds)
+            if display_seconds > 999:
+                text = f"{display_seconds // 60}m"
+                font_size = _sc(22)
+            else:
+                text = str(display_seconds)
+                font_size = _sc(22) if seconds > 3 else _sc(26)
+
             color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
             if self.show_preview and not self.timer_manager.active_timers:
                 color = QColor(255, 255, 255, 150)
             font = QFont()
             font.setFamilies(["Microsoft JhengHei", "微軟正黑體"])
-            font.setPointSize(_sc(15) if display_seconds >= 1000 else (_sc(22) if seconds > 3 else _sc(26)))
+            font.setPointSize(font_size)
             font.setBold(True)
             painter.setFont(font)
             text_rect = QRect(block_center.x() - _sc(50), block_center.y() - _sc(13), _sc(100), _sc(50))
