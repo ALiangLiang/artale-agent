@@ -85,8 +85,11 @@ class ArtaleCapture(QObject):
                 
                 logger.info("[Capture] Y-Offset Locked: %s (Maximized: %s, Padding: %s)", self._session_fixed_off_y, self._session_start_maximized, padding_top)
 
-            # X 軸經測試不需要偏移 (WGC 影格左側即為內容區起點)
-            return scale, 0, self._session_fixed_off_y, cw_ref, ch_ref
+            # 動態計算 X 軸偏移 (Windows 10 可能有隱形邊框，Windows 11 則無)
+            # 如果影格寬度 w 大於內容區寬度 cw_ref，代表左右有邊框
+            off_x = max(0, (w - cw_ref) // 2)
+
+            return scale, off_x, self._session_fixed_off_y, cw_ref, ch_ref
         except Exception as e:
             if win32gui.IsWindow(target_hwnd):
                 logger.error("Error getting window metrics: %s", e)
@@ -152,18 +155,20 @@ class ArtaleCapture(QObject):
                 self._session_start_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
                 logger.info("[Capture] Starting Session. Initial Maximized: %s", self._session_start_maximized)
                 
+                import sys
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
                     "minimum_update_interval": 1000
                 }
                 
-                try:
-                    capture = WindowsCapture(draw_border=False, **cap_config)
-                except Exception as e:
-                    if "Toggling the capture border" in str(e):
-                        capture = WindowsCapture(draw_border=True, **cap_config)
-                    else: raise e
+                # Windows 10 (Build 19045 and older) does not support Toggling the capture border.
+                # It will crash inside capture.start() if draw_border is passed.
+                # Only pass draw_border=False on Windows 11 (Build >= 20348).
+                if sys.getwindowsversion().build >= 20348:
+                    cap_config["draw_border"] = False
+
+                capture = WindowsCapture(**cap_config)
 
                 @capture.event
                 def on_frame_arrived(frame, control):
