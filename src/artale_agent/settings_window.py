@@ -54,7 +54,7 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.overlay = overlay
         self.setWindowTitle("Artale 瑞士刀 - Control Center")
-        self.setFixedSize(400, 750)
+        self.setFixedSize(450, 750)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.is_recording = False
         self.trigger_data = {}
@@ -253,6 +253,11 @@ class SettingsWindow(QWidget):
         pos_btn.setStyleSheet(btn_common_style)
         pos_btn.clicked.connect(self.toggle_timer_handle)
         timer_tab_layout.addWidget(pos_btn)
+
+        self.ignore_focus_cb = QCheckBox("解鎖計時器觸發限制 (不需鎖定遊戲視窗)")
+        self.ignore_focus_cb.setStyleSheet("color: #ffd700; font-size: 11px; font-weight: bold; margin-top: 5px;")
+        self.ignore_focus_cb.setChecked(config.get("timer_ignore_focus", False))
+        timer_tab_layout.addWidget(self.ignore_focus_cb)
         self.tabs.addTab(timer_tab, "⏲️ 計時器")
 
         # 分頁 2: 經驗值/楓幣
@@ -357,7 +362,7 @@ class SettingsWindow(QWidget):
         self.debug_coin_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.debug_batch_img_lbl = QLabel()
-        self.debug_batch_img_lbl.setFixedSize(380, 110)
+        self.debug_batch_img_lbl.setFixedSize(430, 110)
         self.debug_batch_img_lbl.setStyleSheet("border: none; background: #000; padding: 5px;")
         self.debug_batch_img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -402,6 +407,7 @@ class SettingsWindow(QWidget):
             )
             self.overlay.rjpq_cell_clicked.connect(self.rjpq_tab.platform_clicked)
             self.rjpq_tab.auto_mark_triggered.connect(self.overlay.on_auto_mark_triggered)
+            self.rjpq_tab.notification_requested.connect(self.notification_requested)
 
         move_rjpq_btn = QPushButton("🔱 調整羅茱面板位置")
         move_rjpq_btn.setStyleSheet(btn_common_style)
@@ -546,9 +552,10 @@ class SettingsWindow(QWidget):
                     "seconds": int(ui["inp"].text()),
                     "icon": ui["icon"],
                     "sound": ui["cb_sound"].isChecked(),
+                    "cooldown": int(ui.get("cd_inp", QLineEdit("0")).text()),
                 }
             except:
-                data[k] = {"seconds": 300, "icon": ui["icon"], "sound": True}
+                data[k] = {"seconds": 300, "icon": ui["icon"], "sound": True, "cooldown": 0}
         return data
 
     def update_profile_dropdown(self):
@@ -746,6 +753,14 @@ class SettingsWindow(QWidget):
             inp.setFixedWidth(35)
             layout.addWidget(inp)
             layout.addWidget(QLabel("秒"))
+            
+            layout.addSpacing(5)
+            layout.addWidget(QLabel("CD:"))
+            cd_inp = QLineEdit(str(data.get("cooldown", 0)))
+            cd_inp.setFixedWidth(30)
+            layout.addWidget(cd_inp)
+            layout.addWidget(QLabel("秒"))
+
             cb = QCheckBox("20s音效")
             cb.setChecked(data.get("sound", True))
             layout.addWidget(cb)
@@ -758,6 +773,7 @@ class SettingsWindow(QWidget):
                 "inp": inp,
                 "icon": data.get("icon", ""),
                 "cb_sound": cb,
+                "cd_inp": cd_inp,
             }
             self.scroll_layout.addWidget(row)
         self.scroll_layout.addStretch()
@@ -875,6 +891,7 @@ class SettingsWindow(QWidget):
                 self.overlay.rjpq_x_offset,
                 self.overlay.rjpq_y_offset,
             ]
+        config["timer_ignore_focus"] = self.ignore_focus_cb.isChecked()
         ConfigManager.save_config(config)
         self.config_updated.emit()
         self.hide()

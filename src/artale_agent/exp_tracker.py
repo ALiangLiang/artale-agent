@@ -54,6 +54,8 @@ class ExpTracker(QObject):
         # 等級 OCR 暫存 (用於輔助推論)
         self.last_lv_ocr_val: Optional[int] = None
         self.last_lv_ocr_conf: float = 0.0
+        self.lv_mismatch_counter = 0
+        self.pending_lv: Optional[int] = None
 
         # 最後輸出的 UI 數據包
         self.stats_data = StatsData(
@@ -124,7 +126,8 @@ class ExpTracker(QObject):
         if len(possible_levels) > 1:
             logger.debug("等級推斷存在模糊性: 共有 %s 個可能等級 %s，視為推論失敗。", len(possible_levels), possible_levels[:5])
         elif len(possible_levels) == 0:
-            logger.debug("等級推斷失敗: 經驗值 %s 與百分比 %s%% 無法匹配任何等級。", current_exp, current_pct)
+            exp_ratio = int(current_exp / (current_pct / 100.0)) if current_pct > 0 else 0
+            logger.debug("等級推斷失敗: 經驗值 %s 與百分比 %s%% 無法匹配任何等級 (預期總量約 %s)。", current_exp, current_pct, exp_ratio)
 
         return None
 
@@ -154,8 +157,20 @@ class ExpTracker(QObject):
         
         # 若推論無結果 (通常是 0.00%)，但等級 OCR 信心度高，則採納等級 OCR 結果
         if inf_lv is None and self.last_lv_ocr_conf >= 90:
-            inf_lv = self.last_lv_ocr_val
-            logger.debug("[OCR] 經驗值推論無效，使用等級 OCR 結果: %s", inf_lv)
+            forced_lv = self.last_lv_ocr_val
+            max_exp = EXP_TABLE.get(forced_lv)
+            if max_exp:
+                # 容錯檢查：數值不應超過該等級總量的 105% (考慮 OCR 誤差)
+                if 0 <= val <= max_exp * 1.05:
+                    # 比例檢查：OCR 百分比與計算百分比差距不應超過 2%
+                    calc_pct = (val / max_exp) * 100.0
+                    if abs(calc_pct - pct) < 2.0:
+                        inf_lv = forced_lv
+                        logger.debug("[OCR] 經驗值推論失敗但通過等級校驗: LV.%s (計算 %s%%, OCR %s%%)", inf_lv, round(calc_pct, 2), pct)
+                    else:
+                        logger.debug("[OCR] 經驗值百分比不匹配: OCR %s%%, 計算 %s%% (等級 %s)", pct, round(calc_pct, 2), forced_lv)
+                else:
+                    logger.debug("[OCR] 經驗值數值 %s 超出等級 %s 範圍 (Max: %s)", val, forced_lv, max_exp)
             
         if inf_lv is None:
             logger.debug("[OCR] 經驗值與百分比無法匹配任何等級: %s", raw_text)
@@ -165,9 +180,23 @@ class ExpTracker(QObject):
         if self.exp_session_start_time is not None:
             # 允許等級不變，或剛好 +1
             if inf_lv != self.current_lv and inf_lv != (self.current_lv or 0) + 1:
-                logger.debug("[OCR] 等級變動合理性檢查失敗: %s -> %s", self.current_lv, inf_lv)
+                if inf_lv == self.pending_lv:
+                    self.lv_mismatch_counter += 1
+                else:
+                    self.pending_lv = inf_lv
+                    self.lv_mismatch_counter = 1
+                
+                if self.lv_mismatch_counter >= 10:
+                    logger.info("[OCR] 等級持續不匹配，執行等級強制修正: %s -> %s", self.current_lv, inf_lv)
+                    self.lv_mismatch_counter = 0
+                    self.pending_lv = None
+                    return val, pct, inf_lv
+                
+                logger.debug("[OCR] 等級變動合理性檢查失敗: %s -> %s (計數: %s)", self.current_lv, inf_lv, self.lv_mismatch_counter)
                 return None, None, None
-
+        
+        self.lv_mismatch_counter = 0
+        self.pending_lv = None
         return val, pct, inf_lv
 
     def update_exp(self, raw_text, conf=100, timestamp=None):
@@ -221,6 +250,15 @@ class ExpTracker(QObject):
                 logger.info("修正初始等級辨識: %s -> %s", self.current_lv, inf_lv)
                 self.current_lv = inf_lv
                 self.lv_inferred.emit(self.current_lv)
+            # C. 異常跳變修正 (例如先前誤判升級)
+            else:
+                logger.info("執行等級跳變修正: %s -> %s (重置基準值以保護統計)", self.current_lv, inf_lv)
+                self.current_lv = inf_lv
+                self.last_exp_val = val
+                self.last_exp_pct = pct
+                self.lv_inferred.emit(self.current_lv)
+                self._broadcast(raw_text, val, pct, now, conf)
+                return
 
         if level_up_triggered:
             # 獲取前一等級所需的總經驗值以計算跨級增量
@@ -252,6 +290,17 @@ class ExpTracker(QObject):
                 self.exp_session_start_time = now
                 logger.info("偵測到經驗值增加，正式啟動計時。")
             self.cumulative_exp_gain += v_diff
+        elif v_diff < 0:
+            # 異常檢測：大幅度經驗值下降 (通常是 OCR 誤判)
+            # 如果下降量大於該等級總量的 2%，則忽略本次更新以保護統計數據
+            max_exp = EXP_TABLE.get(self.current_lv, 10**10)
+            if abs(v_diff) > (max_exp * 0.02):
+                logger.warning("[OCR] 偵測到異常經驗值跌幅: %s (Max: %s), 忽略本次更新。", v_diff, max_exp)
+                self._broadcast(raw_text, self.last_exp_val, self.last_exp_pct, now, conf)
+                return
+            
+            # 如果是合理的微幅下降 (可能是死亡)，可在此處理 (目前暫不扣除累積增量)
+            pass
             
         # 4. 更新歷史紀錄 (Sliding Window: 1小時)
         self.exp_history.append((now, val, pct, self.cumulative_exp_gain))

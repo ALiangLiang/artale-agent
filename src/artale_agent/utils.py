@@ -117,6 +117,7 @@ class ConfigManager:
                                     "seconds": int(v),
                                     "icon": "",
                                     "sound": True,
+                                    "cooldown": 0,
                                 }
                             
                             # Migration: Convert absolute asset paths to relative
@@ -154,6 +155,9 @@ class ConfigManager:
 
                     if "ui_scale" not in config:
                         config["ui_scale"] = 1.0
+                    
+                    if "timer_ignore_focus" not in config:
+                        config["timer_ignore_focus"] = False
 
                     return config
             except Exception as e:
@@ -168,6 +172,7 @@ class ConfigManager:
             "offset": [0, 0],
             "opacity": 0.75,
             "ui_scale": 1.0,
+            "timer_ignore_focus": False,
             "profiles": default_profiles,
             "hotkeys": {
                 "exp_toggle": "f10",

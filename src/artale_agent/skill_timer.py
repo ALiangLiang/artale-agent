@@ -221,7 +221,7 @@ class TimerManager(QObject):
         self.countdown_timer.timeout.connect(self.update_countdown)
         self.is_active = False
 
-    def start_timer(self, key, seconds, icon_path=None, sound_enabled=True):
+    def start_timer(self, key, seconds, icon_path=None, sound_enabled=True, cooldown=0):
         pixmap = None
         if icon_path:
             real_path = icon_path
@@ -236,13 +236,16 @@ class TimerManager(QObject):
             else:
                 logger.warning("[Timer] Icon not found: %s", icon_path)
 
+        # 啟動整合型計時器 (Buff 持續時間優先，結束後接續冷卻時間)
         self.active_timers[key] = {
             "seconds": seconds,
+            "cooldown": cooldown,
             "pixmap": pixmap,
             "sound_enabled": sound_enabled,
+            "initial_cooldown": cooldown, # 紀錄初始值供 UI 判斷
         }
+
         self.is_active = True
-        # 如果計時器尚未啟動，則立即啟動
         if not self.countdown_timer.isActive():
             self.countdown_timer.start(1000)
         self.updated.emit()
@@ -250,17 +253,40 @@ class TimerManager(QObject):
     def update_countdown(self):
         to_remove = []
         for key in list(self.active_timers.keys()):
-            self.active_timers[key]["seconds"] -= 1
-            rem = self.active_timers[key]["seconds"]
-            sound_enabled = self.active_timers[key].get("sound_enabled", True)
-            if rem == 20 and sound_enabled:
-                self.play_sound(1)
-            elif rem == 0:
-                self.play_sound(2) # 倒數結束提示
-            elif -10 < rem < 0:
-                self.play_sound(1) # 負數超時提示
-            if rem <= -10:
-                to_remove.append(key)
+            timer = self.active_timers[key]
+            
+            # 1. 優先扣除 Buff 持續時間
+            if timer["seconds"] > 0:
+                timer["seconds"] -= 1
+                rem = timer["seconds"]
+                sound_enabled = timer.get("sound_enabled", True)
+                if rem == 20 and sound_enabled:
+                    self.play_sound(1)
+                elif rem == 0:
+                    self.play_sound(2) # 技能結束提示
+            
+            # 2. 當 Buff 結束 (<=0) 且還有冷卻時間時，扣除冷卻時間
+            elif timer.get("cooldown", 0) > 0:
+                timer["cooldown"] -= 1
+            
+            # 3. 如果兩者都結束，進入負數超時提示 (僅針對 Buff 結束後的提示)
+            else:
+                timer["seconds"] -= 1
+                rem = timer["seconds"]
+                if -10 < rem < 0:
+                    self.play_sound(1)
+                if rem <= -10:
+                    to_remove.append(key)
+
+        for key in to_remove:
+            if key in self.active_timers:
+                del self.active_timers[key]
+
+        if not self.active_timers:
+            self.is_active = False
+            self.countdown_timer.stop()
+
+        self.updated.emit()
 
         for key in to_remove:
             if key in self.active_timers:

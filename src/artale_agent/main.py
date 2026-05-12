@@ -208,8 +208,12 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                     last_key = k_name
                     last_time = now
 
-            # 4. 僅在啟用且 msw.exe 處於焦點時觸發計時器
-            if not is_globally_enabled or not focus_tracker.is_game_active:
+            # 4. 僅在啟用時觸發。若未設定「忽略焦點限制」，則還需 msw.exe 處於焦點才可觸發計時器
+            ignore_focus = current_config.get("timer_ignore_focus", False)
+            if not is_globally_enabled:
+                return
+            
+            if not ignore_focus and not focus_tracker.is_game_active:
                 return
 
             # 獲取當前配置的觸發器
@@ -223,11 +227,13 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                     seconds = trigger_data.get("seconds", 10)
                     icon = trigger_data.get("icon", "")
                     sound = trigger_data.get("sound", True)
+                    cooldown = trigger_data.get("cooldown", 0)
                 else:
                     seconds = trigger_data
                     icon = ""
                     sound = True
-                overlay.timer_request.emit(k_name, seconds, icon if icon else "", sound)
+                    cooldown = 0
+                overlay.timer_request.emit(k_name, seconds, icon, sound, cooldown)
 
         except Exception as e:
             logger.error("[Error] Listener: %s", e)

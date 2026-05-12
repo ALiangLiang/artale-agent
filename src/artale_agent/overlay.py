@@ -108,7 +108,7 @@ class ArtaleOverlay(QWidget):
     LV_Y_OFF_FROM_BOTTOM = 46
     LV_BASE_CW, LV_BASE_CH = 75, 26
 
-    timer_request = pyqtSignal(str, int, str, bool)
+    timer_request = pyqtSignal(str, int, str, bool, int) # name, sec, icon, sound, cooldown
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
 
@@ -757,16 +757,23 @@ class ArtaleOverlay(QWidget):
 
         timers_to_draw = []
         if self.timer_manager.active_timers:
-            sorted_active = sorted(self.timer_manager.active_timers.items(), key=lambda x: x[1]["seconds"], reverse=True)
-            for k, d in sorted_active: timers_to_draw.append((k, d["seconds"], d["pixmap"]))
+            active_list = list(self.timer_manager.active_timers.items())
+            for k, d in active_list:
+                # 判斷目前顯示哪一個階段：Buff 正數 -> CD 正數 -> Buff 負數提示
+                is_cd = d["seconds"] <= 0 and d.get("cooldown", 0) > 0
+                display_sec = d["seconds"] if d["seconds"] > 0 else (d.get("cooldown", 0) if d.get("cooldown", 0) > 0 else d["seconds"])
+                timers_to_draw.append((k, display_sec, d["pixmap"], is_cd))
+            
+            # 排序：進行中的 Buff 優先，接著是 CD，時間長者在前
+            timers_to_draw.sort(key=lambda x: (not x[3], x[1]), reverse=True)
         
         # 如果有任何世界計時器處於活動狀態，也將其加入列表
         for k, d in self.world_timers.items():
-            timers_to_draw.append((k, d["seconds"], d["pixmap"]))
+            timers_to_draw.append((k, d["seconds"], d["pixmap"], False))
 
         if not timers_to_draw and self.show_preview:
             timers_to_draw.append(
-                ("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png")))
+                ("preview", 300, QPixmap(resource_path("buff_pngs/arrow.png")), False)
             )
 
         new_click_zones = {}; spacing = _sc(56); total_width = len(timers_to_draw) * spacing
@@ -774,7 +781,7 @@ class ArtaleOverlay(QWidget):
         block_start_x = base_x - total_width
         block_center_y = base_y + _sc(60)
 
-        for idx, (key, seconds, pixmap) in enumerate(timers_to_draw):
+        for idx, (key, seconds, pixmap, is_cooldown) in enumerate(timers_to_draw):
             x_pos = block_start_x + idx * spacing + (spacing // 2)
             block_center = QPoint(x_pos, block_center_y)
             icon_rect = QRect(block_center.x() - _sc(20), block_center.y() - _sc(45), _sc(40), _sc(40))
@@ -788,6 +795,10 @@ class ArtaleOverlay(QWidget):
                 )
 
             if pixmap:
+                if is_cooldown:
+                    # CD 圖示：加上藍色半透明遮罩以示區別
+                    painter.setOpacity(0.5)
+                
                 if self.icon_frame:
                     painter.drawPixmap(
                         icon_rect.adjusted(_sc(-2), _sc(-2), _sc(2), _sc(2)), self.icon_frame
@@ -801,6 +812,7 @@ class ArtaleOverlay(QWidget):
                         Qt.TransformationMode.SmoothTransformation,
                     ),
                 )
+                painter.setOpacity(1.0) # 恢復透明度
             display_seconds = max(0, seconds)
             if display_seconds > 999:
                 text = f"{display_seconds // 60}m"
@@ -809,7 +821,10 @@ class ArtaleOverlay(QWidget):
                 text = str(display_seconds)
                 font_size = _sc(22) if seconds > 3 else _sc(26)
 
-            color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
+            if is_cooldown:
+                color = QColor(135, 206, 250) # LightSkyBlue for CD
+            else:
+                color = QColor(100, 255, 100) if seconds > 30 else QColor(255, 50, 50)
             if self.show_preview and not self.timer_manager.active_timers:
                 color = QColor(255, 255, 255, 150)
             font = QFont()
