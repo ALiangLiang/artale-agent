@@ -124,6 +124,7 @@ class ArtaleOverlay(QWidget):
     stats_updated = pyqtSignal(StatsData)  # 接收來自 Tracker 的完整統計數據
     request_show_settings_signal = pyqtSignal()
     profile_switch_request = pyqtSignal()
+    export_report_request = pyqtSignal()
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
         self.target_window_title = target_window_title
@@ -913,7 +914,7 @@ class ArtaleOverlay(QWidget):
         font.setBold(True)
         painter.setFont(font)
         y = py + _sc(30 if is_export else 25)
-        title = "📊 經驗值監測報告" if is_export else "📊 經驗值監測"
+        title = "📊 經驗值監測"
         painter.drawText(px + _sc(15), y, title)
         
         # 如果暫停，在標題後方加上紅色的 (已暫停)
@@ -931,6 +932,19 @@ class ArtaleOverlay(QWidget):
             painter.setFont(font)
             painter.drawText(px + _sc(15) + title_w + _sc(10), y, "(經驗值增減後才開始記錄)")
             painter.setPen(QColor(255, 255, 255)) # 恢復白色
+        
+        if is_export:
+            painter.save()
+            font_wm = QFont("Microsoft JhengHei", _sc(9))
+            font_wm.setItalic(True)
+            painter.setFont(font_wm)
+            painter.setPen(QPen(QColor(255, 255, 255, 100))) # 半透明白色
+            painter.drawText(
+                QRect(px + _sc(15), y - _sc(15), pw - _sc(30), _sc(20)),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                "使用 Artale 瑞士刀記錄",
+            )
+            painter.restore()
         
         # 2. 次要資訊 (紀錄時長與累計，整合在同一行)
         y += _sc(28 if is_export else 25)

@@ -50,6 +50,7 @@ class ArtaleController(QObject):
         # 6. 連結 介面訊號 -> 報表管理員動作 (從 SettingsWindow 解耦)
         sw = self.overlay.settings_window
         sw.export_report_requested.connect(self.report_manager.export_exp_report)
+        self.overlay.export_report_request.connect(self.report_manager.export_exp_report)
         sw.export_csv_requested.connect(self.report_manager.export_csv_report)
         sw.import_csv_requested.connect(self.report_manager.import_csv_report)
         sw.open_dashboard_requested.connect(self.report_manager.open_analytics_dashboard)

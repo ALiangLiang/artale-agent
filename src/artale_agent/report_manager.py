@@ -31,33 +31,23 @@ class ReportManager(QObject):
         """
         import time
         
-        pw, ph = 330, 220
+        pw = 330
+        ph = 250 if self.overlay.show_money_log else 195
         pixmap = QPixmap(pw, ph)
         pixmap.fill(Qt.GlobalColor.transparent)
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1. 繪製報告背景 (較不透明)
+        # 1. 繪製報告背景 (同步實體樣式)
         rect = QRect(0, 0, pw, ph)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(rect).adjusted(2, 2, -2, -2), 15, 15)
-        painter.setPen(QPen(QColor(255, 215, 0), 2))
-        painter.setBrush(QColor(10, 10, 15, 240))
+        path.addRoundedRect(QRectF(rect), 12, 12)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(35, 48, 48, int(self.overlay.base_opacity * 255)))
         painter.drawPath(path)
-        
-        # 2. 加上浮水印與版權宣告
-        painter.setPen(QPen(QColor(255, 255, 255, 80)))
-        font = QFont("Microsoft JhengHei", 9)
-        font.setItalic(True)
-        painter.setFont(font)
-        painter.drawText(
-            rect.adjusted(0, 0, -15, -10),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
-            "使用 Artale 瑞士刀記錄",
-        )
 
-        # 3. 呼叫共用的經驗值繪圖邏輯
+        # 2. 呼叫共用的經驗值繪圖邏輯 (含右上角浮水印)
         self.overlay._draw_exp_content(painter, 0, 0, pw, ph, is_export=True)
         painter.end()
         
