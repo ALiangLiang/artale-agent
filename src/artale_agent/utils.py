@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import sys
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -394,3 +396,95 @@ EXP_TABLE = {
     199: 2011069705,
     200: 2121276324,
 }
+
+def get_minimap_loc_size(img_frame):
+    '''
+    Detects the location and size of the minimap within the game frame.
+
+    The function works by:
+    - Thresholding the image get pure white(255,255,255) pixels.
+    - Using connected components to find white-bordered regions.
+    - Filtering candidates based on expected minimap size and margin rules:
+        - Top, bottom, left, right margins must be 1px white lines.
+
+    Returns:
+        (x, y, w, h): Top-left coordinate and width/height of the minimap.
+                    Returns None if not found.
+    '''
+    white = np.array([255, 255, 255])
+
+    # Mask for pure white
+    mask_white = cv2.inRange(img_frame, white, white)
+
+    # Connected components with stats
+    num_labels, labels, stats, centroids = \
+        cv2.connectedComponentsWithStats(mask_white, connectivity=8)
+
+    # Loop over components (skip label 0, which is background)
+    for i in range(1, num_labels):
+        x0, y0, rw, rh, area = stats[i]
+
+        # Filter out small blobs
+        if rw < 100 or rh < 100:
+            continue
+
+        x1 = x0 + rw - 1
+        y1 = y0 + rh - 1
+
+        # Check 1px white top and bottom margins
+        if not (np.all(img_frame[y0, x0:x0+rw] == white) and \
+                np.all(img_frame[y1, x0:x0+rw] == white)):
+            continue
+
+        # Check 1px white left and right margins
+        # Ensures the candidate region is framed by white borders like the minimap
+        if not (np.all(img_frame[y0:y0+rh, x0] == white) and \
+                np.all(img_frame[y0:y0+rh, x1] == white)):
+            continue
+
+        # Create a mask of non-white pixels
+        mask_minimap = np.any(img_frame[y0:y0+rh, x0:x0+rw] != white, axis=2).astype(np.uint8)
+
+        # Find bounding box of mask_minimap
+        coords = cv2.findNonZero(mask_minimap)
+        if coords is None:
+            continue  # skip empty block
+        x_minimap, y_minimap, w_minimap, h_minimap = cv2.boundingRect(coords)
+
+        # Offset by original x0, y0 to get coords in original image
+        x_minimap += x0
+        y_minimap += y0
+
+        return x_minimap, y_minimap, w_minimap, h_minimap
+
+    # logger.warning("Minimap not found in the game frame.")
+    return None  # minimap not found
+
+def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 255)):
+    """
+    Detects the player's position on the minimap.
+
+    The function works by:
+    - Creating a binary mask of all pixels in the minimap that match the configured
+    player color exactly.
+    - Verifying that at least 4 matching pixels are found (to avoid false positives).
+    - Computing the average of these pixel coordinates to determine the center of
+    the player icon on the minimap.
+
+    Returns:
+        (x, y): The player's location in minimap coordinates as a tuple.
+                Returns None if not enough matching pixels are found.
+    """
+    mask = cv2.inRange(img_minimap,
+                        minimap_player_color,
+                        minimap_player_color)
+    coords = cv2.findNonZero(mask)
+    if coords is None or len(coords) < 4:
+        # logger.warning(f"Fail to locate player location on minimap.")
+        return None
+
+    # Calculate the average location of the matching pixels
+    avg = coords.mean(axis=0)[0]  # shape (1,2), so we take [0]
+    loc_player_minimap = (int(round(avg[0])), int(round(avg[1])))
+
+    return loc_player_minimap

@@ -155,7 +155,7 @@ class ArtaleCapture(QObject):
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
-                    "minimum_update_interval": 1000
+                    "minimum_update_interval": 100
                 }
                 
                 try:
@@ -177,7 +177,7 @@ class ArtaleCapture(QObject):
                     self._session_running = True
                         
                     now = time.time()
-                    if now - last_processed_time < 1.0: return
+                    if now - last_processed_time < 0.1: return
                     
                     img_orig = frame.frame_buffer
                     img = cv2.cvtColor(img_orig, cv2.COLOR_BGRA2BGR)

@@ -49,6 +49,7 @@ class SettingsWindow(QWidget):
     import_csv_requested = pyqtSignal()
     open_dashboard_requested = pyqtSignal()
     profile_switch_requested = pyqtSignal()
+    debug_minimap_requested = pyqtSignal()
 
     def __init__(self, overlay=None):
         super().__init__()
@@ -342,6 +343,11 @@ class SettingsWindow(QWidget):
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
         exp_tab_layout.addWidget(self.debug_mode_cb)
+        
+        self.debug_minimap_btn = QPushButton("🗺️ 輸出 Minimap 影像")
+        self.debug_minimap_btn.setStyleSheet(btn_common_style)
+        self.debug_minimap_btn.clicked.connect(self.debug_minimap_requested.emit)
+        exp_tab_layout.addWidget(self.debug_minimap_btn)
         
         # --- 批次 OCR 監控群組 ---
         self.debug_group = QWidget()

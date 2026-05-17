@@ -1,11 +1,12 @@
 import logging
 import threading
+import time
 from PyQt6.QtCore import QObject, QTimer
 from artale_agent.capture_engine import ArtaleCapture
 from artale_agent.ocr_engine import ArtaleOCR
 from artale_agent.exp_tracker import ExpTracker
 from artale_agent.data_types import LVUpdateData
-from artale_agent.utils import resource_path, ConfigManager, REPO_URL, VERSION
+from artale_agent.utils import resource_path, ConfigManager, REPO_URL, VERSION, get_minimap_loc_size, get_player_location_on_minimap
 from artale_agent.platform import SystemUtilsImpl
 from artale_agent.report_manager import ReportManager
 import urllib.request
@@ -22,12 +23,17 @@ class ArtaleController(QObject):
         super().__init__()
         self.overlay = overlay # 控制器對應的 View (介面)
         self.system_utils = SystemUtilsImpl()
+        self.wants_minimap_debug = False
         
         # 1. 初始化引擎與統計器
         self.capture_engine = ArtaleCapture()
         self.ocr_engine = ArtaleOCR(self)
         self.tracker = ExpTracker()
         self.report_manager = ReportManager(self)
+        
+        self._minimap_fps_counter = 0
+        self._minimap_last_time = time.time()
+        self._minimap_current_fps = 0
         
         self.ocr_engine.set_coin_template(resource_path("coin.png"))
         
@@ -55,7 +61,15 @@ class ArtaleController(QObject):
         sw.open_dashboard_requested.connect(self.report_manager.open_analytics_dashboard)
         sw.notification_requested.connect(self.overlay.show_notification)
         sw.config_updated.connect(self.load_profile)
+        sw.debug_minimap_requested.connect(self.request_minimap_debug)
         
+        if getattr(sw, "rjpq_client", None):
+            sw.rjpq_client.status_changed.connect(self._on_rjpq_status_changed)
+            
+    def _on_rjpq_status_changed(self, connected):
+        needs_capture = getattr(self.overlay, "show_exp_panel", False) or connected
+        self.capture_engine.set_active(needs_capture)
+
         # 7. 自動檢查更新
         QTimer.singleShot(3000, lambda: self.check_for_updates(auto=True))
 
@@ -65,27 +79,110 @@ class ArtaleController(QObject):
         self.tracker.show_debug = self.overlay.show_debug
         
         self.capture_engine.start()
-        if self.overlay.show_exp_panel:
+        needs_capture = getattr(self.overlay, "show_exp_panel", False)
+        if getattr(self.overlay.settings_window, "rjpq_client", None) and getattr(self.overlay.settings_window.rjpq_client, "is_connected", False):
+            needs_capture = True
+            
+        if needs_capture:
             self.capture_engine.set_active(True)
 
     def on_session_started(self, hwnd):
         logger.info("[Controller] Capture session active for HWND %s", hwnd)
         self.overlay.last_target_hwnd = hwnd
 
+    def request_minimap_debug(self):
+        self.wants_minimap_debug = True
+        logger.info("[Controller] Minimap debug requested.")
+        if not self.capture_engine._active:
+            self.capture_engine.set_active(True)
+
     def on_frame_ready(self, img, scale, off_x, off_y, cw, ch):
         """截圖引擎與 OCR 引擎之間的橋接器"""
+        if self.wants_minimap_debug:
+            self.wants_minimap_debug = False
+            import cv2
+            import os
+            loc = get_minimap_loc_size(img)
+            if loc:
+                x, y, w, h = loc
+                minimap_img = img[y:y+h, x:x+w].copy() # Copy so we can draw on it
+                
+                # Check player location
+                player_loc = get_player_location_on_minimap(minimap_img)
+                if player_loc:
+                    px, py = player_loc
+                    # Draw a red circle and crosshair at player location
+                    cv2.circle(minimap_img, (px, py), 3, (0, 0, 255), 1)
+                    cv2.line(minimap_img, (px-5, py), (px+5, py), (0, 0, 255), 1)
+                    cv2.line(minimap_img, (px, py-5), (px, py+5), (0, 0, 255), 1)
+                    logger.info("Player located on minimap at (%s, %s)", px, py)
+                else:
+                    logger.info("Player not found on minimap.")
+
+                try:
+                    os.makedirs("debug_output", exist_ok=True)
+                    cv2.imwrite("debug_output/minimap.png", minimap_img)
+                    self.overlay.show_notification("✅ 已成功輸出 minimap.png 至 debug_output/")
+                    logger.info("Minimap saved to debug_output/minimap.png (x=%s, y=%s, w=%s, h=%s)", x, y, w, h)
+                except Exception as e:
+                    self.overlay.show_notification("❌ Minimap 輸出失敗")
+                    logger.error("Failed to save minimap: %s", e)
+            else:
+                self.overlay.show_notification("⚠️ 無法在畫面上找到 Minimap")
+                logger.warning("Minimap not found in the game frame.")
+
+        # 一旦連線 YzY，則開始不斷偵測 player 的座標位置，然後持續輸出至 console
+        if hasattr(self.overlay, "settings_window") and getattr(self.overlay.settings_window, "rjpq_client", None):
+            if self.overlay.settings_window.rjpq_client.is_connected:
+                loc = get_minimap_loc_size(img)
+                now = time.time()
+                should_log_debug = not hasattr(self, '_last_debug_log_time') or (now - self._last_debug_log_time) >= 1.0
+                if should_log_debug:
+                    self._last_debug_log_time = now
+
+                if loc:
+                    x, y, w, h = loc
+                    minimap_img = img[y:y+h, x:x+w]
+                    player_loc = get_player_location_on_minimap(minimap_img)
+                    if player_loc:
+                        self._minimap_fps_counter += 1
+                        if now - self._minimap_last_time >= 1.0:
+                            self._minimap_current_fps = self._minimap_fps_counter / (now - self._minimap_last_time)
+                            self._minimap_fps_counter = 0
+                            self._minimap_last_time = now
+                            
+                        try:
+                            import os
+                            os.makedirs("debug_output", exist_ok=True)
+                            with open("debug_output/player_coordinates.log", "a", encoding="utf-8") as f:
+                                timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+                                f.write(f"[{timestamp}] X={player_loc[0]:>3}, Y={player_loc[1]:>3}\n")
+                        except Exception as e:
+                            pass
+                    else:
+                        if should_log_debug: logger.info("DEBUG: Minimap detected, but get_player_location_on_minimap returned None")
+                else:
+                    if should_log_debug: logger.info("DEBUG: get_minimap_loc_size returned None (Minimap not found in frame)")
+
         if not self.overlay.isVisible(): return
         
-        # 將介面設定同步回辨識引擎
-        self.ocr_engine.show_money_log = self.overlay.show_money_log
-        self.ocr_engine.show_debug = self.overlay.show_debug
-        self.ocr_engine.exp_paused = self.overlay.exp_paused
-        
-        # 分發至批次 OCR 任務
-        self.ocr_engine.process_frame(img, scale, off_x, off_y, cw, ch)
-        
-        # 觸發介面重繪
-        self.overlay.update()
+        # 節流 OCR 處理，維持原本大約 1 FPS 的負載
+        if not hasattr(self, '_last_ocr_time'):
+            self._last_ocr_time = 0
+            
+        now = time.time()
+        if now - self._last_ocr_time >= 1.0:
+            self._last_ocr_time = now
+            # 將介面設定同步回辨識引擎
+            self.ocr_engine.show_money_log = self.overlay.show_money_log
+            self.ocr_engine.show_debug = self.overlay.show_debug
+            self.ocr_engine.exp_paused = self.overlay.exp_paused
+            
+            # 分發至批次 OCR 任務
+            self.ocr_engine.process_frame(img, scale, off_x, off_y, cw, ch)
+            
+            # 觸發介面重繪
+            self.overlay.update()
 
     def on_exp_parsed(self, data):
         """將辨識出的經驗值數據傳遞給統計器"""
@@ -109,7 +206,10 @@ class ArtaleController(QObject):
 
     def toggle_tracking(self, active):
         """切換截圖引擎的活動狀態"""
-        self.capture_engine.set_active(active)
+        needs_capture = active
+        if getattr(self.overlay.settings_window, "rjpq_client", None) and getattr(self.overlay.settings_window.rjpq_client, "is_connected", False):
+            needs_capture = True
+        self.capture_engine.set_active(needs_capture)
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""

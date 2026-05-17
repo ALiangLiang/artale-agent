@@ -125,6 +125,15 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 pass
 
             if k_name:
+                if k_name in ["up", "num_0", "num_1", "num_2", "num_3", "num_4"]:
+                    if hasattr(settings_window, "rjpq_tab") and settings_window.rjpq_tab.client.is_connected:
+                        try:
+                            os.makedirs("debug_output", exist_ok=True)
+                            with open("debug_output/player_coordinates.log", "a", encoding="utf-8") as f:
+                                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] KEY={k_name}\n")
+                        except Exception:
+                            pass
+
                 for base in ["alt", "shift", "ctrl"]:
                     if k_name.startswith(base):
                         k_name = base
