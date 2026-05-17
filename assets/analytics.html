@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🍁 Artale 練功數據儀表板</title>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --bg-primary: #0a0a0f;
+    --bg-card: rgba(20, 20, 30, 0.85);
+    --border: rgba(255, 215, 0, 0.15);
+    --gold: #ffd700;
+    --gold-dim: rgba(255, 215, 0, 0.6);
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #a78bfa;
+    --accent-glow: rgba(167, 139, 250, 0.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header h1 { font-size: 22px; font-weight: 700; color: var(--gold); }
+  .header h1 span { font-size: 14px; color: var(--text-dim); font-weight: 400; margin-left: 8px; }
+  .file-list { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .file-tag {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 12px; font-size: 12px; color: var(--gold-dim);
+    display: flex; align-items: center; gap: 6px;
+    width: 160px; justify-content: space-between;
+  }
+  .file-tag .badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 4px;
+    background: rgba(167, 139, 250, 0.2); color: var(--accent);
+  }
+  .file-tag .remove {
+    cursor: pointer; color: #f87171; margin-left: 4px; font-weight: bold;
+  }
+
+  /* Drop Zone */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 16px; padding: 60px 20px;
+    text-align: center; cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(20, 20, 30, 0.4);
+    margin-bottom: 24px;
+  }
+  .drop-zone.compact { padding: 16px 20px; }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--gold);
+    background: rgba(255, 215, 0, 0.04);
+    box-shadow: 0 0 30px rgba(255, 215, 0, 0.06);
+  }
+  .drop-zone h2 { font-size: 18px; color: var(--gold-dim); margin-bottom: 8px; font-weight: 500; }
+  .drop-zone p { font-size: 13px; color: var(--text-dim); }
+  .drop-zone.compact h2 { font-size: 14px; margin-bottom: 0; }
+  .drop-zone.compact p { display: none; }
+  .drop-zone input { display: none; }
+
+  /* Cards */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+    backdrop-filter: blur(10px);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+  .card .label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .card .value { font-size: 22px; font-weight: 700; color: var(--gold); }
+  .card .unit { font-size: 12px; color: var(--text-dim); margin-left: 4px; }
+
+  /* Chart */
+  .chart-container {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+    backdrop-filter: blur(10px);
+  }
+  .chart-title { font-size: 15px; color: var(--text-dim); margin-bottom: 12px; font-weight: 500; }
+
+  /* Footer */
+  .footer {
+    text-align: center; margin-top: 24px; padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-dim);
+  }
+
+  /* Offline warning */
+  .offline-msg {
+    background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 10px; padding: 20px; text-align: center; color: #f87171;
+    display: none; margin-bottom: 20px;
+  }
+
+  /* Hidden */
+  .hidden { display: none !important; }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .header { flex-direction: column; gap: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🍁 Artale 練功數據儀表板<span>{{VERSION}}</span></h1>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <div class="offline-msg" id="offlineMsg">
+    ⚠️ 無法載入圖表庫，請確認網路連線後重新整理頁面。
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <h2>📂 將 CSV 檔案拖曳至此</h2>
+    <p>支援 Artale 瑞士刀 與 伊伊經驗秒傷小幫手 的記錄檔</p>
+    <input type="file" id="fileInput" accept=".csv" multiple>
+  </div>
+
+  <div class="cards hidden" id="cards">
+    <div class="card"><div class="label">📊 平均 EXP/10分</div><div class="value" id="avgExp">--</div></div>
+    <div class="card"><div class="label">🎯 總累積EXP</div><div class="value" id="totalGained">--</div></div>
+    <div class="card"><div class="label">🔥 最大 10分EXP</div><div class="value" id="maxExp10">--</div></div>
+    <div class="card"><div class="label">📈 預估每小時經驗</div><div class="value" id="expPerHr">--</div></div>
+  </div>
+
+  <div class="chart-container hidden" id="chartBox">
+    <div class="chart-title">EXP/分 效率趨勢</div>
+    <div id="chart"></div>
+  </div>
+
+  <div class="footer">Artale 瑞士刀 — 資料完全在本地瀏覽器處理，不會上傳任何內容</div>
+</div>
+
+<script>
+const COLORS = ['#a78bfa','#34d399','#f472b6','#facc15','#60a5fa','#fb923c'];
+let chartInstance = null;
+let seriesData = [];
+let seriesIdx = 0;
+
+// --- CSV format detection & normalization ---
+function isExternalFormat(fields) {
+  return !(fields && fields[fields.length - 1] === '等級');
+}
+
+function cleanNum(s) {
+  if (!s) return 0;
+  s = String(s).replace(/⚡/g, '').replace(/,/g, '').split(' ')[0];
+  s = s.replace(/[^\d.]/g, '');
+  return parseFloat(s) || 0;
+}
+
+function parseTime(ts) {
+  if (!ts) return null;
+  ts = ts.trim();
+  let isPM = ts.includes('下午'), isAM = ts.includes('上午');
+  let clean = ts.replace(/下午|上午/g, ' ').replace(/\//g, '-').trim();
+  let dt = new Date(clean);
+  if (isNaN(dt.getTime())) return null;
+  if (isPM && dt.getHours() < 12) dt.setHours(dt.getHours() + 12);
+  if (isAM && dt.getHours() === 12) dt.setHours(0);
+  return dt;
+}
+
+// --- CSV field mapping helper ---
+const MAPPINGS = {
+  time: ['時間', 'Timestamp', 'time'],
+  expPerMin: ['EXP/分', '經驗/分', '經驗/min', 'exp_per_min'],
+  level: ['等級', 'Level', 'level'],
+  totalExp: ['累積經驗(全部)', '累積經驗', 'total_exp'],
+  gainedExp: ['取得EXP', '獲得經驗', 'gained_exp']
+};
+
+function getVal(row, keys) {
+  for (let key of keys) {
+    if (row[key] !== undefined) return row[key];
+  }
+  return null;
+}
+
+function normalizeRow(row, idx, external) {
+  let timeStr = getVal(row, MAPPINGS.time);
+  let expMin = cleanNum(getVal(row, MAPPINGS.expPerMin));
+  let lv = parseInt(getVal(row, MAPPINGS.level)) || null;
+  let total = cleanNum(getVal(row, MAPPINGS.totalExp));
+  let gained = cleanNum(getVal(row, MAPPINGS.gainedExp));
+
+  if (!external) {
+    return { time: new Date(timeStr), expPerMin: expMin, level: lv, totalExp: total, gainedExp: gained };
+  }
+  
+  let t = parseTime(timeStr);
+  return { time: t, expPerMin: expMin, level: lv, totalExp: total, gainedExp: gained };
+}
+
+// --- File handling ---
+function handleFiles(files) {
+  const fileArray = Array.from(files).filter(f => f.name.endsWith('.csv'));
+  if (fileArray.length === 0) return;
+  
+  fileArray.forEach(f => {
+    Papa.parse(f, {
+      header: true, encoding: 'UTF-8', skipEmptyLines: true,
+      complete: function(results) {
+        let external = isExternalFormat(results.meta.fields);
+        let points = [];
+        results.data.forEach((row, i) => {
+          let p = normalizeRow(row, i, external);
+          if (p.time && !isNaN(p.time.getTime()) && p.expPerMin > 0) {
+            points.push(p);
+          }
+        });
+        
+        if (points.length > 0) {
+          let color = COLORS[seriesIdx % COLORS.length];
+          let avg = points.reduce((s, p) => s + p.expPerMin, 0) / points.length;
+          let label = `${Math.round(avg * 10).toLocaleString()} EXP/10分`;
+          addFileTag(label, seriesIdx, color);
+          seriesData.push({ name: label, points, color, id: seriesIdx, avg });
+          seriesIdx++;
+          renderAll();
+        }
+      }
+    });
+  });
+}
+
+function addFileTag(label, idx, color) {
+  let tag = document.createElement('span');
+  tag.className = 'file-tag';
+  tag.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>` + 
+    label +
+    '<span class="remove" data-id="' + idx + '">✕</span>';
+  
+  tag.querySelector('.remove').onclick = function(e) {
+    e.stopPropagation();
+    seriesData = seriesData.filter(s => s.id !== idx);
+    tag.remove();
+    if (seriesData.length === 0) resetUI();
+    else renderAll();
+  };
+  document.getElementById('fileList').appendChild(tag);
+}
+
+function resetUI() {
+  document.getElementById('cards').classList.add('hidden');
+  document.getElementById('chartBox').classList.add('hidden');
+  document.getElementById('dropZone').classList.remove('compact');
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+}
+
+function updateStats(minTime, maxTime) {
+  let allPoints = seriesData.flatMap(s => s.points);
+  allPoints.sort((a, b) => a.time - b.time);
+
+  // 如果有框選/縮放範圍，則過濾在該範圍內的數據點
+  if (minTime !== undefined && maxTime !== undefined && minTime !== null && maxTime !== null) {
+    allPoints = allPoints.filter(p => {
+      let t = p.time.getTime();
+      return t >= minTime && t <= maxTime;
+    });
+  }
+
+  if (allPoints.length === 0) {
+    document.getElementById('avgExp').innerHTML = '0';
+    document.getElementById('totalGained').innerHTML = '0';
+    document.getElementById('maxExp10').innerHTML = '0';
+    document.getElementById('expPerHr').innerHTML = '0';
+    return;
+  }
+
+  // Summary cards
+  let avgExp = allPoints.reduce((s, p) => s + p.expPerMin, 0) / allPoints.length;
+  document.getElementById('avgExp').innerHTML = Math.round(avgExp * 10).toLocaleString();
+
+  // 計算並顯示總累積經驗
+  let totalGained = allPoints.reduce((s, p) => s + p.gainedExp, 0);
+  document.getElementById('totalGained').innerHTML = Math.round(totalGained).toLocaleString();
+
+  // 計算並顯示最大 10分EXP
+  let maxExpMin = Math.max(...allPoints.map(p => p.expPerMin));
+  document.getElementById('maxExp10').innerHTML = Math.round(maxExpMin * 10).toLocaleString();
+
+  document.getElementById('expPerHr').innerHTML = Math.round(avgExp * 60).toLocaleString();
+}
+
+// --- Rendering ---
+function renderAll() {
+  document.getElementById('cards').classList.remove('hidden');
+  document.getElementById('chartBox').classList.remove('hidden');
+  document.getElementById('dropZone').classList.add('compact');
+
+  // 計算並顯示預設統計資料
+  updateStats();
+
+  // Chart
+  let series = seriesData.map(s => ({
+    name: s.name,
+    data: s.points.map(p => ({ x: p.time.getTime(), y: p.expPerMin }))
+  }));
+  let colors = seriesData.map(s => s.color);
+
+  let opts = {
+    series: series,
+    chart: {
+      type: 'area', height: 380,
+      background: 'transparent',
+      foreColor: '#888',
+      toolbar: { show: true, tools: { download: false, selection: true, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
+      zoom: { enabled: true },
+      animations: { enabled: true, easing: 'easeinout', speed: 600 },
+      events: {
+        zoomed: function(chartContext, { xaxis }) {
+          if (xaxis && xaxis.min !== undefined && xaxis.max !== undefined) {
+            updateStats(xaxis.min, xaxis.max);
+          } else {
+            updateStats();
+          }
+        },
+        scrolled: function(chartContext, { xaxis }) {
+          if (xaxis && xaxis.min !== undefined && xaxis.max !== undefined) {
+            updateStats(xaxis.min, xaxis.max);
+          } else {
+            updateStats();
+          }
+        },
+        selection: function(chartContext, { xaxis }) {
+          if (xaxis && xaxis.min !== undefined && xaxis.max !== undefined) {
+            updateStats(xaxis.min, xaxis.max);
+          } else {
+            updateStats();
+          }
+        }
+      }
+    },
+    colors: colors,
+    dataLabels: { enabled: false },
+    stroke: { curve: 'smooth', width: 2.5 },
+    fill: {
+      type: 'gradient',
+      gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 95] }
+    },
+    xaxis: {
+      type: 'datetime',
+      labels: { style: { colors: '#888', fontSize: '11px' }, datetimeFormatter: { hour: 'HH:mm', day: 'MM/dd' } },
+      axisBorder: { color: 'rgba(255,215,0,0.1)' },
+      axisTicks: { color: 'rgba(255,215,0,0.1)' }
+    },
+    yaxis: {
+      labels: { style: { colors: '#888', fontSize: '11px' }, formatter: v => Math.round(v).toLocaleString() },
+      title: { text: 'EXP/分', style: { color: '#888', fontSize: '12px' } }
+    },
+    grid: { borderColor: 'rgba(255,255,255,0.05)', strokeDashArray: 4 },
+    tooltip: {
+      theme: 'dark',
+      x: { format: 'yyyy/MM/dd HH:mm:ss' },
+      y: { formatter: v => v ? Math.round(v).toLocaleString() + ' EXP/分' : '--' }
+    },
+    legend: { position: 'top', horizontalAlign: 'right', labels: { colors: '#aaa' } }
+  };
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new ApexCharts(document.getElementById('chart'), opts);
+  chartInstance.render();
+}
+
+// --- Drop zone events ---
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+
+dz.addEventListener('click', () => fi.click());
+fi.addEventListener('change', e => handleFiles(e.target.files));
+
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+
+// --- Offline detection ---
+window.addEventListener('load', () => {
+  if (typeof ApexCharts === 'undefined' || typeof Papa === 'undefined') {
+    document.getElementById('offlineMsg').style.display = 'block';
+    dz.style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>

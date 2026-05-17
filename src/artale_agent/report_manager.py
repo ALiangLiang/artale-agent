@@ -85,9 +85,23 @@ class ReportManager(QObject):
 
         target_path = os.path.join(deploy_dir, "analytics.html")
 
+        # 尋找可用資源範本的多重搜尋路徑 (相容開發環境與 PyInstaller 打包環境)
+        possible_sources = [
+            resource_path("analytics.html"),  # 預設: assets/analytics.html
+            os.path.join(getattr(sys, "_MEIPASS", ""), "analytics.html") if hasattr(sys, "_MEIPASS") else "",
+            os.path.join(deploy_dir, "assets", "analytics.html"),
+            os.path.join(_project_root(), "assets", "analytics.html") if not hasattr(sys, "_MEIPASS") else "",
+            os.path.join(_project_root(), "analytics.html") if not hasattr(sys, "_MEIPASS") else "",
+        ]
+        
+        source_path = ""
+        for path in possible_sources:
+            if path and os.path.exists(path):
+                source_path = path
+                break
+
         # 每次開啟都嘗試部署最新版本的 HTML (確保 UI 更新能套用)
-        source_path = resource_path("analytics.html")
-        if os.path.exists(source_path):
+        if source_path:
             try:
                 # 讀取並注入版本號
                 with open(source_path, 'r', encoding='utf-8') as f:
@@ -96,10 +110,20 @@ class ReportManager(QObject):
                 version = get_version()
                 content = content.replace("{{VERSION}}", version)
                 
-                with open(target_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                logger.info("[Report] Analytics dashboard updated to %s at %s", version, target_path)
+                # 嘗試寫入目標路徑 (與執行檔同目錄)
+                try:
+                    with open(target_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    logger.info("[Report] Analytics dashboard updated to %s at %s", version, target_path)
+                except Exception as write_err:
+                    logger.warning("[Report] Failed to write next to EXE: %s. Trying Temp directory...", write_err)
+                    # 嘗試寫入系統暫存目錄作為備用 (解決權限不足問題)
+                    import tempfile
+                    temp_dir = tempfile.gettempdir()
+                    target_path = os.path.join(temp_dir, "analytics.html")
+                    with open(target_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    logger.info("[Report] Analytics dashboard deployed to Temp: %s at %s", version, target_path)
             except Exception as e:
                 logger.error("[Report] Failed to update analytics.html: %s", e)
                 # 如果失敗 (例如檔案被瀏覽器佔用)，則繼續開啟舊有的檔案而不中斷
