@@ -178,14 +178,7 @@ class RJPQTabContent(QWidget):
         self.selected_color = -1
         self.current_data = [4] * 40
         self.auto_mark_enabled = False # 自動標記功能開關
-        self.auto_reset_enabled = False # 自動重置功能開關
         self.init_ui()
-
-        # 自動重置計時器 (全部點完且靜止超過 1 分鐘觸發)
-        self.auto_reset_timer = QTimer(self)
-        self.auto_reset_timer.setSingleShot(True)
-        self.auto_reset_timer.setInterval(60_000) # 60 秒
-        self.auto_reset_timer.timeout.connect(self._do_auto_reset)
 
         self.client.status_changed.connect(self.update_status)
         self.client.sync_received.connect(self.update_grid)
@@ -267,13 +260,13 @@ class RJPQTabContent(QWidget):
         row1 = QHBoxLayout()
         self.overlay_cb = QCheckBox("在遊戲畫面顯示路徑面板")
         self.overlay_cb.setStyleSheet(
-            "color: #00ffff; font-size: 11px; font-weight: bold;"
+            "color: #ccc; font-size: 11px; font-weight: bold;"
         )
         self.overlay_cb.toggled.connect(self.on_overlay_cb_toggled)
         
         self.auto_mark_cb = QCheckBox("自動標記該層最後一個平台")
         self.auto_mark_cb.setStyleSheet(
-            "color: #ffaa00; font-size: 11px; font-weight: bold;"
+            "color: #ccc; font-size: 11px; font-weight: bold;"
         )
         self.auto_mark_cb.toggled.connect(self.on_auto_mark_toggled)
         
@@ -281,17 +274,7 @@ class RJPQTabContent(QWidget):
         row1.addSpacing(10)
         row1.addWidget(self.auto_mark_cb)
 
-        row2 = QHBoxLayout()
-        self.auto_reset_cb = QCheckBox("全部點完且無變動時自動重置")
-        self.auto_reset_cb.setStyleSheet(
-            "color: #ff88bb; font-size: 11px; font-weight: bold;"
-        )
-        self.auto_reset_cb.toggled.connect(self.on_auto_reset_toggled)
-        row2.addWidget(self.auto_reset_cb)
-        row2.addStretch()
-
         ctrl_vbox.addLayout(row1)
-        ctrl_vbox.addLayout(row2)
         self.main_layout.addWidget(self.overlay_ctrl)
 
         # 2. 角色選擇小工具 (連線後顯示)
@@ -587,17 +570,6 @@ class RJPQTabContent(QWidget):
             self.client.overlay_toggle_request.emit(True)
         # 若未連線則不處理（會在連線成功時自動觸發）
 
-    def on_auto_reset_toggled(self, checked):
-        self.auto_reset_enabled = checked
-        if not checked:
-            self.auto_reset_timer.stop()
-
-    def _do_auto_reset(self):
-        """1 分鐘靜止後觸發的自動重置"""
-        if self.auto_reset_enabled and all(v < 4 for v in self.current_data):
-            logger.info("[RJPQ] 全部平台已標記且靜止1分鐘，自動重置")
-            self.client.send_action({"type": "reset"})
-
     def update_grid(self, data):
         try:
             if not data or len(data) < 40:
@@ -607,21 +579,6 @@ class RJPQTabContent(QWidget):
             prev_data = self.current_data[:]
             self.current_data = data
 
-            # --- 自動重置邏輯 ---
-            if self.auto_reset_enabled:
-                all_marked = all(v < 4 for v in data)
-                no_changes = (prev_data == data)
-                if all_marked and no_changes:
-                    # 全部標記且無變動：若計時器尚未啟動則開始 60s 倒數
-                    if not self.auto_reset_timer.isActive():
-                        logger.info("[RJPQ] 所有平台已標記，開始 60s 倒數")
-                        self.auto_reset_timer.start()
-                        self.notification_requested.emit("⏱️ YzY 全部平台已點完，將於 1 分鐘後自動重置")
-                else:
-                    # 有變動或尚未全部標記：取消倒數
-                    if self.auto_reset_timer.isActive():
-                        logger.info("[RJPQ] 偵測到變動，倒數已取消")
-                        self.auto_reset_timer.stop()
             char_colors = ["#ff6b6b", "#51cf66", "#339af0", "#cc5de8"]
             target_row = self.find_target_row()
 
