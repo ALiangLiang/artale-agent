@@ -161,14 +161,18 @@ class ExpTracker(QObject):
             max_exp = EXP_TABLE.get(forced_lv)
             if max_exp:
                 # 容錯檢查：數值不應超過該等級總量的 105% (考慮 OCR 誤差)
-                if 0 <= val <= max_exp * 1.05:
-                    # 比例檢查：OCR 百分比與計算百分比差距不應超過 2%
+                if 0 <= val <= max_exp:
+                    # 比例檢查：結合百分比辨識誤差與經驗值容錯門檻，動態計算允許的百分比誤差。
+                    # 3.0% 為基礎百分比辨識容錯（可包容將 4 辨識為 7 等常見的個位數 OCR 誤差）
                     calc_pct = (val / max_exp) * 100.0
-                    if abs(calc_pct - pct) < 2.0:
+                    val_tolerance = max(100, max_exp * 0.0001)
+                    dynamic_tolerance = (val_tolerance / max_exp) * 100.0
+                    
+                    if abs(calc_pct - pct) < dynamic_tolerance:
                         inf_lv = forced_lv
-                        logger.debug("[OCR] 經驗值推論失敗但通過等級校驗: LV.%s (計算 %s%%, OCR %s%%)", inf_lv, round(calc_pct, 2), pct)
+                        logger.debug("[OCR] 經驗值推論失敗但通過等級校驗: LV.%s (計算 %s%%, OCR %s%%, 容錯 %s%%)", inf_lv, round(calc_pct, 2), pct, round(dynamic_tolerance, 2))
                     else:
-                        logger.debug("[OCR] 經驗值百分比不匹配: OCR %s%%, 計算 %s%% (等級 %s)", pct, round(calc_pct, 2), forced_lv)
+                        logger.debug("[OCR] 經驗值百分比不匹配: OCR %s%%, 計算 %s%% (等級 %s, 容錯 %s%%)", pct, round(calc_pct, 2), forced_lv, round(dynamic_tolerance, 2))
                 else:
                     logger.debug("[OCR] 經驗值數值 %s 超出等級 %s 範圍 (Max: %s)", val, forced_lv, max_exp)
             

@@ -60,6 +60,10 @@
    uv sync
    uv run python -m artale_agent
    ```
+3. 進行測試：
+   ```bash
+   uv run test
+   ```
 
 ### 建立執行檔 (EXE)
 本專案內附自動化打包腳本：

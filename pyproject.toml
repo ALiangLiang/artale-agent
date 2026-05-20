@@ -40,6 +40,7 @@ lint = [
 dev = "artale_agent.dev_entry:run_app"
 clean = "artale_agent.cli:clean"
 build-win = "artale_agent.cli:build_win"
+test = "artale_agent.test_runner:run_tests"
 
 [tool.uv]
 package = true
