@@ -163,7 +163,6 @@ class ExpTracker(QObject):
                 # 容錯檢查：數值不應超過該等級總量的 105% (考慮 OCR 誤差)
                 if 0 <= val <= max_exp:
                     # 比例檢查：結合百分比辨識誤差與經驗值容錯門檻，動態計算允許的百分比誤差。
-                    # 3.0% 為基礎百分比辨識容錯（可包容將 4 辨識為 7 等常見的個位數 OCR 誤差）
                     calc_pct = (val / max_exp) * 100.0
                     val_tolerance = max(100, max_exp * 0.0001)
                     dynamic_tolerance = (val_tolerance / max_exp) * 100.0

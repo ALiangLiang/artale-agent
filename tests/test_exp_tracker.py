@@ -82,6 +82,50 @@ class TestExpTrackerInferLevel(unittest.TestCase):
                 f"無法正確推導等級 {lv} (EXP: {current_exp}, PCT: {current_pct}%)"
             )
 
+    def test_infer_level_highest_boundary_level_200(self):
+        """測試最高等級 LV.200 (極大數值與動態容錯門檻校驗)"""
+        # LV.200 的總經驗值為 2121276324
+        next_exp = EXP_TABLE[200]
+        
+        # 1. 精準 50% 匹配
+        current_exp = int(next_exp * 0.5)
+        current_pct = 50.0
+        inferred = self.tracker.infer_level(current_exp, current_pct)
+        self.assertEqual(inferred, 200)
+
+        # LV.200 的動態容錯為 2121276324 * 0.0001 = 212127.6324 -> 212127
+        # 2. 誤差在容錯內 (+50,000 EXP)，應仍能正確推導出 LV.200
+        inferred_within = self.tracker.infer_level(current_exp + 50000, current_pct)
+        self.assertEqual(inferred_within, 200)
+
+        # 3. 誤差超出容錯外 (+500,000 EXP)，應推導失敗並傳回 None
+        inferred_outside = self.tracker.infer_level(current_exp + 500000, current_pct)
+        self.assertIsNone(inferred_outside)
+
+    def test_infer_level_lowest_density_ambiguity(self):
+        """測試極低等級 (LV.1 ~ LV.9) 的高密度模糊性校驗，避免誤判"""
+        # 當經驗值極小且百分比非 0 時，因基本容錯門檻為 100，
+        # 會同時匹配多個低等級（如 LV.1 的 15、LV.2 的 34、LV.3 的 60、LV.4 的 95 等皆在其容錯內）。
+        # 此時應觸發模糊性保護，返回 None。
+        current_exp = 7
+        current_pct = 50.0
+        inferred = self.tracker.infer_level(current_exp, current_pct)
+        self.assertIsNone(inferred)
+
+    def test_infer_level_anomalous_inputs(self):
+        """測試異常與超出界限的極端輸入校驗"""
+        # 1. 負數經驗值
+        self.assertIsNone(self.tracker.infer_level(-50, 50.0))
+        # 2. 負數百分比
+        self.assertIsNone(self.tracker.infer_level(100, -10.0))
+        # 3. 超出 100% 的百分比
+        self.assertIsNone(self.tracker.infer_level(100, 150.0))
+        # 4. 極大百分比
+        self.assertIsNone(self.tracker.infer_level(100, 99999.0))
+        # 5. 精確 100% 的邊界
+        next_exp = EXP_TABLE[100]
+        self.assertEqual(self.tracker.infer_level(next_exp, 100.0), 100)
+
 
 class TestExpTrackerValidation(unittest.TestCase):
     def setUp(self):
