@@ -8,6 +8,7 @@ import win32con
 import win32process
 import numpy as np
 import psutil
+import sys
 from PyQt6.QtCore import QObject, pyqtSignal
 
 try:
@@ -155,7 +156,6 @@ class ArtaleCapture(QObject):
                 self._session_start_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
                 logger.info("[Capture] Starting Session. Initial Maximized: %s", self._session_start_maximized)
                 
-                import sys
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
