@@ -59,18 +59,20 @@ class RJPQSyncClient(QObject):
         self.room_pwd = ""
         self.is_connected = False
         self.reconnect_enabled = False # 在使用者手動連線後變更為 True
+        self.is_reconnecting = False
         
         # 重新連線計時器
         self.reconnect_timer = QTimer(self)
         self.reconnect_timer.setSingleShot(True)
         self.reconnect_timer.timeout.connect(self.perform_reconnect)
 
-    def connect_to_room(self, code, pwd):
+    def connect_to_room(self, code, pwd, is_reconnect=False):
         try:
-            logger.info("[RJPQ] Connecting to room: %s", code)
+            logger.info("[RJPQ] Connecting to room: %s (is_reconnect=%s)", code, is_reconnect)
             self.room_code = code
             self.room_pwd = pwd
             self.reconnect_enabled = True
+            self.is_reconnecting = is_reconnect
             url = "wss://rjpq.juanwang.cc"
             
             # 優先使用預設配置，必要時使用 certifi 補充
@@ -94,12 +96,14 @@ class RJPQSyncClient(QObject):
 
     def disconnect_from_room(self):
         self.reconnect_enabled = False # 當使用者點擊斷開時，停用自動重新連線
+        self.is_reconnecting = False
         if self.ws:
             self.ws.close()
 
     def on_connected(self):
         logger.info("[RJPQ] Connected to server!")
         self.is_connected = True
+        self.is_reconnecting = False
         self.status_changed.emit(True)
         self.reconnect_timer.stop()
         join_msg = {"type": "join", "code": self.room_code, "password": self.room_pwd}
@@ -117,7 +121,7 @@ class RJPQSyncClient(QObject):
 
     def perform_reconnect(self):
         if self.reconnect_enabled and not self.is_connected:
-            self.connect_to_room(self.room_code, self.room_pwd)
+            self.connect_to_room(self.room_code, self.room_pwd, is_reconnect=True)
 
     def on_message(self, message):
         try:
@@ -192,6 +196,12 @@ class RJPQTabContent(QWidget):
         self.create_btn.setText("創建")
         self.create_btn.setEnabled(True)
         self.create_btn.setVisible(True)
+        
+        # 如果是背景重新連線失敗，則靜默處理，不彈出錯誤視窗
+        if self.client.is_reconnecting:
+            self.update_status(False)
+            return
+
         # 針對真正的失敗 (包含密碼錯誤) 顯示警告視窗
         if any(kw in error for kw in ["失敗", "連線", "密碼錯誤", "密码错误"]):
             # 如果是密碼錯誤，則停用自動重連以停止無限迴圈
