@@ -1,0 +1,32 @@
+name: CI Run Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'VERSION'
+  pull_request:
+    branches:
+      - main
+  workflow_call:
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync Dependencies
+        run: uv sync
+
+      - name: Execute Tests
+        run: uv run test
