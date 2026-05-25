@@ -8,7 +8,7 @@ import urllib.request
 import time
 
 from PyQt6.QtCore import QObject, QPoint, QRect, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QGuiApplication
 from PyQt6.QtNetwork import QAbstractSocket, QSslSocket, QSslConfiguration
 from PyQt6.QtWebSockets import QWebSocket
 from PyQt6.QtWidgets import (
@@ -247,6 +247,14 @@ class RJPQTabContent(QWidget):
         )
         self.create_btn.clicked.connect(self.on_create_clicked)
 
+        self.copy_btn = QPushButton("複製")
+        self.copy_btn.setFixedWidth(60)
+        self.copy_btn.setToolTip("複製房號與密碼")
+        self.copy_btn.setStyleSheet(
+            "QPushButton { background: #333; color: #fff; font-weight: bold; border-radius: 4px; height: 26px; }"
+        )
+        self.copy_btn.clicked.connect(self.on_copy_clicked)
+
         self.status_dot = QFrame()
         self.status_dot.setFixedSize(12, 12)
         self.status_dot.setStyleSheet("background: #555; border-radius: 6px;")
@@ -257,6 +265,7 @@ class RJPQTabContent(QWidget):
         room_row.addWidget(self.pwd_inp)
         room_row.addWidget(self.conn_btn)
         room_row.addWidget(self.create_btn)
+        room_row.addWidget(self.copy_btn)
         room_row.addWidget(self.status_dot)
         room_row.addStretch()
         self.main_layout.addWidget(self.room_widget)
@@ -425,8 +434,22 @@ class RJPQTabContent(QWidget):
         self.create_btn.setEnabled(True)
         self.create_btn.setVisible(False) # 成功後隱藏
         # 根據使用者要求移除成功彈窗
+        # 自動複製至剪貼簿
+        text = f"房號：{code}  密碼：{pwd}" if pwd else f"房號：{code}"
+        QGuiApplication.clipboard().setText(text)
+        self.notification_requested.emit("📋 房號與密碼已複製到剪貼簿")
         # 觸發實際的加入流程
         self.on_connect_clicked()
+
+    def on_copy_clicked(self):
+        code = self.code_inp.text().strip()
+        pwd = self.pwd_inp.text().strip()
+        if not code:
+            self.notification_requested.emit("⚠️ 請先輸入或創建房間")
+            return
+        text = f"房號：{code}  密碼：{pwd}" if pwd else f"房號：{code}"
+        QGuiApplication.clipboard().setText(text)
+        self.notification_requested.emit("📋 房號與密碼已複製到剪貼簿")
 
     def on_connect_clicked(self):
         if self.client.is_connected:
