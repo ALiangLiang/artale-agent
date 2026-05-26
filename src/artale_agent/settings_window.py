@@ -499,6 +499,11 @@ class SettingsWindow(QWidget):
         )
         path_btn.clicked.connect(self.on_browse_path_clicked)
         
+        # 建立即時動態同步：只要使用者修改 UI 選項，立刻即時套用至運行中的 Controller，不需先點擊儲存並套用！
+        self.fps_combo.currentIndexChanged.connect(self.on_video_fps_changed)
+        self.record_hud_cb.toggled.connect(self.on_record_hud_changed)
+        self.path_inp.textChanged.connect(self.on_video_path_changed)
+        
         path_layout.addWidget(path_lbl)
         path_layout.addWidget(self.path_inp)
         path_layout.addWidget(path_btn)
@@ -973,6 +978,24 @@ class SettingsWindow(QWidget):
         widget = self.tabs.widget(index)
         if isinstance(widget, AwesomeTabContent):
             widget.trigger_load()
+
+    def on_video_fps_changed(self, idx):
+        fps_text = self.fps_combo.currentText()
+        try:
+            fps_val = int(fps_text.split(" ")[0])
+        except:
+            fps_val = 30
+        if self.overlay and self.overlay.controller:
+            self.overlay.controller.recorder.fps = float(fps_val)
+            self.overlay.controller.recorder.frame_interval = 1.0 / float(fps_val)
+
+    def on_record_hud_changed(self, checked):
+        if self.overlay and self.overlay.controller:
+            self.overlay.controller.record_hud = checked
+
+    def on_video_path_changed(self, text):
+        if self.overlay and self.overlay.controller:
+            self.overlay.controller.video_save_path = text
 
     def on_browse_path_clicked(self):
         from PyQt6.QtWidgets import QFileDialog
