@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from artale_agent.utils import platform_font_families, platform_font_family
+from artale_agent.utils import platform_font_families, platform_font_family, ConfigManager
 
 # 在模組層級檢查 SSL 支援
 try:
@@ -182,6 +182,12 @@ class RJPQTabContent(QWidget):
         self.selected_color = -1
         self.current_data = [4] * 40
         self.auto_mark_enabled = False # 自動標記功能開關
+        
+        # 載入快捷鍵與 HUD 點擊開關狀態
+        config = ConfigManager.load_config()
+        self.hotkey_enabled = config.get("rjpq_hotkey_enabled", True)
+        self.hud_click_enabled = config.get("rjpq_hud_click_enabled", True)
+        
         self.init_ui()
 
         self.client.status_changed.connect(self.update_status)
@@ -293,7 +299,27 @@ class RJPQTabContent(QWidget):
         row1.addSpacing(10)
         row1.addWidget(self.auto_mark_cb)
 
+        row2 = QHBoxLayout()
+        self.hotkey_enabled_cb = QCheckBox("啟用快捷鍵 (預設小鍵盤 0-4)")
+        self.hotkey_enabled_cb.setStyleSheet(
+            "color: #ccc; font-size: 11px; font-weight: bold;"
+        )
+        self.hotkey_enabled_cb.setChecked(self.hotkey_enabled)
+        self.hotkey_enabled_cb.toggled.connect(self.on_hotkey_enabled_toggled)
+
+        self.hud_click_enabled_cb = QCheckBox("啟用點擊 HUD 標記平台")
+        self.hud_click_enabled_cb.setStyleSheet(
+            "color: #ccc; font-size: 11px; font-weight: bold;"
+        )
+        self.hud_click_enabled_cb.setChecked(self.hud_click_enabled)
+        self.hud_click_enabled_cb.toggled.connect(self.on_hud_click_enabled_toggled)
+
+        row2.addWidget(self.hotkey_enabled_cb)
+        row2.addSpacing(10)
+        row2.addWidget(self.hud_click_enabled_cb)
+
         ctrl_vbox.addLayout(row1)
+        ctrl_vbox.addLayout(row2)
         self.main_layout.addWidget(self.overlay_ctrl)
 
         # 2. 角色選擇小工具 (連線後顯示)
@@ -602,6 +628,18 @@ class RJPQTabContent(QWidget):
         if self.client.is_connected:
             self.client.overlay_toggle_request.emit(True)
         # 若未連線則不處理（會在連線成功時自動觸發）
+
+    def on_hotkey_enabled_toggled(self, checked):
+        self.hotkey_enabled = checked
+        config = ConfigManager.load_config()
+        config["rjpq_hotkey_enabled"] = checked
+        ConfigManager.save_config(config)
+
+    def on_hud_click_enabled_toggled(self, checked):
+        self.hud_click_enabled = checked
+        config = ConfigManager.load_config()
+        config["rjpq_hud_click_enabled"] = checked
+        ConfigManager.save_config(config)
 
     def update_grid(self, data):
         try:

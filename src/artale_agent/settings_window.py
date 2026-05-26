@@ -173,13 +173,14 @@ class SettingsWindow(QWidget):
         """)
         self.layout.addWidget(self.tabs)
 
-        btn_common_style = f"""
+        self.btn_common_style = f"""
             QPushButton {{
                 background-color: #2a2a2a; color: #ccc; border: 1px solid #3d3d3d; border-radius: 4px;
                 height: 32px; font-weight: bold; font-family: {platform_font_family()};
             }}
             QPushButton:hover {{ background-color: #333; border: 1px solid #555; }}
         """
+        btn_common_style = self.btn_common_style
 
         # 分頁 1: 計時器 (Timer)
         timer_tab = QWidget()
@@ -503,6 +504,7 @@ class SettingsWindow(QWidget):
         self.recording_global_key = hk_id
         for btn in self.global_hk_buttons.values():
             btn.setText(btn.text().replace(" (錄製中...)", ""))
+            btn.setStyleSheet(self.btn_common_style)
         self.global_hk_buttons[hk_id].setText("錄製中...")
         self.global_hk_buttons[hk_id].setStyleSheet(
             "background: #552222; color: #ff5555; border: 1px solid #ff0000;"
@@ -521,7 +523,7 @@ class SettingsWindow(QWidget):
                 self.global_hk_buttons[self.recording_global_key].setText(
                     "無" if key_name == "none" else key_name.upper()
                 )
-                self.global_hk_buttons[self.recording_global_key].setStyleSheet("")
+                self.global_hk_buttons[self.recording_global_key].setStyleSheet(self.btn_common_style)
                 self.recording_global_key = None
             return
 

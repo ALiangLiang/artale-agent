@@ -26,6 +26,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QCursor,
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
@@ -452,17 +453,24 @@ class ArtaleOverlay(QWidget):
 
     def check_left_click(self, gx, gy):
         p = QPoint(gx, gy)
-        if self.show_rjpq_panel:
+        qt_pos = QCursor.pos()
+        if (
+            self.show_rjpq_panel
+            and hasattr(self, "settings_window")
+            and hasattr(self.settings_window, "rjpq_tab")
+            and getattr(self.settings_window.rjpq_tab, "hud_click_enabled", True)
+        ):
             for idx, rect in self.rjpq_click_zones.items():
-                if rect.contains(p):
+                if rect.contains(p) or rect.contains(qt_pos):
                     self.rjpq_cell_clicked.emit(idx)
                     return True
         return False
 
     def check_right_click(self, gx, gy):
         p = QPoint(gx, gy)
+        qt_pos = QCursor.pos()
         for key, rect in list(self.click_zones.items()):
-            if rect.contains(p):
+            if rect.contains(p) or rect.contains(qt_pos):
                 if key in self.timer_manager.active_timers:
                     del self.timer_manager.active_timers[key]
                     self.timer_manager.updated.emit()

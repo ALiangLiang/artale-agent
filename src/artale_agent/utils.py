@@ -159,6 +159,12 @@ class ConfigManager:
                     if "timer_ignore_focus" not in config:
                         config["timer_ignore_focus"] = False
 
+                    if "rjpq_hotkey_enabled" not in config:
+                        config["rjpq_hotkey_enabled"] = True
+
+                    if "rjpq_hud_click_enabled" not in config:
+                        config["rjpq_hud_click_enabled"] = True
+
                     return config
             except Exception as e:
                 logger.error("Error loading config: %s", e)

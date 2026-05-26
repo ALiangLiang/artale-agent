@@ -164,29 +164,26 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 overlay.export_report_request.emit()
                 return
 
-            # --- RJPQ 遠程同步快捷鍵 ---
-            rjpq_keys = {
-                hks.get("rjpq_1", "num_1"): 0,
-                hks.get("rjpq_2", "num_2"): 1,
-                hks.get("rjpq_3", "num_3"): 2,
-                hks.get("rjpq_4", "num_4"): 3,
-            }
 
-            if k_name in rjpq_keys:
-                col_idx = rjpq_keys[k_name]
-                # 檢查 RJPQ 是否啟動並已連線
-                if (
-                    hasattr(settings_window, "rjpq_tab")
-                    and settings_window.rjpq_tab.client.is_connected
-                ):
+            # --- RJPQ 遠程同步快捷鍵 ---
+            if (
+                hasattr(settings_window, "rjpq_tab")
+                and settings_window.rjpq_tab.client.is_connected
+                and getattr(settings_window.rjpq_tab, "hotkey_enabled", True)
+            ):
+                rjpq_keys = {
+                    hks.get("rjpq_1", "num_1"): 0,
+                    hks.get("rjpq_2", "num_2"): 1,
+                    hks.get("rjpq_3", "num_3"): 2,
+                    hks.get("rjpq_4", "num_4"): 3,
+                }
+
+                if k_name in rjpq_keys:
+                    col_idx = rjpq_keys[k_name]
                     if settings_window.rjpq_tab.mark_by_hotkey(col_idx):
                         return  # 如果按鍵用於 RJPQ，則攔截它
 
-            if k_name == hks.get("rjpq_cancel", "num_0"):
-                if (
-                    hasattr(settings_window, "rjpq_tab")
-                    and settings_window.rjpq_tab.client.is_connected
-                ):
+                if k_name == hks.get("rjpq_cancel", "num_0"):
                     if settings_window.rjpq_tab.unmark_topmost_by_hotkey():
                         return  # 如果按鍵用於取消 RJPQ 標記，則攔截它
 
