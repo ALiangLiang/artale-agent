@@ -164,6 +164,10 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
                 overlay.export_report_request.emit()
                 return
 
+            if k_name == hks.get("video_record", "none"):
+                overlay.toggle_record_request.emit()
+                return
+
 
             # --- RJPQ 遠程同步快捷鍵 ---
             if (

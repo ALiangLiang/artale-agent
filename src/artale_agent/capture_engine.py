@@ -41,6 +41,8 @@ class ArtaleCapture(QObject):
         # 1080p 校準參考
         self.BASE_W, self.BASE_H = 1920, 1080
         self._session_start_maximized = False
+        self.update_interval = 1000
+        self.restart_event = threading.Event()
 
     def start(self):
         self._is_running = True
@@ -159,7 +161,7 @@ class ArtaleCapture(QObject):
                 cap_config = {
                     "window_name": precise_name,
                     "cursor_capture": False,
-                    "minimum_update_interval": 1000
+                    "minimum_update_interval": self.update_interval
                 }
                 
                 # Windows 10 (Build 19045 and older) does not support Toggling the capture border.
@@ -172,7 +174,6 @@ class ArtaleCapture(QObject):
 
                 @capture.event
                 def on_frame_arrived(frame, control):
-                    nonlocal last_processed_time
                     if not self._active:
                         logger.debug("[Capture] Callback requesting stop.")
                         control.stop()
@@ -181,9 +182,6 @@ class ArtaleCapture(QObject):
                     
                     self._session_running = True
                         
-                    now = time.time()
-                    if now - last_processed_time < 1.0: return
-                    
                     img_orig = frame.frame_buffer
                     img = cv2.cvtColor(img_orig, cv2.COLOR_BGRA2BGR)
                     h, w = img.shape[:2]
@@ -199,7 +197,6 @@ class ArtaleCapture(QObject):
                             self._last_log_metrics = (off_x, off_y, cw, ch)
 
                         self.frame_arrived.emit(img, scale, off_x, off_y, cw, ch)
-                        last_processed_time = now
 
                 @capture.event
                 def on_closed():
@@ -215,7 +212,8 @@ class ArtaleCapture(QObject):
                     if not win32gui.IsWindow(self.target_hwnd): 
                         self.target_hwnd = None # 視窗消失，重置句柄
                         break
-                    time.sleep(1.0)
+                    self.restart_event.wait(timeout=0.2)
+                    self.restart_event.clear()
                 
                 pass
             except Exception as e:
@@ -224,6 +222,13 @@ class ArtaleCapture(QObject):
                 else:
                     logger.error("[Capture] Session Error: %s", e)
                 time.sleep(2.0)
+
+    def restart_session(self, interval_ms):
+        """重新設定擷取頻率並重啟當前 WGC Session"""
+        logger.info("[Capture] Requesting capture restart with interval %s ms", interval_ms)
+        self.update_interval = interval_ms
+        self._session_running = False
+        self.restart_event.set()
 
     def set_active(self, active):
         self._active = active

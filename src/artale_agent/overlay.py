@@ -126,6 +126,7 @@ class ArtaleOverlay(QWidget):
     request_show_settings_signal = pyqtSignal()
     profile_switch_request = pyqtSignal()
     export_report_request = pyqtSignal()
+    toggle_record_request = pyqtSignal()
     def __init__(self, target_window_title="MapleStory Worlds-Artale (繁體中文版)"):
         super().__init__()
         self.target_window_title = target_window_title
@@ -190,6 +191,7 @@ class ArtaleOverlay(QWidget):
         self.stats_updated.connect(self.on_stats_updated)
         self.update_found.connect(self.on_update_found)
         self.profile_switch_request.connect(self.on_profile_switched)
+        self.toggle_record_request.connect(lambda: self.controller.toggle_video_recording() if self.controller else None)
         
         # 控制器將從外部賦予，用以協調模組運行
         self.controller = None
@@ -847,6 +849,43 @@ class ArtaleOverlay(QWidget):
             painter.setPen(QPen(color, _sc(2)))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
         self.click_zones = new_click_zones
+
+        # --- 錄影指示燈 (● REC) 繪製邏輯 ---
+        if self.controller and hasattr(self.controller, "recorder") and self.controller.recorder.is_recording:
+            # 500ms 呼吸閃爍判斷 (無額外計時器，基於時間戳)
+            is_blink_on = int(time.time() * 2) % 2 == 0
+            
+            font = QFont(_font_families()[0])
+            font.setPointSize(_sc(11))
+            font.setBold(True)
+            painter.setFont(font)
+            
+            rec_w = painter.fontMetrics().horizontalAdvance("REC")
+            
+            # 在計時器群組 (base_x, base_y) 的上方繪製
+            rx = base_x - rec_w - _sc(35)
+            ry = base_y - _sc(25)
+            
+            # 1. 繪製精美半透明黑色膠囊背景
+            bg_rect = QRect(rx - _sc(8), ry - _sc(15), rec_w + _sc(40), _sc(25))
+            painter.setBrush(QColor(0, 0, 0, int(self.base_opacity * 255)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(bg_rect, _sc(6), _sc(6))
+            
+            # 2. 繪製呼吸紅點
+            if is_blink_on:
+                painter.setBrush(QColor(255, 50, 50))  # 亮紅色
+            else:
+                painter.setBrush(QColor(100, 30, 30))  # 暗紅色
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(QPoint(rx + _sc(4), ry - _sc(2)), _sc(4), _sc(4))
+            
+            # 3. 繪製白色的 REC 標籤
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(rx + _sc(14), ry + _sc(5), "REC")
+            
+            # 4. 為了維持動畫的實時閃爍，單次請求重繪
+            QTimer.singleShot(500, self.update)
 
         # --- FINAL LAYER: Debug Overlays (Drawn last to stay on top) ---
         if self.show_debug:

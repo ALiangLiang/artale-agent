@@ -340,6 +340,11 @@ class SettingsWindow(QWidget):
         dashboard_btn.clicked.connect(self.on_open_dashboard_clicked)
         exp_tab_layout.addWidget(dashboard_btn)
         
+        self.record_video_btn = QPushButton("🎥 開始遊戲錄影")
+        self.record_video_btn.setStyleSheet(btn_common_style)
+        self.record_video_btn.clicked.connect(lambda: self.overlay.controller.toggle_video_recording() if (self.overlay and self.overlay.controller) else None)
+        exp_tab_layout.addWidget(self.record_video_btn)
+        
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
         exp_tab_layout.addWidget(self.debug_mode_cb)
@@ -425,6 +430,7 @@ class SettingsWindow(QWidget):
             "exp_pause": "⏸ 暫停/恢復紀錄 (F11)",
             "reset": "🧹 重置清空所有計時器 (F9)",
             "exp_report": "📸 產出經驗成果圖 (F12)",
+            "video_record": "🎥 開始/停止遊戲錄影",
             "rjpq_1": "🎮 羅茱 - 標記位置 1",
             "rjpq_2": "🎮 羅茱 - 標記位置 2",
             "rjpq_3": "🎮 羅茱 - 標記位置 3",

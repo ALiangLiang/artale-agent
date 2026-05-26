@@ -145,6 +145,7 @@ class ConfigManager:
                         "rjpq_3": "num_3",
                         "rjpq_4": "num_4",
                         "show_settings": "pause",
+                        "video_record": "none",
                     }
                     if "hotkeys" not in config:
                         config["hotkeys"] = default_hks

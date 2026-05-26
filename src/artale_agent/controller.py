@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from PyQt6.QtCore import QObject, QTimer
 from artale_agent.capture_engine import ArtaleCapture
 from artale_agent.ocr_engine import ArtaleOCR
@@ -8,6 +9,7 @@ from artale_agent.data_types import LVUpdateData
 from artale_agent.utils import resource_path, ConfigManager, REPO_URL, VERSION
 from artale_agent.platform import SystemUtilsImpl
 from artale_agent.report_manager import ReportManager
+from artale_agent.video_recorder import VideoRecorder
 import urllib.request
 import json
 
@@ -28,6 +30,8 @@ class ArtaleController(QObject):
         self.ocr_engine = ArtaleOCR(self)
         self.tracker = ExpTracker()
         self.report_manager = ReportManager(self)
+        self.recorder = VideoRecorder(fps=30.0)
+        self._last_ocr_time = 0
         
         self.ocr_engine.set_coin_template(resource_path("coin.png"))
         
@@ -77,15 +81,20 @@ class ArtaleController(QObject):
         """截圖引擎與 OCR 引擎之間的橋接器"""
         if not self.overlay.isVisible(): return
         
-        # 將介面設定同步回辨識引擎
-        self.ocr_engine.show_money_log = self.overlay.show_money_log
-        self.ocr_engine.show_debug = self.overlay.show_debug
-        self.ocr_engine.exp_paused = self.overlay.exp_paused
-        
-        # 分發至批次 OCR 任務
-        self.ocr_engine.process_frame(img, scale, off_x, off_y, cw, ch)
-        
-        # 觸發介面重繪
+        # 1. 錄影影格分流寫入背景 Queue (30 FPS)
+        if self.recorder.is_recording:
+            self.recorder.write_frame(img)
+            
+        # 2. OCR 引擎節流：無論擷取幀率多高，OCR 只維持每 1.0 秒執行一次
+        now = time.time()
+        if now - self._last_ocr_time >= 1.0:
+            self._last_ocr_time = now
+            self.ocr_engine.show_money_log = self.overlay.show_money_log
+            self.ocr_engine.show_debug = self.overlay.show_debug
+            self.ocr_engine.exp_paused = self.overlay.exp_paused
+            self.ocr_engine.process_frame(img, scale, off_x, off_y, cw, ch)
+            
+        # 3. 觸發介面重繪
         self.overlay.update()
 
     def on_exp_parsed(self, data):
@@ -111,6 +120,59 @@ class ArtaleController(QObject):
     def toggle_tracking(self, active):
         """切換截圖引擎的活動狀態"""
         self.capture_engine.set_active(active)
+
+    def toggle_video_recording(self):
+        """開啟或停止錄影"""
+        if self.recorder.is_recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def start_recording(self):
+        if self.recorder.is_recording: return
+        
+        # A. 確保擷取引擎啟動
+        if not self.capture_engine._active:
+            self.capture_engine.set_active(True)
+            
+        # B. 決定影片寬高並啟動寫入
+        w = self.capture_engine.last_cap_w or 1920
+        h = self.capture_engine.last_cap_h or 1080
+        self.recorder.start(w, h)
+        
+        # C. 升頻 WGC 擷取 Session 至 30 FPS
+        self.capture_engine.restart_session(33)
+        self.overlay.show_notification("🎥 開始錄影 30 FPS")
+        
+        # D. 同步 Control Center 按鈕狀態 (亮紅警示)
+        sw = self.overlay.settings_window
+        if sw and hasattr(sw, "record_video_btn"):
+            sw.record_video_btn.setText("🛑 停止畫面錄製")
+            sw.record_video_btn.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; height: 32px;")
+
+    def stop_recording(self):
+        if not self.recorder.is_recording: return
+        
+        # A. 停止錄製並取得路徑
+        filepath = self.recorder.stop()
+        
+        # B. WGC 降頻回原先的 1 FPS (1000ms)
+        self.capture_engine.restart_session(1000)
+        
+        # C. 如果平時沒開經驗面板，則關閉擷取
+        if not self.overlay.show_exp_panel:
+            self.capture_engine.set_active(False)
+            
+        # D. 同步 Control Center 按鈕狀態 (還原)
+        sw = self.overlay.settings_window
+        if sw and hasattr(sw, "record_video_btn"):
+            sw.record_video_btn.setText("🎥 開始遊戲錄影")
+            sw.record_video_btn.setStyleSheet(sw.btn_common_style)
+            
+        import os
+        if filepath:
+            filename = os.path.basename(filepath)
+            self.overlay.show_notification(f"💾 影片已儲存：{filename}")
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
