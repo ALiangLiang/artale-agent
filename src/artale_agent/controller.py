@@ -36,6 +36,7 @@ class ArtaleController(QObject):
         self.report_manager = ReportManager(self)
         self.recorder = VideoRecorder(fps=30.0)
         self.record_hud = True
+        self.video_save_path = ""
         self._last_ocr_time = 0
         
         self.ocr_engine.set_coin_template(resource_path("coin.png"))
@@ -199,8 +200,11 @@ class ArtaleController(QObject):
             self.overlay.show_notification("❌ 找不到遊戲視窗，無法錄影！")
             return
             
-        # B. 啟動錄製狀態（寬高由寫入第一幀時動態決定）
-        self.recorder.start()
+        # B. 啟動錄製狀態（傳入自定義儲存路徑與非同步完成回調）
+        self.recorder.start(
+            save_path=self.video_save_path,
+            on_save_finished=self.on_video_saved
+        )
         
         # C. 根據選定的 FPS 動態計算 WGC 重設擷取頻率
         interval_ms = int(1000.0 / self.recorder.fps)
@@ -216,8 +220,8 @@ class ArtaleController(QObject):
     def stop_recording(self):
         if not self.recorder.is_recording: return
         
-        # A. 停止錄製並取得路徑
-        filepath = self.recorder.stop()
+        # A. 停止錄製（非阻塞立即返回）
+        self.recorder.stop()
         
         # B. WGC 降頻回原先的 1 FPS (1000ms)
         self.capture_engine.restart_session(1000)
@@ -232,10 +236,16 @@ class ArtaleController(QObject):
             sw.record_video_btn.setText("🎥 開始遊戲錄影")
             sw.record_video_btn.setStyleSheet(sw.btn_common_style)
             
+        # 立即彈出通知提示正在非同步處理存檔中，體驗極致流暢！
+        self.overlay.show_notification("💾 正在非同步儲存影片...")
+
+    def on_video_saved(self, filepath):
+        """影片寫入背景執行緒完成時的非同步完成回調 (執行緒安全)"""
         import os
         if filepath:
             filename = os.path.basename(filepath)
-            self.overlay.show_notification(f"💾 影片已儲存：{filename}")
+            # 透過 Qt 訊號發送以確保執行緒安全地彈出 Toast 提示
+            self.overlay.notification_request.emit(f"💾 影片已儲存：{filename}")
 
     def load_profile(self):
         """核心配置載入邏輯：協調介面與引擎"""
@@ -258,8 +268,10 @@ class ArtaleController(QObject):
         self.recorder.fps = float(fps_val)
         self.recorder.frame_interval = 1.0 / self.recorder.fps
         self.record_hud = config.get("record_hud", True)
+        self.video_save_path = config.get("video_save_path", "")
         
-        logger.info("[Controller] Profile '%s' loaded successfully. (Video Settings: FPS=%s, HUD=%s)", active, fps_val, self.record_hud)
+        logger.info("[Controller] Profile '%s' loaded successfully. (Video Settings: FPS=%s, HUD=%s, Path=%s)", 
+                    active, fps_val, self.record_hud, self.video_save_path)
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""

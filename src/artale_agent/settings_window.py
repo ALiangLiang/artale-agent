@@ -475,6 +475,35 @@ class SettingsWindow(QWidget):
         self.record_hud_cb.setChecked(config.get("record_hud", True))
         rec_settings_layout.addWidget(self.record_hud_cb)
         
+        rec_settings_layout.addSpacing(10)
+        
+        # 3. 儲存路徑設定
+        path_layout = QHBoxLayout()
+        path_lbl = QLabel("💾 影片儲存路徑:")
+        path_lbl.setStyleSheet("color: #ccc; font-weight: bold;")
+        self.path_inp = QLineEdit()
+        self.path_inp.setReadOnly(True)
+        self.path_inp.setStyleSheet(
+            "QLineEdit { background: #222; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 4px; min-width: 200px; }"
+        )
+        saved_path = config.get("video_save_path", "")
+        if not saved_path:
+            system_video_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MoviesLocation)
+            saved_path = os.path.join(system_video_dir, "ArtaleAgent")
+        self.path_inp.setText(saved_path)
+        
+        path_btn = QPushButton("📂 瀏覽...")
+        path_btn.setStyleSheet(
+            "QPushButton { background: #444; color: #fff; border: 1px solid #666; border-radius: 4px; padding: 4px 10px; }"
+            "QPushButton:hover { background: #555; border-color: #ffd700; }"
+        )
+        path_btn.clicked.connect(self.on_browse_path_clicked)
+        
+        path_layout.addWidget(path_lbl)
+        path_layout.addWidget(self.path_inp)
+        path_layout.addWidget(path_btn)
+        rec_settings_layout.addLayout(path_layout)
+        
         # 說明提示
         rec_tip_lbl = QLabel(
             "ℹ️ 提示：\n"
@@ -945,7 +974,12 @@ class SettingsWindow(QWidget):
         if isinstance(widget, AwesomeTabContent):
             widget.trigger_load()
 
-
+    def on_browse_path_clicked(self):
+        from PyQt6.QtWidgets import QFileDialog
+        dir_path = QFileDialog.getExistingDirectory(self, "選擇影片儲存資料夾", self.path_inp.text())
+        if dir_path:
+            normalized_path = os.path.normpath(dir_path)
+            self.path_inp.setText(normalized_path)
 
     def save_and_close(self):
         config = ConfigManager.load_config()
@@ -968,7 +1002,8 @@ class SettingsWindow(QWidget):
                 self.overlay.rjpq_x_offset,
                 self.overlay.rjpq_y_offset,
             ]
-        # 儲存 FPS 和是否錄影 HUD 的設定
+        # 儲存 FPS、是否錄影 HUD 以及儲存路徑的設定
+        config["video_save_path"] = self.path_inp.text()
         fps_text = self.fps_combo.currentText()
         try:
             fps_val = int(fps_text.split(" ")[0])

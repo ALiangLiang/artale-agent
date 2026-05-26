@@ -17,6 +17,7 @@ class VideoRecorder:
         self.write_thread = None
         self.video_writer = None
         self.filepath = None
+        self.on_save_finished = None  # 新增完成存檔時的非同步回調
         
         # 動態獲取 Windows 系統 Videos (影片) 目錄，完美適配您的網路磁碟機路徑
         system_video_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MoviesLocation)
@@ -26,12 +27,19 @@ class VideoRecorder:
         self.last_write_time = 0
         self.frame_interval = 1.0 / fps
         
-    def start(self, width=None, height=None):
-        """開始錄影，僅建立輸出目錄與狀態就緒"""
+    def start(self, save_path=None, on_save_finished=None):
+        """開始錄影，可傳入自定義儲存路徑與存檔完成回調"""
         if self.is_recording:
             return
             
         try:
+            # 支援自定義儲存目錄
+            if save_path:
+                self.base_dir = save_path
+            else:
+                system_video_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MoviesLocation)
+                self.base_dir = os.path.join(system_video_dir, "ArtaleAgent")
+                
             if not os.path.exists(self.base_dir):
                 os.makedirs(self.base_dir, exist_ok=True)
                 
@@ -42,6 +50,7 @@ class VideoRecorder:
             self.video_writer = None
             self.last_write_time = 0
             self.is_recording = True
+            self.on_save_finished = on_save_finished
             
             # 清空隊列
             while not self.frame_queue.empty():
@@ -68,24 +77,19 @@ class VideoRecorder:
                 self.frame_queue.put(frame.copy())
             
     def stop(self):
-        """停止錄影，清空隊列並釋放 Writer 資源"""
+        """停止錄影，放入結束標記後立即返回（非阻塞）"""
         if not self.is_recording:
             return None
             
         self.is_recording = False
-        # 塞入結束標記 None
+        # 塞入結束標記 None，背景執行緒會自動默默寫完剩下影格並安全釋放資源
         self.frame_queue.put(None)
         
-        if self.write_thread:
-            self.write_thread.join(timeout=3.0)
-            self.write_thread = None
-            
-        if self.video_writer:
-            self.video_writer.release()
-            self.video_writer = None
-            
-        logger.info("[Recorder] Stopped recording. Saved to: %s", self.filepath)
-        return self.filepath
+        # 立即返回當前錄影路徑，不調用 join() 阻塞主執行緒，實現 0 毫秒極速響應！
+        ret_path = self.filepath
+        self.filepath = None
+        self.write_thread = None
+        return ret_path
         
     def _write_loop(self):
         """背景寫入背景執行緒循環"""
@@ -113,3 +117,17 @@ class VideoRecorder:
                     break
             except Exception as e:
                 logger.error("[Recorder] Write loop error: %s", e)
+                
+        # 迴圈退出時，代表所有影格都已經寫入完畢，安全釋放 VideoWriter 資源
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+            
+        logger.info("[Recorder] Thread finished writing all frames asynchronously.")
+        
+        # 執行完成回調
+        if self.on_save_finished:
+            try:
+                self.on_save_finished(self.filepath)
+            except Exception as e:
+                logger.error("[Recorder] Save finished callback error: %s", e)
