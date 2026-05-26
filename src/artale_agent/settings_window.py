@@ -4,7 +4,7 @@ import os
 from typing import override
 
 import numpy as np
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, QStandardPaths
 from PyQt6.QtGui import QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
