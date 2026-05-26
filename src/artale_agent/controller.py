@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+import win32gui
 from PyQt6.QtCore import QObject, QTimer
 from artale_agent.capture_engine import ArtaleCapture
 from artale_agent.ocr_engine import ArtaleOCR
@@ -12,6 +13,9 @@ from artale_agent.report_manager import ReportManager
 from artale_agent.video_recorder import VideoRecorder
 import urllib.request
 import json
+from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtGui import QPixmap, QImage
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,7 @@ class ArtaleController(QObject):
         self.tracker = ExpTracker()
         self.report_manager = ReportManager(self)
         self.recorder = VideoRecorder(fps=30.0)
+        self.record_hud = True
         self._last_ocr_time = 0
         
         self.ocr_engine.set_coin_template(resource_path("coin.png"))
@@ -81,11 +86,64 @@ class ArtaleController(QObject):
         """截圖引擎與 OCR 引擎之間的橋接器"""
         if not self.overlay.isVisible(): return
         
-        # 1. 錄影影格分流寫入背景 Queue (30 FPS)
+        # 1. 錄影影格混合合成寫入背景 Queue (根據選定 FPS)
         if self.recorder.is_recording:
-            self.recorder.write_frame(img)
-            
-        # 2. OCR 引擎節流：無論擷取幀率多高，OCR 只維持每 1.0 秒執行一次
+            try:
+                # 只有當啟用 HUD 錄影且視窗句柄有效時才進行合成，否則直接寫入純淨底圖
+                if self.record_hud:
+                    hwnd = self.capture_engine.target_hwnd
+                    if hwnd and win32gui.IsWindow(hwnd):
+                        # 取得設備像素比 DPR 以進行高 DPI 顯示器對齊
+                        dpr = self.overlay.devicePixelRatioF()
+                        
+                        # 取得客戶端左上角的螢幕絕對座標
+                        x, y = win32gui.ClientToScreen(hwnd, (0, 0))
+                        local_pt = self.overlay.mapFromGlobal(QPoint(x, y))
+                        
+                        # 計算邏輯寬高以在 PyQt 空間中進行裁剪
+                        logical_cw = int(cw / dpr)
+                        logical_ch = int(ch / dpr)
+                        
+                        # 在記憶體中渲染當前 Overlay 畫面
+                        pixmap = QPixmap(self.overlay.size())
+                        pixmap.fill(Qt.GlobalColor.transparent)
+                        self.overlay.render(pixmap)
+                        
+                        # 裁剪出完美的 Client Area 影格
+                        q_img = pixmap.toImage()
+                        crop_rect = QRect(local_pt.x(), local_pt.y(), logical_cw, logical_ch)
+                        cropped_img = q_img.copy(crop_rect)
+                        
+                        # 如果有縮放比例，將其拉伸至與 WGC 實體像素吻合的 (cw, ch)
+                        if cropped_img.width() != cw or cropped_img.height() != ch:
+                            cropped_img = cropped_img.scaled(
+                                cw, ch, 
+                                Qt.AspectRatioMode.IgnoreAspectRatio, 
+                                Qt.TransformationMode.SmoothTransformation
+                            )
+                        
+                        # 將裁剪後的 QImage 轉成 NumPy BGRA 矩陣
+                        ptr = cropped_img.constBits()
+                        ptr.setsize(ch * cw * 4)
+                        hud_np = np.frombuffer(ptr, dtype=np.uint8).reshape((ch, cw, 4))
+                        
+                        # 向量化透明度混合 (Vectorized Alpha Blending) 印在 img 上
+                        # WGC 回傳的 img 是 BGR 格式，對應 Client Area 切片是 img[off_y:off_y+ch, off_x:off_x+cw]
+                        client_area = img[off_y:off_y+ch, off_x:off_x+cw]
+                        
+                        # 取得 HUD 的 alpha 通道 (0.0 ~ 1.0)
+                        alpha = hud_np[:, :, 3:4] / 255.0
+                        hud_rgb = hud_np[:, :, :3]
+                        
+                        # 進行混合：HUD * alpha + ClientArea * (1 - alpha)
+                        blended = (hud_rgb * alpha + client_area * (1.0 - alpha)).astype(np.uint8)
+                        img[off_y:off_y+ch, off_x:off_x+cw] = blended
+                    
+                self.recorder.write_frame(img)
+            except Exception as e:
+                logger.error("[Controller] Composite blending error: %s", e)
+        
+        # 2. OCR 引擎保持每 1.0 秒執行一次 (此處作為雙重保護)
         now = time.time()
         if now - self._last_ocr_time >= 1.0:
             self._last_ocr_time = now
@@ -131,18 +189,23 @@ class ArtaleController(QObject):
     def start_recording(self):
         if self.recorder.is_recording: return
         
-        # A. 確保擷取引擎啟動
-        if not self.capture_engine._active:
-            self.capture_engine.set_active(True)
+        # A. 確保獲取遊戲視窗控制代碼 (優先使用擷取引擎已定位的視窗)
+        hwnd = self.capture_engine.target_hwnd
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            hwnd = self.capture_engine._find_target_window()
+            self.capture_engine.target_hwnd = hwnd
             
-        # B. 決定影片寬高並啟動寫入
-        w = self.capture_engine.last_cap_w or 1920
-        h = self.capture_engine.last_cap_h or 1080
-        self.recorder.start(w, h)
+        if not hwnd:
+            self.overlay.show_notification("❌ 找不到遊戲視窗，無法錄影！")
+            return
+            
+        # B. 啟動錄製狀態（寬高由寫入第一幀時動態決定）
+        self.recorder.start()
         
-        # C. 升頻 WGC 擷取 Session 至 30 FPS
-        self.capture_engine.restart_session(33)
-        self.overlay.show_notification("🎥 開始錄影 30 FPS")
+        # C. 根據選定的 FPS 動態計算 WGC 重設擷取頻率
+        interval_ms = int(1000.0 / self.recorder.fps)
+        self.capture_engine.restart_session(interval_ms)
+        self.overlay.show_notification(f"🎥 開始錄影 {int(self.recorder.fps)} FPS")
         
         # D. 同步 Control Center 按鈕狀態 (亮紅警示)
         sw = self.overlay.settings_window
@@ -189,7 +252,14 @@ class ArtaleController(QObject):
         
         # 3. 同步至其他引擎 (若有需要)
         self.tracker.show_debug = config.get("show_debug", False)
-        logger.info("[Controller] Profile '%s' loaded successfully.", active)
+        
+        # 4. 同步錄影自定義設定
+        fps_val = config.get("video_fps", 30)
+        self.recorder.fps = float(fps_val)
+        self.recorder.frame_interval = 1.0 / self.recorder.fps
+        self.record_hud = config.get("record_hud", True)
+        
+        logger.info("[Controller] Profile '%s' loaded successfully. (Video Settings: FPS=%s, HUD=%s)", active, fps_val, self.record_hud)
 
     def check_for_updates(self, auto=False):
         """檢查 GitHub 上的新版本"""

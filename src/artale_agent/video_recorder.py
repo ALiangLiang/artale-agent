@@ -17,16 +17,17 @@ class VideoRecorder:
         self.write_thread = None
         self.video_writer = None
         self.filepath = None
-        # 動態獲取 Windows 系統 Videos (影片) 目錄，完美適配您的網路磁碟機路徑 //truenas.d.wlliou.pw/Video
+        
+        # 動態獲取 Windows 系統 Videos (影片) 目錄，完美適配您的網路磁碟機路徑
         system_video_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MoviesLocation)
         self.base_dir = os.path.join(system_video_dir, "ArtaleAgent")
         
-        # 30 FPS 節流參數：確保錄影以 1.0x 的實時速度播放，不因 WGC 跑滿 60 FPS 而變慢動作
+        # 30 FPS 節流參數：確保影片以 1.0x 實時速度播放
         self.last_write_time = 0
         self.frame_interval = 1.0 / fps
         
     def start(self, width=None, height=None):
-        """開始錄影，僅建立輸出目錄並準備狀態"""
+        """開始錄影，僅建立輸出目錄與狀態就緒"""
         if self.is_recording:
             return
             
@@ -38,11 +39,10 @@ class VideoRecorder:
             filename = f"Artale_Record_{timestamp}.mp4"
             self.filepath = os.path.join(self.base_dir, filename)
             
-            # 延遲初始化 VideoWriter
             self.video_writer = None
             self.last_write_time = 0
-            
             self.is_recording = True
+            
             # 清空隊列
             while not self.frame_queue.empty():
                 try:
@@ -61,7 +61,7 @@ class VideoRecorder:
         """外部影格輸入端，完全非同步並進行 30 FPS 節流以確保 1.0x 實時播放速度"""
         if self.is_recording and frame is not None:
             now = time.time()
-            # 容許 5ms 的執行緒抖動誤差，確保影片在 TrueNAS/本機上能穩定錄製滿 30 FPS 影格
+            # 容許 5ms 的執行緒抖動誤差，確保影片能穩定錄製滿 30 FPS
             if now - self.last_write_time >= self.frame_interval - 0.005:
                 self.last_write_time = now
                 # 拷貝影格以防主執行緒在寫入硬碟前修改影像

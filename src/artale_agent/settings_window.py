@@ -340,10 +340,7 @@ class SettingsWindow(QWidget):
         dashboard_btn.clicked.connect(self.on_open_dashboard_clicked)
         exp_tab_layout.addWidget(dashboard_btn)
         
-        self.record_video_btn = QPushButton("🎥 開始遊戲錄影")
-        self.record_video_btn.setStyleSheet(btn_common_style)
-        self.record_video_btn.clicked.connect(lambda: self.overlay.controller.toggle_video_recording() if (self.overlay and self.overlay.controller) else None)
-        exp_tab_layout.addWidget(self.record_video_btn)
+        # self.record_video_btn has been relocated to the dedicated Screen Recording Tab!
         
         self.debug_mode_cb = QCheckBox("顯示除錯訊息 (開發者模式)")
         self.debug_mode_cb.setStyleSheet("color: #888; font-size: 11px;")
@@ -420,6 +417,78 @@ class SettingsWindow(QWidget):
         move_rjpq_btn.clicked.connect(self.toggle_rjpq_handle)
         self.rjpq_tab.main_layout.insertWidget(2, move_rjpq_btn)
         self.tabs.addTab(self.rjpq_tab, "🎮 羅茱 YzY")
+
+        # 分頁 4: 螢幕錄影
+        record_tab = QWidget()
+        record_tab_layout = QVBoxLayout(record_tab)
+        
+        # 錄製控制群組
+        rec_ctrl_group = QGroupBox("🎥 錄影控制")
+        rec_ctrl_group.setStyleSheet(
+            "QGroupBox { color: #aaa; font-weight: bold; border: none; margin-top: 10px; padding-top: 5px; }"
+        )
+        rec_ctrl_layout = QVBoxLayout(rec_ctrl_group)
+        
+        self.record_video_btn = QPushButton("🎥 開始遊戲錄影")
+        self.record_video_btn.setStyleSheet(btn_common_style)
+        self.record_video_btn.clicked.connect(lambda: self.overlay.controller.toggle_video_recording() if (self.overlay and self.overlay.controller) else None)
+        rec_ctrl_layout.addWidget(self.record_video_btn)
+        record_tab_layout.addWidget(rec_ctrl_group)
+        
+        # 錄製設定群組
+        rec_settings_group = QGroupBox("⚙️ 錄影參數設定")
+        rec_settings_group.setStyleSheet(
+            "QGroupBox { color: #aaa; font-weight: bold; border: none; margin-top: 15px; padding-top: 5px; }"
+        )
+        rec_settings_layout = QVBoxLayout(rec_settings_group)
+        
+        # 1. 幀率設定 (FPS)
+        fps_layout = QHBoxLayout()
+        fps_lbl = QLabel("📹 錄影幀率 (FPS):")
+        fps_lbl.setStyleSheet("color: #ccc; font-weight: bold;")
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItems(["10 FPS", "15 FPS", "30 FPS"])
+        self.fps_combo.setStyleSheet(
+            "QComboBox { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 4px; min-width: 100px; }"
+            "QComboBox::drop-down { border: none; }"
+            "QComboBox QAbstractItemView { background: #333; color: #fff; selection-background-color: #ffd700; selection-color: #000; }"
+        )
+        # 載入當前設定
+        saved_fps = config.get("video_fps", 30)
+        fps_str = f"{saved_fps} FPS"
+        idx = self.fps_combo.findText(fps_str)
+        if idx >= 0:
+            self.fps_combo.setCurrentIndex(idx)
+        else:
+            self.fps_combo.setCurrentIndex(2) # 預設 30 FPS
+            
+        fps_layout.addWidget(fps_lbl)
+        fps_layout.addWidget(self.fps_combo)
+        fps_layout.addStretch()
+        rec_settings_layout.addLayout(fps_layout)
+        
+        rec_settings_layout.addSpacing(10)
+        
+        # 2. 是否錄製 HUD
+        self.record_hud_cb = QCheckBox("在影片中錄製透明 HUD (包含計時器與數據面板)")
+        self.record_hud_cb.setStyleSheet("color: #ffd700; font-weight: bold; margin-top: 5px;")
+        self.record_hud_cb.setChecked(config.get("record_hud", True))
+        rec_settings_layout.addWidget(self.record_hud_cb)
+        
+        # 說明提示
+        rec_tip_lbl = QLabel(
+            "ℹ️ 提示：\n"
+            "1. 錄製功能已採用「視窗防遮擋技術」，切換視窗或最小化遊戲時，影片也絕對不會錄到其他無關視窗。\n"
+            "2. 如果勾選「錄製透明 HUD」，程式會動態在影片中印上計時器；若不勾選，則只會錄製純淨的遊戲畫面。"
+        )
+        rec_tip_lbl.setStyleSheet("color: #888; font-size: 10px; line-height: 14px; margin-top: 15px;")
+        rec_settings_layout.addWidget(rec_tip_lbl)
+        
+        rec_settings_group.setLayout(rec_settings_layout)
+        record_tab_layout.addWidget(rec_settings_group)
+        record_tab_layout.addStretch()
+        
+        self.tabs.addTab(record_tab, "🎥 螢幕錄影")
 
         # 分頁 4: 系統 / 熱鍵設定
         sys_tab = QWidget()
@@ -899,6 +968,15 @@ class SettingsWindow(QWidget):
                 self.overlay.rjpq_x_offset,
                 self.overlay.rjpq_y_offset,
             ]
+        # 儲存 FPS 和是否錄影 HUD 的設定
+        fps_text = self.fps_combo.currentText()
+        try:
+            fps_val = int(fps_text.split(" ")[0])
+        except:
+            fps_val = 30
+        config["video_fps"] = fps_val
+        config["record_hud"] = self.record_hud_cb.isChecked()
+
         config["timer_ignore_focus"] = self.ignore_focus_cb.isChecked()
         ConfigManager.save_config(config)
         self.config_updated.emit()
