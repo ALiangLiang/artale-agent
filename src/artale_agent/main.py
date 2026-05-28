@@ -146,6 +146,14 @@ def start_keyboard_listener(overlay, settings_window, focus_tracker):
             if settings_window.is_recording or settings_window.recording_global_key:
                 return
 
+            # --- 快捷複製快捷鍵偵測 ---
+            for hk_id in ["copy_1", "copy_2", "copy_3"]:
+                if k_name == hks.get(hk_id, "none") and k_name != "none":
+                    copy_texts = current_config.get("copy_texts", {})
+                    text_to_copy = copy_texts.get(hk_id, "")
+                    overlay.copy_to_clipboard_request.emit(hk_id, text_to_copy)
+                    return
+
             if k_name == hks.get("reset", "f12"):
                 logger.info("[Input] %s Reset Triggered.", k_name.upper())
                 is_globally_enabled = False
