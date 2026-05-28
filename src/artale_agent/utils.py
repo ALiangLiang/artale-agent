@@ -145,6 +145,9 @@ class ConfigManager:
                         "rjpq_3": "num_3",
                         "rjpq_4": "num_4",
                         "show_settings": "pause",
+                        "copy_1": "none",
+                        "copy_2": "none",
+                        "copy_3": "none",
                     }
                     if "hotkeys" not in config:
                         config["hotkeys"] = default_hks
@@ -152,6 +155,13 @@ class ConfigManager:
                         for k, v in default_hks.items():
                             if k not in config["hotkeys"]:
                                 config["hotkeys"][k] = v
+
+                    if "copy_texts" not in config:
+                        config["copy_texts"] = {
+                            "copy_1": "",
+                            "copy_2": "",
+                            "copy_3": "",
+                        }
 
                     if "ui_scale" not in config:
                         config["ui_scale"] = 1.0
@@ -188,7 +198,15 @@ class ConfigManager:
                 "rjpq_2": "2",
                 "rjpq_3": "3",
                 "rjpq_4": "4",
+                "copy_1": "none",
+                "copy_2": "none",
+                "copy_3": "none",
             },
+            "copy_texts": {
+                "copy_1": "",
+                "copy_2": "",
+                "copy_3": "",
+            }
         }
 
     @staticmethod
