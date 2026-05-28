@@ -112,6 +112,7 @@ class ArtaleOverlay(QWidget):
     timer_request = pyqtSignal(str, int, str, bool, int) # name, sec, icon, sound, cooldown
     clear_request = pyqtSignal()
     notification_request = pyqtSignal(str)
+    copy_to_clipboard_request = pyqtSignal(str, str) # hotkey_id, text
 
     exp_update_request = pyqtSignal(dict)  # 用於統計數據
     exp_visual_request = pyqtSignal(ExpVisualData)  # 用於除錯影像: exp, lv, coin
@@ -184,6 +185,7 @@ class ArtaleOverlay(QWidget):
         self.timer_request.connect(self.timer_manager.start_timer)
         self.clear_request.connect(self.timer_manager.clear_all)
         self.notification_request.connect(self.show_notification)
+        self.copy_to_clipboard_request.connect(self.on_copy_to_clipboard)
         self.toggle_exp_request.connect(self.on_toggle_exp)
         self.toggle_pause_request.connect(self.on_toggle_pause)
         self.toggle_rjpq_request.connect(self.on_toggle_rjpq)
@@ -577,6 +579,16 @@ class ArtaleOverlay(QWidget):
         self.rjpq_x_offset, self.rjpq_y_offset = offsets.get("rjpq_offset", [-400, 0])
         self.show_notification(f"切換至 {active}: {nickname}")
         self.update()
+
+    def on_copy_to_clipboard(self, hk_id, text):
+        """Thread-safe slot to copy text to clipboard and show overlay notification"""
+        try:
+            QApplication.clipboard().setText(text)
+            truncated = text if len(text) <= 15 else text[:15] + "..."
+            self.show_notification(f"📋 已複製：{truncated}")
+            logger.info("[Overlay] Copied text for %s to clipboard: %s", hk_id, truncated)
+        except Exception as e:
+            logger.error("[Overlay] Failed to copy to clipboard: %s", e)
 
     def show_notification(self, text):
         """內部 Overlay 淡入淡出通知動畫"""
