@@ -430,8 +430,13 @@ class SettingsWindow(QWidget):
             "rjpq_3": "🎮 羅茱 - 標記位置 3",
             "rjpq_4": "🎮 羅茱 - 標記位置 4",
             "show_settings": "🍁 顯示/隱藏控制中心",
+            "copy_1": "📋 快捷複製 1",
+            "copy_2": "📋 快捷複製 2",
+            "copy_3": "📋 快捷複製 3",
         }
         hotkeys = config.get("hotkeys", {})
+        copy_texts = config.get("copy_texts", {})
+        self.copy_text_inputs = {}
         # 繪製全域熱鍵列表
         for idx, (hk_id, txt) in enumerate(hk_labels.items()):
             hk_grid.addWidget(QLabel(txt), idx, 0)
@@ -442,6 +447,15 @@ class SettingsWindow(QWidget):
             btn.clicked.connect(lambda checked, h=hk_id: self.start_recording_global(h))
             hk_grid.addWidget(btn, idx, 1)
             self.global_hk_buttons[hk_id] = btn
+
+            if hk_id.startswith("copy_"):
+                inp = QLineEdit(copy_texts.get(hk_id, ""))
+                inp.setPlaceholderText("請輸入複製文字...")
+                inp.setStyleSheet(
+                    "QLineEdit { background-color: #222; border: 1px solid #444; border-radius: 4px; padding: 5px; color: #fff; }"
+                )
+                hk_grid.addWidget(inp, idx, 2)
+                self.copy_text_inputs[hk_id] = inp
         sys_layout.addLayout(hk_grid)
 
         sys_layout.addSpacing(10)
@@ -894,6 +908,10 @@ class SettingsWindow(QWidget):
                 self.overlay.rjpq_y_offset,
             ]
         config["timer_ignore_focus"] = self.ignore_focus_cb.isChecked()
+        if hasattr(self, "copy_text_inputs"):
+            config["copy_texts"] = {
+                k: v.text() for k, v in self.copy_text_inputs.items()
+            }
         ConfigManager.save_config(config)
         self.config_updated.emit()
         self.hide()
