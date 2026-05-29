@@ -445,6 +445,7 @@ class SettingsWindow(QWidget):
             btn.setFixedWidth(100)
             btn.setStyleSheet(btn_common_style)
             btn.clicked.connect(lambda checked, h=hk_id: self.start_recording_global(h))
+            hk_grid.addWidget(btn, idx, 2)
             self.global_hk_buttons[hk_id] = btn
 
             if hk_id.startswith("copy_"):
@@ -455,9 +456,6 @@ class SettingsWindow(QWidget):
                 )
                 hk_grid.addWidget(inp, idx, 1)
                 self.copy_text_inputs[hk_id] = inp
-                hk_grid.addWidget(btn, idx, 2)
-            else:
-                hk_grid.addWidget(btn, idx, 1)
         sys_layout.addLayout(hk_grid)
 
         sys_layout.addSpacing(10)
