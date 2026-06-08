@@ -20,7 +20,7 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 # Local imports
 from artale_agent.overlay import ArtaleOverlay
 from artale_agent.settings_window import SettingsWindow
-from artale_agent.utils import ConfigManager, get_version
+from artale_agent.utils import ConfigManager, app_data_dir, get_version
 from artale_agent.platform import FocusTrackerImpl
 
 # 初始化日誌記錄器
@@ -270,7 +270,7 @@ def check_network_drive():
         logger.debug("[Main] Network drive check skipped or failed: %s", e)
 def run_app():
     # 設定儲存日誌
-    log_file = os.path.join(os.getcwd(), "artale_agent.log")
+    log_file = os.path.join(app_data_dir(), "artale_agent.log")
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(message)s",

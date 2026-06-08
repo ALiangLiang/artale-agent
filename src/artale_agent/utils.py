@@ -5,12 +5,24 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = "config.json"
-
 
 def _project_root():
     """Get the project root directory (one level up from src/)"""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def app_data_dir():
+    """Get the directory for user data (config, logs).
+
+    In frozen (PyInstaller) mode, uses the directory containing the executable.
+    In development mode, uses the project root.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return _project_root()
+
+
+CONFIG_FILE = os.path.join(app_data_dir(), "config.json")
 
 
 def get_version():
